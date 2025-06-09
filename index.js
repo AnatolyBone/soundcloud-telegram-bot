@@ -3,7 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const scdl = require('soundcloud-downloader').default;
 const fs = require('fs');
 
-const token = process.env.TELEGRAM_TOKEN;
+const token = process.env.BOT_TOKEN;
 const clientId = 'vF3vRMFpTgZzqzDzsdgJ7zD4gmZTY4vK';
 
 if (!token) {
