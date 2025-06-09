@@ -1,28 +1,62 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const bodyParser = require('body-parser');
+const express = require("express");
+const bodyParser = require("body-parser");
+const TelegramBot = require("node-telegram-bot-api");
+const scdl = require("soundcloud-downloader").default;
+require("dotenv").config();
 
 const token = process.env.BOT_TOKEN;
-const baseUrl = process.env.BASE_URL; // пример: https://your-service-name.onrender.com
-const port = process.env.PORT || 3000;
+const clientId = process.env.SOUNDCLOUD_CLIENT_ID;
+const baseUrl = process.env.BASE_URL;
 
-if (!token) {
-  throw new Error('❌ BOT_TOKEN не задан!');
+if (!token || !clientId) {
+  console.error("❌ BOT_TOKEN или SOUNDCLOUD_CLIENT_ID не заданы.");
+  process.exit(1);
 }
 
-let bot;
+const bot = new TelegramBot(token, { polling: !baseUrl });
+const port = process.env.PORT || 3000;
 
+// Функция загрузки трека
+async function downloadTrack(url) {
+  try {
+    const info = await scdl.getInfo(url, clientId);
+    if (!info) return null;
+
+    const stream = await scdl.download(url, clientId);
+    return { title: info.title, stream };
+  } catch (err) {
+    console.error("Ошибка загрузки:", err.message);
+    return null;
+  }
+}
+
+// Обработка сообщений
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+
+  if (!text || !text.includes("soundcloud.com")) return;
+
+  await bot.sendMessage(chatId, "⏬ Загружаю...");
+
+  const track = await downloadTrack(text);
+
+  if (!track) {
+    await bot.sendMessage(chatId, "❌ Не удалось загрузить. Убедись, что ссылка корректна.");
+    return;
+  }
+
+  await bot.sendAudio(chatId, track.stream, {
+    title: track.title,
+  });
+});
+
+// Webhook режим (если задан BASE_URL)
 if (baseUrl) {
-  // Используем webhook, если задан BASE_URL
-  bot = new TelegramBot(token, { webHook: { port: port } });
+  bot.setWebHook(`${baseUrl}/bot${token}`);
 
   const app = express();
   app.use(bodyParser.json());
-
-  // Устанавливаем webhook
-  const webhookUrl = `${baseUrl}/bot${token}`;
-  bot.setWebHook(webhookUrl);
 
   app.post(`/bot${token}`, (req, res) => {
     bot.processUpdate(req.body);
@@ -31,29 +65,6 @@ if (baseUrl) {
 
   app.listen(port, () => {
     console.log(`✅ Webhook сервер запущен на порту ${port}`);
-    console.log(`🔗 Webhook URL: ${webhookUrl}`);
+    console.log(`🔗 Webhook URL: ${baseUrl}/bot${token}`);
   });
-
-} else {
-  // Если BASE_URL не задан — fallback на polling
-  bot = new TelegramBot(token, { polling: true });
-  console.log('🚀 Бот запущен в режиме polling');
 }
-
-// Ответ на SoundCloud ссылки
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text?.trim();
-
-  if (!text || !text.includes('soundcloud.com')) {
-    return bot.sendMessage(chatId, '📎 Пришли ссылку на трек или плейлист SoundCloud.');
-  }
-
-  try {
-    bot.sendMessage(chatId, '⏬ Обрабатываю ссылку...');
-    // TODO: тут вставь загрузку трека/плейлиста
-  } catch (err) {
-    console.error('Ошибка загрузки:', err.message);
-    bot.sendMessage(chatId, '❌ Не удалось загрузить. Проверь ссылку и попробуй снова.');
-  }
-});
