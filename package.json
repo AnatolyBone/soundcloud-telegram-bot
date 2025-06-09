@@ -1,6 +1,7 @@
 {
   "name": "soundcloud-bot",
   "version": "1.0.0",
+  "description": "Telegram bot for downloading SoundCloud tracks",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
