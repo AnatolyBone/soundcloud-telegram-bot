@@ -1,23 +1,22 @@
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const scdl = require('soundcloud-downloader').default;
 const fs = require('fs');
 
-// === 🔐 КОНФИГУРАЦИЯ ===
-const token = process.env.TELEGRAM_TOKEN || '8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ';
-const clientId = 'vF3vRMFpTgZzqzDzsdgJ7zD4gmZTY4vK'; // публичный client_id
+const token = process.env.TELEGRAM_TOKEN;
+const clientId = 'vF3vRMFpTgZzqzDzsdgJ7zD4gmZTY4vK';
 
 if (!token) {
-  throw new Error('❌ Не указан Telegram Token!');
+  throw new Error('❌ TELEGRAM_TOKEN не найден в переменных окружения!');
 }
 
 const bot = new TelegramBot(token, { polling: true });
 
-// === 📥 ОБРАБОТКА СООБЩЕНИЙ ===
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const url = msg.text?.trim();
 
-  if (!url || !url.startsWith('http') || !url.includes('soundcloud.com')) {
+  if (!url || !url.includes('soundcloud.com')) {
     return bot.sendMessage(chatId, '📎 Отправь ссылку на трек или плейлист SoundCloud');
   }
 
@@ -25,9 +24,6 @@ bot.on('message', async (msg) => {
 
   try {
     const info = await scdl.getInfo(url, clientId);
-
-    if (!info || !info.title) throw new Error('Информация о треке не получена');
-
     const fileName = `track_${Date.now()}.mp3`;
     const stream = await scdl.download(url, clientId);
     const writeStream = fs.createWriteStream(fileName);
@@ -39,7 +35,7 @@ bot.on('message', async (msg) => {
         title: info.title,
         performer: info.user?.username || 'SoundCloud',
       }).then(() => {
-        fs.unlinkSync(fileName); // удаляем файл после отправки
+        fs.unlinkSync(fileName);
       });
     });
 
@@ -50,6 +46,6 @@ bot.on('message', async (msg) => {
 
   } catch (err) {
     console.error('Ошибка загрузки:', err.message || err);
-    bot.sendMessage(chatId, '❌ Не удалось загрузить трек. Возможно, он защищён или ссылка неверна.');
+    bot.sendMessage(chatId, '❌ Не удалось загрузить трек. Убедись, что ссылка корректна.');
   }
 });
