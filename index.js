@@ -1,45 +1,35 @@
-const TelegramBot = require('node-telegram-bot-api');
+const { Telegraf } = require('telegraf');
 const express = require('express');
-const { exec } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
+const scdl = require('soundcloud-downloader');
 
-const TOKEN = process.env.BOT_TOKEN;
-const URL = process.env.RENDER_EXTERNAL_URL; // Render подставляет сам
-const bot = new TelegramBot(TOKEN, { webHook: { port: 3000 } });
+const bot = new Telegraf('8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ'); // токен в коде
+const app = express();
 
-const app = express(); // Express нужен только для webhook endpoint, если хочешь
+// 🔧 Укажи адрес Render-приложения:
+const WEBHOOK_URL = 'https://your-render-name.onrender.com'; // ← замени на свой
 
-bot.setWebHook(`${URL}/bot${TOKEN}`);
-console.log("✅ Бот работает через Webhook (порт 3000)");
+// Реакция на ссылку
+bot.on('text', async (ctx) => {
+  const url = ctx.message.text;
+  if (!url.includes('soundcloud.com')) return;
 
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
+  try {
+    await ctx.reply('🎵 Загружаю трек...');
 
-  if (!text || !text.includes('soundcloud.com')) return;
+    const info = await scdl.getInfo(url);
+    const stream = await scdl.download(url);
 
-  bot.sendMessage(chatId, "🎵 Загружаю трек...");
-
-  exec(`yt-dlp -x --audio-format mp3 -o "downloaded.%(ext)s" "${text}"`, async (err, stdout, stderr) => {
-    if (err) {
-      console.error("Ошибка загрузки:", err);
-      bot.sendMessage(chatId, "❌ Не удалось загрузить трек.");
-      return;
-    }
-
-    const filePath = path.resolve('downloaded.mp3');
-    const titleMatch = stdout.match(/title: (.+)/i);
-    const title = titleMatch ? titleMatch[1] : 'SoundCloud Track';
-
-    if (fs.existsSync(filePath)) {
-      await bot.sendAudio(chatId, filePath, {
-        title: title,
-      });
-      fs.unlinkSync(filePath); // удалим после отправки
-    } else {
-      bot.sendMessage(chatId, "❌ Файл не найден.");
-    }
-  });
+    await ctx.replyWithAudio({ source: stream, filename: `${info.title}.mp3` });
+  } catch (err) {
+    console.error('Ошибка:', err.message);
+    ctx.reply('❌ Не удалось скачать трек.');
+  }
 });
+
+// Настройка webhook
+app.use(bot.webhookCallback('/telegram'));
+bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram`);
+
+// Пустая страница
+app.get('/', (req, res) => res.send('✅ Бот работает!'));
+app.listen(3000, () => console.log('🚀 Сервер запущен на порту 3000'));
