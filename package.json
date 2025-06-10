@@ -1,14 +1,13 @@
 {
-  "name": "soundcloud-bot",
+  "name": "soundcloud-telegram-bot",
   "version": "1.0.0",
+  "description": "Telegram bot for downloading SoundCloud tracks",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "node-telegram-bot-api": "^0.61.0",
-    "soundcloud-downloader": "^0.1.8"
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.61.0"
   }
 }
