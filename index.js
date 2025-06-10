@@ -89,7 +89,33 @@ bot.on('text', async (ctx) => {
     ctx.reply(texts[user.lang].error);
   }
 });
+try {
+  // Получаем название трека
+  const titleResult = await youtubedl(url, {
+    dumpSingleJson: true,
+    noWarnings: true,
+    flatPlaylist: true
+  });
 
+  const title = (titleResult.title || 'track').replace(/[<>:"/\\|?*]+/g, ''); // удаляем запрещённые символы
+  const filename = path.resolve(__dirname, `${title}.mp3`);
+
+  // Скачиваем трек с нормальным названием
+  await youtubedl(url, {
+    extractAudio: true,
+    audioFormat: 'mp3',
+    output: filename
+  });
+
+  user.downloads += 1;
+  saveUsers();
+
+  await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename });
+  fs.unlinkSync(filename);
+} catch (err) {
+  console.error('yt-dlp error:', err.message);
+  ctx.reply(texts[user.lang].error);
+}
 // Webhook
 bot.telegram.setWebhook(WEBHOOK_URL);
 app.use(bot.webhookCallback('/telegram'));
