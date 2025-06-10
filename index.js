@@ -1,70 +1,60 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const TelegramBot = require("node-telegram-bot-api");
-const scdl = require("soundcloud-downloader").default;
-require("dotenv").config();
+require('dotenv').config();
+const TelegramBot = require('node-telegram-bot-api');
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
-const token = process.env.BOT_TOKEN;
-const clientId = process.env.SOUNDCLOUD_CLIENT_ID;
-const baseUrl = process.env.BASE_URL;
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-if (!token || !clientId) {
-  console.error("❌ BOT_TOKEN или SOUNDCLOUD_CLIENT_ID не заданы.");
-  process.exit(1);
-}
+const isSoundCloudUrl = (text) => {
+  const regex = /(https?:\/\/)?(www\.)?(soundcloud\.com)\/[\w\-\/]+/i;
+  return regex.test(text);
+};
 
-const bot = new TelegramBot(token, { polling: !baseUrl });
-const port = process.env.PORT || 3000;
-
-// Функция загрузки трека
-async function downloadTrack(url) {
-  try {
-    const info = await scdl.getInfo(url, clientId);
-    if (!info) return null;
-
-    const stream = await scdl.download(url, clientId);
-    return { title: info.title, stream };
-  } catch (err) {
-    console.error("Ошибка загрузки:", err.message);
-    return null;
-  }
-}
-
-// Обработка сообщений
-bot.on("message", async (msg) => {
+bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!text || !text.includes("soundcloud.com")) return;
+  if (!text || !isSoundCloudUrl(text)) return;
 
-  await bot.sendMessage(chatId, "⏬ Загружаю...");
+  const url = text.trim();
+  bot.sendMessage(chatId, '⏬ Загружаю трек...');
 
-  const track = await downloadTrack(text);
+  const outputTemplate = 'downloaded.%(ext)s';
+  const cmd = `yt-dlp -x --audio-format mp3 -o "${outputTemplate}" "${url}"`;
 
-  if (!track) {
-    await bot.sendMessage(chatId, "❌ Не удалось загрузить. Убедись, что ссылка корректна.");
-    return;
-  }
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Ошибка загрузки:', error);
+      bot.sendMessage(chatId, '⚠️ Произошла ошибка при загрузке трека.');
+      return;
+    }
 
-  await bot.sendAudio(chatId, track.stream, {
-    title: track.title,
+    const lines = stdout.split('\n');
+    let filename;
+
+    for (const line of lines) {
+      if (line.includes('Destination')) {
+        filename = line.split('Destination')[1].trim();
+        break;
+      }
+    }
+
+    if (!filename) {
+      // fallback: ищем файл вручную
+      const files = fs.readdirSync('./').filter(f => f.startsWith('downloaded') && f.endsWith('.mp3'));
+      filename = files[0];
+    }
+
+    if (filename && fs.existsSync(filename)) {
+      bot.sendAudio(chatId, fs.createReadStream(filename)).then(() => {
+        fs.unlinkSync(filename);
+      }).catch(err => {
+        console.error('Ошибка отправки аудио:', err);
+        bot.sendMessage(chatId, '⚠️ Не удалось отправить файл.');
+      });
+    } else {
+      bot.sendMessage(chatId, '⚠️ Файл не найден после загрузки.');
+    }
   });
 });
-
-// Webhook режим (если задан BASE_URL)
-if (baseUrl) {
-  bot.setWebHook(`${baseUrl}/bot${token}`);
-
-  const app = express();
-  app.use(bodyParser.json());
-
-  app.post(`/bot${token}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-  });
-
-  app.listen(port, () => {
-    console.log(`✅ Webhook сервер запущен на порту ${port}`);
-    console.log(`🔗 Webhook URL: ${baseUrl}/bot${token}`);
-  });
-}
