@@ -4,7 +4,8 @@
   "description": "Telegram bot for downloading SoundCloud tracks",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "pip install yt-dlp"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
