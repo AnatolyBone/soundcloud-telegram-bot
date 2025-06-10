@@ -1,14 +1,13 @@
 {
   "name": "soundcloud-telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot to download SoundCloud tracks with fallback to yt-dlp",
+  "description": "Telegram bot to download SoundCloud tracks with yt-dlp",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "soundcloud-downloader": "freemanium/soundcloud-downloader",
     "telegraf": "^4.12.2",
     "youtube-dl-exec": "^2.0.1"
   },
