@@ -1,114 +1,98 @@
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
-const youtubedl = require('youtube-dl-exec');
 const fs = require('fs');
 const path = require('path');
+const youtubedl = require('youtube-dl-exec');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const BOT_TOKEN = '8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ';
+const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
+const PORT = process.env.PORT || 3000;
+
+const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
-const users = {}; // для хранения выбранного языка по userId
+const usersFile = './users.json';
+let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 
-const messages = {
+const texts = {
   ru: {
-    start: 'Привет! Отправь ссылку на трек SoundCloud, и я пришлю тебе файл 🎵',
-    menu: 'Меню',
+    start: 'Привет! Пришли ссылку на трек SoundCloud, и я вышлю тебе файл.',
+    downloading: '🎵 Скачиваю трек через yt-dlp...',
+    error: '❌ Не удалось скачать. Попробуй другую ссылку.',
     chooseLang: '🌐 Выберите язык:',
-    loading: '🎵 Загружаю трек...',
-    error: '❌ Не удалось скачать трек.',
+    menu: 'Меню'
   },
   en: {
-    start: 'Hi! Send me a SoundCloud track link and I will send you the file 🎵',
-    menu: 'Menu',
+    start: 'Hello! Send me a SoundCloud track link and I will send you the file.',
+    downloading: '🎵 Downloading the track using yt-dlp...',
+    error: '❌ Failed to download. Try another link.',
     chooseLang: '🌐 Choose your language:',
-    loading: '🎵 Downloading track...',
-    error: '❌ Failed to download track.',
+    menu: 'Menu'
   }
 };
 
-// Функция для получения языка пользователя, по умолчанию - ru
-function getUserLang(id) {
-  return users[id]?.lang || 'ru';
+function saveUsers() {
+  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+}
+function getUser(id) {
+  if (!users[id]) users[id] = { downloads: 0, lang: 'ru' };
+  return users[id];
 }
 
-// Обработка команды /start
+// Команда /start
 bot.start((ctx) => {
-  const id = ctx.from.id;
-  users[id] = users[id] || { lang: 'ru' };
-  const lang = getUserLang(id);
-  ctx.reply(messages[lang].start, Markup.keyboard([[messages[lang].menu]]).resize());
+  const user = getUser(ctx.from.id);
+  saveUsers();
+  ctx.reply(texts[user.lang].start, Markup.keyboard([[texts[user.lang].menu]]).resize());
 });
 
-// Обработка нажатия на кнопку "Меню"
-bot.hears(/^(Меню|Menu)$/i, (ctx) => {
-  const id = ctx.from.id;
-  const lang = getUserLang(id);
-  ctx.reply(
-    messages[lang].chooseLang,
-    Markup.inlineKeyboard([
-      Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
-      Markup.button.callback('🇺🇸 English', 'lang_en'),
-    ])
-  );
+// Меню и выбор языка
+bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
+  const user = getUser(ctx.from.id);
+  ctx.reply(texts[user.lang].chooseLang, Markup.inlineKeyboard([
+    [Markup.button.callback('🇷🇺 Русский', 'lang_ru')],
+    [Markup.button.callback('🇬🇧 English', 'lang_en')]
+  ]));
+});
+bot.action(/lang_(.+)/, async (ctx) => {
+  const lang = ctx.match[1];
+  const user = getUser(ctx.from.id);
+  user.lang = lang;
+  saveUsers();
+  await ctx.answerCbQuery();
+  ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка выбора языка
-bot.action(/lang_(.+)/, (ctx) => {
-  const id = ctx.from.id;
-  const chosenLang = ctx.match[1];
-  users[id] = users[id] || {};
-  users[id].lang = chosenLang;
-  ctx.answerCbQuery(`Language set to ${chosenLang === 'ru' ? 'Русский' : 'English'}`);
-  ctx.editMessageText(
-    chosenLang === 'ru' ? 'Язык установлен на русский 🇷🇺' : 'Language set to English 🇺🇸',
-    Markup.keyboard([[messages[chosenLang].menu]]).resize()
-  );
-});
-
-// Обработка сообщений с ссылками SoundCloud
+// Обработка SoundCloud ссылок
 bot.on('text', async (ctx) => {
-  const id = ctx.from.id;
-  const lang = getUserLang(id);
   const url = ctx.message.text;
-
+  const user = getUser(ctx.from.id);
   if (!url.includes('soundcloud.com')) return;
 
-  ctx.reply(messages[lang].loading);
-
-  // Формируем уникальное имя файла
-  const outputFile = path.resolve(__dirname, `track_${id}_${Date.now()}.mp3`);
+  await ctx.reply(texts[user.lang].downloading);
 
   try {
-    // Скачиваем аудио через yt-dlp
+    const filename = path.resolve(__dirname, `track_${Date.now()}.mp3`);
     await youtubedl(url, {
-      output: outputFile,
       extractAudio: true,
       audioFormat: 'mp3',
-      audioQuality: 0,
-      noPlaylist: true,
-      quiet: true,
+      output: filename
     });
 
-    // Отправляем файл пользователю
-    await ctx.replyWithAudio({ source: fs.createReadStream(outputFile) });
+    user.downloads += 1;
+    saveUsers();
 
-    // Удаляем файл после отправки
-    fs.unlink(outputFile, (err) => {
-      if (err) console.error('Ошибка при удалении файла:', err);
-    });
-
-  } catch (e) {
-    console.error('Ошибка скачивания:', e);
-    ctx.reply(messages[lang].error);
+    await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: path.basename(filename) });
+    fs.unlinkSync(filename);
+  } catch (err) {
+    console.error('yt-dlp error:', err.message);
+    ctx.reply(texts[user.lang].error);
   }
 });
 
-// Webhook и express
-const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com';  // замени на свой URL Render
-bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram`);
-
+// Webhook
+bot.telegram.setWebhook(WEBHOOK_URL);
 app.use(bot.webhookCallback('/telegram'));
-app.get('/', (req, res) => res.send('✅ Бот работает!'));
 
-const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('✅ Бот работает!'));
 app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
