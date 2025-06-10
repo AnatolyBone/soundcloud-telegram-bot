@@ -1,14 +1,14 @@
 {
   "name": "soundcloud-telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for downloading SoundCloud tracks",
+  "description": "Telegram bot with webhook and yt-dlp",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "postinstall": "pip install yt-dlp"
+    "start": "node index.js"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
-    "node-telegram-bot-api": "^0.61.0"
+    "node-telegram-bot-api": "^0.61.0",
+    "express": "^4.19.2"
   }
 }
