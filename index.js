@@ -43,7 +43,7 @@ const t = (id, key, ...args) => {
 // Сохранение
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
 
-// Команда /start
+// /start
 bot.start((ctx) => {
   const id = ctx.from.id;
   if (!users[id]) {
@@ -61,7 +61,7 @@ bot.start((ctx) => {
   ctx.reply(welcomeMessage, Markup.keyboard([[menuLabel]]).resize());
 });
 
-// Обработка кнопки Меню
+// Меню кнопка
 bot.hears(['📋 Меню', '📋 Menu'], (ctx) => {
   ctx.reply(t(ctx.from.id, 'chooseLang'), Markup.inlineKeyboard([
     Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
@@ -69,11 +69,18 @@ bot.hears(['📋 Меню', '📋 Menu'], (ctx) => {
   ]));
 });
 
-// Смена языка
+// Обработка выбора языка
 bot.action(/lang_(.+)/, (ctx) => {
   const lang = ctx.match[1];
   const id = ctx.from.id;
-  users[id].lang = lang;
+
+  // если юзера нет — создать
+  if (!users[id]) {
+    users[id] = { downloads: 0, lang };
+  } else {
+    users[id].lang = lang;
+  }
+
   saveUsers();
 
   const menuLabel = messages[lang].menu;
