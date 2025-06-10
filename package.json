@@ -11,9 +11,3 @@
     "youtube-dl-exec": "^2.0.1"
   }
 }
-  "engines": {
-    "node": ">=16"
-  },
-  "author": "",
-  "license": "ISC"
-}
