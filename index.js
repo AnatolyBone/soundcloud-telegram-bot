@@ -6,7 +6,7 @@ const bot = new Telegraf('8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ'); // �
 const app = express();
 
 // 🔧 Укажи адрес Render-приложения:
-const WEBHOOK_URL = 'https://your-render-name.onrender.com'; // ← замени на свой
+const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com'; // ← замени на свой
 
 // Реакция на ссылку
 bot.on('text', async (ctx) => {
