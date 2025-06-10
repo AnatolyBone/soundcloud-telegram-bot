@@ -104,7 +104,8 @@ bot.on('text', async (ctx) => {
 });
 
 // Webhook и express
-bot.telegram.setWebhook(`${process.env.WEBHOOK_URL}/telegram`);
+const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com';  // замени на свой URL Render
+bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram`);
 
 app.use(bot.webhookCallback('/telegram'));
 app.get('/', (req, res) => res.send('✅ Бот работает!'));
