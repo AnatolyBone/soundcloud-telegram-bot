@@ -1,7 +1,7 @@
 {
   "name": "soundcloud-telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot to download SoundCloud tracks with yt-dlp",
+  "description": "Telegram bot that downloads SoundCloud tracks using yt-dlp only",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
