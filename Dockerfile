@@ -20,5 +20,6 @@ COPY . .
 # Запускаем бота
 CMD ["node", "index.js"]
 
-fix: add yt-dlp to Dockerfile
+fix: add yt-dlp and ffmpeg to Dockerfile
+
 
