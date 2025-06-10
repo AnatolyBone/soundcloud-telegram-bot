@@ -1,18 +1,18 @@
 FROM node:20
 
-# Установка ffmpeg и yt-dlp
-RUN apt-get update && apt-get install -y ffmpeg python3-pip \
-    && pip3 install yt-dlp
+# Установка зависимостей ОС (включая ffmpeg и pip)
+RUN apt-get update && \
+    apt-get install -y ffmpeg python3-pip && \
+    pip install yt-dlp && \
+    apt-get clean
 
-# Рабочая директория
+# Установка зависимостей Node.js
 WORKDIR /app
-
-# Копирование зависимостей и установка
 COPY package*.json ./
 RUN npm install
 
-# Копирование остального кода
+# Копирование исходников
 COPY . .
 
-# Запуск бота
+# Запуск сервера Express (порт 3000)
 CMD ["node", "index.js"]
