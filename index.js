@@ -1,130 +1,113 @@
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
-const fs = require('fs');
-const scdl = require('soundcloud-downloader').default;
 const youtubedl = require('youtube-dl-exec');
+const fs = require('fs');
 const path = require('path');
 
-const BOT_TOKEN = '8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ';
-const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram'; // поменяй на свой URL
-const PORT = process.env.PORT || 3000;
-
-const bot = new Telegraf(BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN);
 const app = express();
 
-const usersFile = './users.json';
-let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
+const users = {}; // для хранения выбранного языка по userId
 
-// Тексты на двух языках
-const texts = {
+const messages = {
   ru: {
-    start: 'Привет! Пришли ссылку на трек SoundCloud, и я вышлю тебе файл.',
-    downloading: '🎵 Пытаюсь скачать трек...',
-    error: '❌ Не удалось скачать трек. Попробуй другую ссылку.',
-    chooseLang: '🌐 Выберите язык:',
+    start: 'Привет! Отправь ссылку на трек SoundCloud, и я пришлю тебе файл 🎵',
     menu: 'Меню',
+    chooseLang: '🌐 Выберите язык:',
+    loading: '🎵 Загружаю трек...',
+    error: '❌ Не удалось скачать трек.',
   },
   en: {
-    start: 'Hello! Send me a SoundCloud track link and I will send you the file.',
-    downloading: '🎵 Trying to download the track...',
-    error: '❌ Failed to download the track. Try another link.',
-    chooseLang: '🌐 Choose your language:',
+    start: 'Hi! Send me a SoundCloud track link and I will send you the file 🎵',
     menu: 'Menu',
+    chooseLang: '🌐 Choose your language:',
+    loading: '🎵 Downloading track...',
+    error: '❌ Failed to download track.',
   }
 };
 
-// Сохраняем и загружаем пользователей с языком и статистикой
-function saveUsers() {
-  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-}
-function getUser(id) {
-  if (!users[id]) users[id] = { downloads: 0, lang: 'ru' };
-  return users[id];
+// Функция для получения языка пользователя, по умолчанию - ru
+function getUserLang(id) {
+  return users[id]?.lang || 'ru';
 }
 
-// --- Команда /start ---
+// Обработка команды /start
 bot.start((ctx) => {
-  const user = getUser(ctx.from.id);
-  saveUsers();
-  ctx.reply(texts[user.lang].start, Markup.keyboard([[texts[user.lang].menu]]).resize());
+  const id = ctx.from.id;
+  users[id] = users[id] || { lang: 'ru' };
+  const lang = getUserLang(id);
+  ctx.reply(messages[lang].start, Markup.keyboard([[messages[lang].menu]]).resize());
 });
 
-// --- Обработка выбора языка через callback ---
-bot.action(/lang_(.+)/, async (ctx) => {
-  const lang = ctx.match[1];
-  const user = getUser(ctx.from.id);
-  user.lang = lang;
-  saveUsers();
-
-  await ctx.answerCbQuery(); // убирает "часики"
-  await ctx.editMessageText(texts[lang].chooseLang, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: lang === 'ru' ? '🇷🇺 Русский' : '🇷🇺 Russian', callback_data: 'lang_ru' }],
-        [{ text: lang === 'en' ? '🇬🇧 English' : '🇬🇧 Английский', callback_data: 'lang_en' }]
-      ]
-    }
-  });
+// Обработка нажатия на кнопку "Меню"
+bot.hears(/^(Меню|Menu)$/i, (ctx) => {
+  const id = ctx.from.id;
+  const lang = getUserLang(id);
+  ctx.reply(
+    messages[lang].chooseLang,
+    Markup.inlineKeyboard([
+      Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
+      Markup.button.callback('🇺🇸 English', 'lang_en'),
+    ])
+  );
 });
 
-// --- Кнопка меню ---
-bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
-  const user = getUser(ctx.from.id);
-  ctx.reply(texts[user.lang].chooseLang, Markup.inlineKeyboard([
-    [Markup.button.callback('🇷🇺 Русский', 'lang_ru')],
-    [Markup.button.callback('🇬🇧 English', 'lang_en')]
-  ]));
+// Обработка выбора языка
+bot.action(/lang_(.+)/, (ctx) => {
+  const id = ctx.from.id;
+  const chosenLang = ctx.match[1];
+  users[id] = users[id] || {};
+  users[id].lang = chosenLang;
+  ctx.answerCbQuery(`Language set to ${chosenLang === 'ru' ? 'Русский' : 'English'}`);
+  ctx.editMessageText(
+    chosenLang === 'ru' ? 'Язык установлен на русский 🇷🇺' : 'Language set to English 🇺🇸',
+    Markup.keyboard([[messages[chosenLang].menu]]).resize()
+  );
 });
 
-// --- Обработка SoundCloud-ссылок ---
+// Обработка сообщений с ссылками SoundCloud
 bot.on('text', async (ctx) => {
+  const id = ctx.from.id;
+  const lang = getUserLang(id);
   const url = ctx.message.text;
-  const user = getUser(ctx.from.id);
 
-  // Если это кнопка меню, уже обработали выше, значит тут только ссылки
   if (!url.includes('soundcloud.com')) return;
 
-  await ctx.reply(texts[user.lang].downloading);
+  ctx.reply(messages[lang].loading);
+
+  // Формируем уникальное имя файла
+  const outputFile = path.resolve(__dirname, `track_${id}_${Date.now()}.mp3`);
 
   try {
-    // Попытка через soundcloud-downloader
-    const info = await scdl.getInfo(url);
-    const stream = await scdl.download(url);
+    // Скачиваем аудио через yt-dlp
+    await youtubedl(url, {
+      output: outputFile,
+      extractAudio: true,
+      audioFormat: 'mp3',
+      audioQuality: 0,
+      noPlaylist: true,
+      quiet: true,
+    });
 
-    user.downloads += 1;
-    saveUsers();
+    // Отправляем файл пользователю
+    await ctx.replyWithAudio({ source: fs.createReadStream(outputFile) });
 
-    await ctx.replyWithAudio({ source: stream, filename: `${info.title}.mp3` });
-  } catch (scdlErr) {
-    console.warn('SCDL не сработал, пробуем yt-dlp...', scdlErr.message);
+    // Удаляем файл после отправки
+    fs.unlink(outputFile, (err) => {
+      if (err) console.error('Ошибка при удалении файла:', err);
+    });
 
-    try {
-      const filename = path.resolve(__dirname, `track_${Date.now()}.mp3`);
-
-      await youtubedl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: filename
-      });
-
-      user.downloads += 1;
-      saveUsers();
-
-      await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: path.basename(filename) });
-      fs.unlinkSync(filename); // удаляем файл после отправки
-    } catch (ytErr) {
-      console.error('yt-dlp тоже не сработал:', ytErr.message);
-      ctx.reply(texts[user.lang].error);
-    }
+  } catch (e) {
+    console.error('Ошибка скачивания:', e);
+    ctx.reply(messages[lang].error);
   }
 });
 
-// --- Webhook ---
-bot.telegram.setWebhook(WEBHOOK_URL);
-app.use(bot.webhookCallback('/telegram'));
+// Webhook и express
+bot.telegram.setWebhook(`${process.env.WEBHOOK_URL}/telegram`);
 
+app.use(bot.webhookCallback('/telegram'));
 app.get('/', (req, res) => res.send('✅ Бот работает!'));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
