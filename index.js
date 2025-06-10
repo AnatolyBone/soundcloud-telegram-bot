@@ -13,24 +13,26 @@ let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : 
 // Языки
 const messages = {
   ru: {
-    welcome: '👋 Привет! Отправь мне ссылку на трек из SoundCloud, и я скачаю его для тебя 🎶',
+    welcome: '👋 Привет! Отправь ссылку на трек из SoundCloud — я скачаю его 🎶',
     downloading: '🎵 Загружаю трек...',
     failed: '❌ Не удалось скачать трек.',
     stats: (count) => `📊 Ты скачал(а) ${count} трек(ов).`,
     chooseLang: '🌐 Выберите язык:',
-    langSet: '✅ Язык установлен: русский 🇷🇺'
+    langSet: '✅ Язык установлен: русский 🇷🇺',
+    menu: '📋 Меню',
   },
   en: {
-    welcome: '👋 Hi! Send me a SoundCloud track link and I’ll download it for you 🎶',
+    welcome: '👋 Hi! Send a SoundCloud track link — I’ll download it for you 🎶',
     downloading: '🎵 Downloading track...',
     failed: '❌ Failed to download track.',
     stats: (count) => `📊 You have downloaded ${count} track(s).`,
     chooseLang: '🌐 Choose language:',
-    langSet: '✅ Language set to English 🇬🇧'
+    langSet: '✅ Language set to English 🇬🇧',
+    menu: '📋 Menu',
   }
 };
 
-// Получить язык пользователя
+// Язык пользователя
 const getLang = (id) => users[id]?.lang || 'ru';
 const t = (id, key, ...args) => {
   const lang = getLang(id);
@@ -38,23 +40,29 @@ const t = (id, key, ...args) => {
   return typeof msg === 'function' ? msg(...args) : msg;
 };
 
-// Сохранить базу
-function saveUsers() {
-  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-}
+// Сохранение
+const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
 
-// /start
+// Команда /start
 bot.start((ctx) => {
   const id = ctx.from.id;
   if (!users[id]) {
     users[id] = { downloads: 0, lang: 'ru' };
     saveUsers();
   }
-  ctx.reply(t(id, 'welcome'), Markup.keyboard([['📋 Меню']]).resize());
+
+  const welcomeMessage = `👋 Привет! / Hello!\n\n` +
+    `🇷🇺 Отправь ссылку на трек из SoundCloud — я скачаю его 🎶\n` +
+    `🇬🇧 Send a SoundCloud track link — I’ll download it for you 🎶`;
+
+  const lang = getLang(id);
+  const menuLabel = messages[lang].menu;
+
+  ctx.reply(welcomeMessage, Markup.keyboard([[menuLabel]]).resize());
 });
 
-// Меню
-bot.hears('📋 Меню', (ctx) => {
+// Обработка кнопки Меню
+bot.hears(['📋 Меню', '📋 Menu'], (ctx) => {
   ctx.reply(t(ctx.from.id, 'chooseLang'), Markup.inlineKeyboard([
     Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
     Markup.button.callback('🇬🇧 English', 'lang_en')
@@ -64,9 +72,14 @@ bot.hears('📋 Меню', (ctx) => {
 // Смена языка
 bot.action(/lang_(.+)/, (ctx) => {
   const lang = ctx.match[1];
-  users[ctx.from.id].lang = lang;
+  const id = ctx.from.id;
+  users[id].lang = lang;
   saveUsers();
-  ctx.editMessageText(t(ctx.from.id, 'langSet'));
+
+  const menuLabel = messages[lang].menu;
+
+  ctx.editMessageText(t(id, 'langSet'));
+  ctx.reply(messages[lang].welcome, Markup.keyboard([[menuLabel]]).resize());
 });
 
 // Статистика
@@ -76,7 +89,7 @@ bot.command('stats', (ctx) => {
   ctx.reply(t(id, 'stats', count));
 });
 
-// Обработка ссылок
+// Обработка SoundCloud-ссылок
 bot.on('text', async (ctx) => {
   const url = ctx.message.text;
   const id = ctx.from.id;
