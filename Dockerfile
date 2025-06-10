@@ -1,18 +1,24 @@
 FROM node:20
 
-# Установка ffmpeg и yt-dlp
+# Устанавливаем системные зависимости
 RUN apt-get update && \
-    apt-get install -y ffmpeg python3-pip && \
+    apt-get install -y ffmpeg curl python3-pip && \
     pip3 install yt-dlp && \
     apt-get clean
 
-# Установка зависимостей проекта
+# Проверим, что yt-dlp установлен
+RUN yt-dlp --version
+
+# Устанавливаем зависимости Node.js
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Копирование исходников
+# Копируем исходный код
 COPY . .
 
-# Запуск
+# Запускаем бота
 CMD ["node", "index.js"]
+
+fix: add yt-dlp to Dockerfile
+
