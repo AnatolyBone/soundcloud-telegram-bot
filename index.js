@@ -1,84 +1,45 @@
-require('dotenv').config();
-const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 const TOKEN = process.env.BOT_TOKEN;
-const URL = process.env.RENDER_EXTERNAL_URL || `https://your-custom-url.onrender.com`; // Render будет сам подставлять
-
+const URL = process.env.RENDER_EXTERNAL_URL; // Render подставляет сам
 const bot = new TelegramBot(TOKEN, { webHook: { port: 3000 } });
+
+const app = express(); // Express нужен только для webhook endpoint, если хочешь
+
 bot.setWebHook(`${URL}/bot${TOKEN}`);
-
-const app = express();
-app.use(express.json());
-
-// Telegram будет посылать POST-запросы сюда
-app.post(`/bot${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-// SoundCloud URL check
-const isSoundCloudUrl = (text) => {
-  const regex = /(https?:\/\/)?(www\.)?(soundcloud\.com)\/[\w\-\/]+/i;
-  return regex.test(text);
-};
+console.log("✅ Бот работает через Webhook (порт 3000)");
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!text || !isSoundCloudUrl(text)) return;
+  if (!text || !text.includes('soundcloud.com')) return;
 
-  const url = text.trim();
-  bot.sendMessage(chatId, '⏬ Загружаю трек, подожди немного...');
+  bot.sendMessage(chatId, "🎵 Загружаю трек...");
 
-  const outputTemplate = 'downloaded.%(title)s.%(ext)s';
-  const command = `yt-dlp -x --audio-format mp3 -o "${outputTemplate}" "${url}"`;
-
-  exec(command, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Ошибка загрузки:', error);
-      bot.sendMessage(chatId, '⚠️ Не удалось загрузить трек.');
+  exec(`yt-dlp -x --audio-format mp3 -o "downloaded.%(ext)s" "${text}"`, async (err, stdout, stderr) => {
+    if (err) {
+      console.error("Ошибка загрузки:", err);
+      bot.sendMessage(chatId, "❌ Не удалось загрузить трек.");
       return;
     }
 
-    let filename;
+    const filePath = path.resolve('downloaded.mp3');
+    const titleMatch = stdout.match(/title: (.+)/i);
+    const title = titleMatch ? titleMatch[1] : 'SoundCloud Track';
 
-    const lines = stdout.split('\n');
-    for (const line of lines) {
-      if (line.includes('Destination')) {
-        filename = line.split('Destination')[1].trim();
-        break;
-      }
-    }
-
-    // fallback
-    if (!filename || !fs.existsSync(filename)) {
-      const files = fs.readdirSync('./').filter(f => f.endsWith('.mp3'));
-      filename = files[0];
-    }
-
-    if (filename && fs.existsSync(filename)) {
-      const fileTitle = path.basename(filename, path.extname(filename));
-
-      bot.sendAudio(chatId, fs.createReadStream(filename), {
-        title: fileTitle
-      }).then(() => {
-        fs.unlinkSync(filename);
-      }).catch(err => {
-        console.error('Ошибка при отправке файла:', err);
-        bot.sendMessage(chatId, '⚠️ Не удалось отправить файл.');
+    if (fs.existsSync(filePath)) {
+      await bot.sendAudio(chatId, filePath, {
+        title: title,
       });
+      fs.unlinkSync(filePath); // удалим после отправки
     } else {
-      bot.sendMessage(chatId, '⚠️ Файл не найден.');
+      bot.sendMessage(chatId, "❌ Файл не найден.");
     }
   });
-});
-
-// Запускаем сервер Express
-app.listen(3000, () => {
-  console.log('✅ Бот работает через Webhook (порт 3000)');
 });
