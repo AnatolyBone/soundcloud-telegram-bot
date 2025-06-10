@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "soundcloud-downloader": "^1.4.6",
+    "soundcloud-downloader": "freemanium/soundcloud-downloader",
     "telegraf": "^4.12.2",
     "youtube-dl-exec": "^2.0.1"
   },
