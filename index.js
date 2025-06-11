@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Память и база
+// Хранилище пользователей
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
@@ -20,10 +20,10 @@ const getUser = (id) => {
   return users[id];
 };
 
-// 🛡 Кэш сообщений для защиты от повторной обработки
+// 🛡 Кэш сообщений для анти-дубликата
 const recentMessages = new Set();
 
-// Тексты
+// Мультиязычные сообщения
 const texts = {
   ru: {
     start: '👋 Отправь ссылку на трек с SoundCloud, и я пришлю тебе файл!',
@@ -43,14 +43,14 @@ const texts = {
   }
 };
 
-// /start
+// Команда /start
 bot.start((ctx) => {
   const user = getUser(ctx.from.id);
   const lang = user.lang;
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Кнопка меню
+// Обработка кнопки меню
 bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
   const lang = getUser(ctx.from.id).lang;
   ctx.reply(texts[lang].chooseLang, Markup.inlineKeyboard([
@@ -59,7 +59,7 @@ bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
   ]));
 });
 
-// Смена языка
+// Выбор языка
 bot.action(/lang_(.+)/, (ctx) => {
   const id = ctx.from.id;
   const lang = ctx.match[1];
@@ -70,25 +70,25 @@ bot.action(/lang_(.+)/, (ctx) => {
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка SoundCloud ссылок
+// Обработка сообщений
 bot.on('text', async (ctx) => {
   const id = ctx.from.id;
   const messageId = ctx.message.message_id;
   const url = ctx.message.text;
   const lang = getUser(id).lang;
 
-  // 🛡 Проверка на дубликаты
+  // 🛡 Защита от повторной обработки
   const uniqueKey = `${id}_${messageId}`;
   if (recentMessages.has(uniqueKey)) return;
   recentMessages.add(uniqueKey);
-  setTimeout(() => recentMessages.delete(uniqueKey), 60 * 1000); // очищаем через 1 минуту
+  setTimeout(() => recentMessages.delete(uniqueKey), 60000);
 
   if (!url.includes('soundcloud.com')) return;
 
   await ctx.reply(texts[lang].downloading);
 
   try {
-    // Получаем нормальное имя файла
+    // Получение названия
     const info = await youtubedl(url, {
       dumpSingleJson: true,
       noWarnings: true,
@@ -97,7 +97,7 @@ bot.on('text', async (ctx) => {
     const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
     const filename = path.resolve(__dirname, `${title}.mp3`);
 
-    // Скачиваем
+    // Скачивание
     await youtubedl(url, {
       extractAudio: true,
       audioFormat: 'mp3',
@@ -115,9 +115,20 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Webhook
+// ✅ Устанавливаем Webhook
 bot.telegram.setWebhook(WEBHOOK_URL);
-app.use(bot.webhookCallback('/telegram'));
 
+// ✅ Обрабатываем Webhook вручную (чтобы ответить мгновенно!)
+app.post('/telegram', express.json(), (req, res) => {
+  res.sendStatus(200); // моментальный ответ Telegram
+  bot.handleUpdate(req.body).catch((err) => {
+    console.error('Ошибка при обработке update:', err);
+  });
+});
+
+// Статус страницы
 app.get('/', (req, res) => res.send('✅ Бот работает!'));
-app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+
+app.listen(PORT, () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+});
