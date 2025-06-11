@@ -3,27 +3,27 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const youtubedl = require('youtube-dl-exec');
-const app = express();
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '…твой токен…';
-const ADMIN_ID = 2018254756; // <— твой Telegram ID
+const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
-const PORT = process.env.PORT || 3000;
+const ADMIN_ID = 2018254756; // твой Telegram ID
 
-// Настройка бота
+const app = express();
 const bot = new Telegraf(BOT_TOKEN);
 
-// Данные пользователей
+// === Хранилище пользователей ===
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+
 const todayStr = () => new Date().toISOString().split('T')[0];
+
 const getUser = id => {
   if (!users[id]) {
     users[id] = {
       lang: 'ru',
       downloads: 0,
-      premiumLimit: 10,      // текущий лимит
+      premiumLimit: 10,
       date: todayStr(),
       count: 0,
       tracksToday: []
@@ -32,22 +32,7 @@ const getUser = id => {
   return users[id];
 };
 
-// Кеш директория
-const cacheDir = path.resolve(__dirname, 'cache');
-if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
-// Очистка кеша (7 дней)
-function cleanCache() {
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  fs.readdirSync(cacheDir).forEach(fn => {
-    const fp = path.join(cacheDir, fn);
-    if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
-  });
-}
-setInterval(cleanCache, 3600000);
-cleanCache();
-
-// Очереди по пользователям
+// === Очередь на загрузку ===
 const userQueues = new Map();
 const userProcessing = new Set();
 
@@ -59,20 +44,30 @@ function addToQueue(uid, task) {
 
 async function processQueue(uid) {
   if (userProcessing.has(uid)) return;
-  const q = userQueues.get(uid);
-  if (!q || q.length === 0) return;
+  const queue = userQueues.get(uid);
+  if (!queue?.length) return;
   userProcessing.add(uid);
-  const task = q.shift();
-  try { await task(); }
-  catch (e) { console.error(`Queue error ${uid}:`, e.message); }
+  const task = queue.shift();
+  try { await task(); } catch (e) { console.error(`Ошибка очереди ${uid}:`, e); }
   userProcessing.delete(uid);
   processQueue(uid);
 }
 
-// Анти-дубликаты
-const recent = new Set();
+// === Кеш-файлы ===
+const cacheDir = path.resolve(__dirname, 'cache');
+if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Тексты
+function cleanCache() {
+  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  fs.readdirSync(cacheDir).forEach(file => {
+    const fp = path.join(cacheDir, file);
+    if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
+  });
+}
+setInterval(cleanCache, 3600000);
+cleanCache();
+
+// === Интерфейс и тексты ===
 const texts = {
   ru: {
     start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -80,7 +75,6 @@ const texts = {
     upgrade: '🔓 Расширить лимит',
     mytracks: '🎵 Мои треки',
     help: 'ℹ️ Help',
-    chooseLang: '🌐 Выберите язык:',
     downloading: '🎧 Загружаю трек...',
     cached: '🔁 Отправляю из кеша...',
     error: '❌ Не удалось скачать трек.',
@@ -91,19 +85,15 @@ const texts = {
       '🆓 Free – 10 🟢\n' +
       'Plus – 50 🎯 (59₽)\n' +
       'Pro – 100 💪 (119₽)\n' +
-      'Unlimited – безлимит 💎 (199₽)\n\n' +
-      'Оплата через Boosty: https://boosty.to/ТВОЙ_АККАУНТ\n' +
-      'После оплаты пришли мне в лс твой Telegram.',
+      'Unlimited – 💎 (199₽)\n\n' +
+      'Оплата: https://boosty.to/YOUR_ID\n' +
+      'После оплаты напиши: @AnatolyBone',
     helpInfo:
-      '❓ *Функции бота:*\n' +
-      '- Автоматически скачивает треки с SoundCloud\n' +
-      '- Лимит бесплатно – 10 треков/день\n' +
-      '- Можно расширить лимит кнопкой “🔓 Расширить лимит”\n' +
-      '- Кнопка “🎵 Мои треки” покажет все треки за сегодня\n' +
-      '- Язык через “📋 Меню”\n' +
-      '- Админ может выдать лимит через `/setlimit`\n' +
-      '\n💡 После оплаты лимит будет автоматически увеличен.',
-    setByAdmin: id => `🛠 Лимит пользователя ${id} установлен вручную.`
+      'ℹ️ Просто пришли ссылку на трек — бот скачает mp3.\n' +
+      '🔓 «Расширить лимит» – выбрать тариф.\n' +
+      '🎵 «Мои треки» – список скачанного за день.\n' +
+      '📋 «Меню» – смена языка.',
+    chooseLang: '🌐 Выберите язык:'
   },
   en: {
     start: '👋 Send a SoundCloud track link.',
@@ -111,181 +101,184 @@ const texts = {
     upgrade: '🔓 Upgrade limit',
     mytracks: '🎵 My tracks',
     help: 'ℹ️ Help',
-    chooseLang: '🌐 Choose language:',
-    downloading: '🎧 Downloading track...',
+    downloading: '🎧 Downloading...',
     cached: '🔁 Sending from cache...',
     error: '❌ Failed to download.',
-    timeout: '⏱ Too long. Try later.',
+    timeout: '⏱ Took too long. Try again later.',
     limitReached: '🚫 You reached 10 tracks today.',
     upgradeInfo:
-      '🚀 Want more?\n\n' +
-      '🆓 Free – 10 🟢\n' +
-      'Plus – 50 🎯 (59₽)\n' +
-      'Pro – 100 💪 (119₽)\n' +
-      'Unlimited – Infinite 💎 (199₽)\n\n' +
-      'Pay via Boosty: https://boosty.to/YOUR_ACCOUNT\n' +
-      'After payment, message me your Telegram.',
+      '🚀 Want more tracks?\n\n' +
+      '🆓 Free – 10\n' +
+      'Plus – 50 (59₽)\n' +
+      'Pro – 100 (119₽)\n' +
+      'Unlimited – 💎 (199₽)\n\n' +
+      'Pay: https://boosty.to/YOUR_ID\n' +
+      'Then message me @AnatolyBone',
     helpInfo:
-      '❓ *Bot features:*\n' +
-      '- Auto-downloads SoundCloud tracks\n' +
-      '- Free limit – 10 tracks/day\n' +
-      '- Upgrade via “🔓 Upgrade limit”\n' +
-      '- “🎵 My tracks” shows today’s downloads\n' +
-      '- Language switch via “📋 Menu”\n' +
-      '- Admin can set limits with `/setlimit`\n' +
-      '\n💡 Limit increases after payment.',
-    setByAdmin: id => `🛠 User ${id} limit set manually.`
+      'ℹ️ Just send a track link — bot will download mp3.\n' +
+      '🔓 "Upgrade limit" — choose your plan.\n' +
+      '🎵 "My tracks" — your downloads today.\n' +
+      '📋 "Menu" — change language.',
+    chooseLang: '🌐 Choose language:'
   }
 };
 
-// Клавиатура (4 кнопки)
-function getMainKeyboard(lang) {
-  return Markup.keyboard([
-    [texts[lang].menu, texts[lang].upgrade],
-    [texts[lang].mytracks, texts[lang].help]
-  ]).resize();
-}
+const kb = lang => Markup.keyboard([
+  [texts[lang].menu, texts[lang].upgrade],
+  [texts[lang].mytracks, texts[lang].help]
+]).resize();
 
-// Start
+// === Команды и клавиши ===
+
 bot.start(ctx => {
-  const usr = getUser(ctx.from.id);
-  ctx.reply(texts[usr.lang].start, getMainKeyboard(usr.lang));
+  const u = getUser(ctx.from.id);
+  ctx.reply(texts[u.lang].start, kb(u.lang));
 });
 
-// Язык
 bot.hears([texts.ru.menu, texts.en.menu], ctx => {
   const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].chooseLang,
-    Markup.inlineKeyboard([
-      Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
-      Markup.button.callback('🇬🇧 English', 'lang_en')
-    ])
-  );
+  ctx.reply(texts[u.lang].chooseLang, Markup.inlineKeyboard([
+    Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
+    Markup.button.callback('🇬🇧 English', 'lang_en')
+  ]));
 });
+
 bot.action(/lang_(.+)/, ctx => {
-  const id = ctx.from.id, lang = ctx.match[1];
-  getUser(id).lang = lang;
+  const lang = ctx.match[1];
+  const u = getUser(ctx.from.id);
+  u.lang = lang;
   saveUsers();
   ctx.editMessageText(texts[lang].chooseLang + ' ✅');
-  ctx.reply(texts[lang].start, getMainKeyboard(lang));
+  ctx.reply(texts[lang].start, kb(lang));
 });
 
-// Upgrade лимит
-bot.hears(texts.ru.upgrade, ctx => {
+bot.hears([texts.ru.upgrade, texts.en.upgrade], ctx => {
   const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].upgradeInfo, { parse_mode: 'Markdown' });
-});
-bot.hears(texts.en.upgrade, ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].upgradeInfo, { parse_mode: 'Markdown' });
+  ctx.reply(texts[u.lang].upgradeInfo);
 });
 
-// My tracks
-bot.hears(texts.ru.mytracks, ctx => {
+bot.hears([texts.ru.help, texts.en.help], ctx => {
+  const u = getUser(ctx.from.id);
+  ctx.reply(texts[u.lang].helpInfo);
+});
+
+bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
   const u = getUser(ctx.from.id);
   const list = u.tracksToday.join('\n') || '—';
-  ctx.reply(`🎵 Сегодня скачано:\n${list}`);
-});
-bot.hears(texts.en.mytracks, ctx => {
-  const u = getUser(ctx.from.id);
-  const list = u.tracksToday.join('\n') || '—';
-  ctx.reply(`🎵 Today's downloads:\n${list}`);
+  ctx.reply(`🎵 ${u.lang === 'ru'? 'Сегодня скачано' : 'Today downloaded'}:\n${list}`);
 });
 
-// Help
-bot.hears(texts.ru.help, ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].helpInfo, { parse_mode: 'Markdown' });
-});
-bot.hears(texts.en.help, ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].helpInfo, { parse_mode: 'Markdown' });
-});
-
-// Статистика
 bot.command('stats', ctx => {
   const u = getUser(ctx.from.id);
-  ctx.reply(`📊 Всего скачано: ${u.downloads}, сегодня: ${u.count}`);
+  ctx.reply(`📊 Всего скачано: ${u.downloads}\n📅 Сегодня: ${u.count}`);
 });
 
-// Админ команда /setlimit <id> <count>
+// === Админ-панель ===
+const formatSize = bytes => (bytes / 1024 / 1024).toFixed(1) + ' MB';
+
+bot.command('admin', ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const all = Object.keys(users);
+  const totalDownloads = all.reduce((sum, id) => sum + (users[id].downloads || 0), 0);
+  const files = fs.readdirSync(cacheDir);
+  const cacheSize = files.reduce((sum, f) => sum + fs.statSync(path.join(cacheDir, f)).size, 0);
+  const recentUsers = all.slice(-5).map(id => `• ${id} — ${users[id].count}/${users[id].premiumLimit}`).join('\n') || '—';
+  ctx.reply(
+    `👥 Пользователей: ${all.length}\n` +
+    `🎵 Всего треков: ${totalDownloads}\n` +
+    `📁 Cache: ${files.length} файлов, ${formatSize(cacheSize)}\n\n` +
+    `🕵️ Последние активные:\n${recentUsers}`
+  );
+});
+
 bot.command('setlimit', ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
-  const [_, uid, cnt] = ctx.message.text.split(' ');
+  const parts = ctx.message.text.split(' ');
+  const [_, uid, cnt] = parts;
   if (!uid || !cnt || !users[uid]) return ctx.reply('Usage: /setlimit <userId> <count>');
   users[uid].premiumLimit = +cnt;
   saveUsers();
-  ctx.reply(texts['ru'].setByAdmin(uid));
+  ctx.reply(`🛠 Лимит юзера ${uid} установлен на ${cnt}`);
 });
 
-// Загрузка треков
-bot.on('text', ctx => {
-  const id = ctx.from.id, mId = ctx.message.message_id;
-  const url = ctx.message.text, u = getUser(id);
-  const lang = u.lang;
+bot.command('reset', ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const [_, uid] = ctx.message.text.split(' ');
+  if (!uid || !users[uid]) return ctx.reply('Usage: /reset <userId>');
+  users[uid].count = 0;
+  users[uid].tracksToday = [];
+  users[uid].date = todayStr();
+  saveUsers();
+  ctx.reply(`♻️ Счетчик пользователя ${uid} сброшен`);
+});
 
-  const key = `${id}_${mId}`;
+// === Обработка вставки ссылок ===
+const recent = new Set();
+
+bot.on('text', ctx => {
+  const id = ctx.from.id;
+  const url = ctx.message.text;
+  const user = getUser(id);
+  const lang = user.lang;
+
+  if (!url.includes('soundcloud.com')) return;
+  const key = `${id}_${ctx.message.message_id}`;
   if (recent.has(key)) return;
   recent.add(key);
   setTimeout(() => recent.delete(key), 60000);
 
-  if (!url.includes('soundcloud.com')) return;
-
   addToQueue(id, async () => {
-    if (u.date !== todayStr()) {
-      u.date = todayStr();
-      u.count = 0;
-      u.tracksToday = [];
+    if (user.date !== todayStr()) {
+      user.date = todayStr();
+      user.count = 0;
+      user.tracksToday = [];
     }
 
-    if (id !== ADMIN_ID && u.count >= u.premiumLimit) {
+    if (id !== ADMIN_ID && user.count >= user.premiumLimit) {
       return ctx.reply(texts[lang].limitReached);
     }
 
     await ctx.reply(texts[lang].downloading);
     try {
-      const info = await youtubedl(url, {
-        dumpSingleJson: true,
-        noWarnings: true,
-        flatPlaylist: true,
-        execOptions: { timeout: 300000 }
-      });
+      const info = await youtubedl(url, { dumpSingleJson: true });
       const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
       const filePath = path.join(cacheDir, `${title}.mp3`);
 
-      if (fs.existsSync(filePath)) {
-        await ctx.reply(texts[lang].cached);
-      } else {
+      if (!fs.existsSync(filePath)) {
         await youtubedl(url, {
           extractAudio: true,
           audioFormat: 'mp3',
-          output: filePath,
-          execOptions: { timeout: 300000 }
+          output: filePath
         });
-        u.downloads++;
       }
 
-      u.count++;
-      u.tracksToday.push(title);
+      user.count++;
+      user.downloads++;
+      user.tracksToday.push(title);
       saveUsers();
 
-      await ctx.replyWithAudio({
-        source: fs.createReadStream(filePath),
-        filename: title
-      });
-    } catch (e) {
-      console.error(e.message);
-      ctx.reply(e.message.includes('timed out') ? texts[lang].timeout : texts[lang].error);
+      await ctx.replyWithAudio({ source: fs.createReadStream(filePath), filename: title + '.mp3' });
+    } catch (err) {
+      console.error(err);
+      ctx.reply(err.message.includes('timeout') ? texts[lang].timeout : texts[lang].error);
     }
   });
 });
 
-// Webhook
-bot.telegram.setWebhook(WEBHOOK_URL);
+// === Настройка webhook ===
+(async () => {
+  try {
+    await bot.telegram.setWebhook(WEBHOOK_URL);
+    console.log('✅ Webhook установлен');
+  } catch (err) {
+    console.warn('⚠️ Не удалось установить webhook:', err.description || err.message);
+  }
+})();
+
 app.use(express.json());
 app.post('/telegram', (req, res) => {
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(console.error);
 });
-app.get('/', (req, res) => res.send('✅ OK'));
-app.listen(PORT, () => console.log(`🚀 Listening on ${PORT}`));
+app.get('/', (_, res) => res.send('✅ OK'));
+app.listen(process.env.PORT || 3000, () => console.log('🚀 Бот запущен'));
