@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Хранилище
+// Пользователи
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
@@ -20,56 +20,65 @@ const getUser = (id) => {
   return users[id];
 };
 
-// Очередь задач
-const queue = [];
-let isProcessing = false;
-function addToQueue(task) {
-  queue.push(task);
-  processQueue();
-}
-async function processQueue() {
-  if (isProcessing || queue.length === 0) return;
-  isProcessing = true;
-  const task = queue.shift();
-  try {
-    await task();
-  } catch (err) {
-    console.error('Ошибка в задаче:', err.message);
-  }
-  isProcessing = false;
-  processQueue();
-}
-
 // Кеш
 const cacheDir = path.resolve(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// 🛡 Анти-дубликат
+// Очередь по каждому пользователю
+const userQueues = new Map();
+const userProcessing = new Set();
+
+function addToUserQueue(userId, task) {
+  if (!userQueues.has(userId)) userQueues.set(userId, []);
+  userQueues.get(userId).push(task);
+  processUserQueue(userId);
+}
+
+async function processUserQueue(userId) {
+  if (userProcessing.has(userId)) return;
+
+  const queue = userQueues.get(userId);
+  if (!queue || queue.length === 0) return;
+
+  userProcessing.add(userId);
+  const task = queue.shift();
+
+  try {
+    await task();
+  } catch (err) {
+    console.error(`Ошибка в очереди пользователя ${userId}:`, err.message);
+  }
+
+  userProcessing.delete(userId);
+  if (queue.length > 0) processUserQueue(userId);
+}
+
+// 🛡 Защита от дубликатов
 const recentMessages = new Set();
 
-// Мультиязычность
+// Тексты
 const texts = {
   ru: {
     start: '👋 Отправь ссылку на трек с SoundCloud, и я пришлю тебе файл!',
     menu: '📋 Меню',
     chooseLang: '🌐 Выберите язык:',
     downloading: '🎧 Загружаю трек...',
-    error: '❌ Не удалось скачать трек.',
-    timeout: '⏱ Слишком долго. Попробуй позже.',
     cached: '🔁 Отправляю из кеша...',
+    error: '❌ Не удалось скачать трек.',
+    timeout: '⏱ Слишком долго. Попробуй позже.'
   },
   en: {
     start: '👋 Send a SoundCloud track link and I’ll send you the file!',
     menu: '📋 Menu',
     chooseLang: '🌐 Choose language:',
     downloading: '🎧 Downloading the track...',
-    error: '❌ Failed to download track.',
-    timeout: '⏱ Took too long. Try later.',
     cached: '🔁 Sending from cache...',
+    error: '❌ Failed to download track.',
+    timeout: '⏱ Took too long. Try again later.'
   }
 };
 
-// Старт
+// /start
 bot.start((ctx) => {
   const user = getUser(ctx.from.id);
   ctx.reply(texts[user.lang].start, Markup.keyboard([[texts[user.lang].menu]]).resize());
@@ -94,7 +103,7 @@ bot.action(/lang_(.+)/, (ctx) => {
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка текста
+// Обработка ссылок
 bot.on('text', async (ctx) => {
   const id = ctx.from.id;
   const msgId = ctx.message.message_id;
@@ -107,8 +116,7 @@ bot.on('text', async (ctx) => {
   setTimeout(() => recentMessages.delete(uniqueKey), 60000);
   if (!url.includes('soundcloud.com')) return;
 
-  // Добавляем в очередь задачу
-  addToQueue(async () => {
+  addToUserQueue(id, async () => {
     await ctx.reply(texts[lang].downloading);
 
     try {
