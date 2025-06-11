@@ -5,13 +5,13 @@ const path = require('path');
 const youtubedl = require('youtube-dl-exec');
 const app = express();
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '8119729959:AAETYnCygCDclelR_Y5P1O7xIP0cbHkQuVQ';
+const BOT_TOKEN = process.env.BOT_TOKEN || '...твой токен...';
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Пользователи
+// Хранилище
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
@@ -20,10 +20,34 @@ const getUser = (id) => {
   return users[id];
 };
 
-// 🛡 Защита от дубликатов
+// Очередь задач
+const queue = [];
+let isProcessing = false;
+function addToQueue(task) {
+  queue.push(task);
+  processQueue();
+}
+async function processQueue() {
+  if (isProcessing || queue.length === 0) return;
+  isProcessing = true;
+  const task = queue.shift();
+  try {
+    await task();
+  } catch (err) {
+    console.error('Ошибка в задаче:', err.message);
+  }
+  isProcessing = false;
+  processQueue();
+}
+
+// Кеш
+const cacheDir = path.resolve(__dirname, 'cache');
+if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
+
+// 🛡 Анти-дубликат
 const recentMessages = new Set();
 
-// Языковые сообщения
+// Мультиязычность
 const texts = {
   ru: {
     start: '👋 Отправь ссылку на трек с SoundCloud, и я пришлю тебе файл!',
@@ -31,25 +55,24 @@ const texts = {
     chooseLang: '🌐 Выберите язык:',
     downloading: '🎧 Загружаю трек...',
     error: '❌ Не удалось скачать трек.',
-    timeout: '⏱ Трек слишком долго загружается. Попробуй позже или другой трек.',
-    downloaded: (n) => `📊 Скачано треков: ${n}`
+    timeout: '⏱ Слишком долго. Попробуй позже.',
+    cached: '🔁 Отправляю из кеша...',
   },
   en: {
-    start: '👋 Send me a SoundCloud track link and I’ll send you the file!',
+    start: '👋 Send a SoundCloud track link and I’ll send you the file!',
     menu: '📋 Menu',
     chooseLang: '🌐 Choose language:',
     downloading: '🎧 Downloading the track...',
     error: '❌ Failed to download track.',
-    timeout: '⏱ The track took too long to download. Try again later or use a different link.',
-    downloaded: (n) => `📊 Tracks downloaded: ${n}`
+    timeout: '⏱ Took too long. Try later.',
+    cached: '🔁 Sending from cache...',
   }
 };
 
-// Команда /start
+// Старт
 bot.start((ctx) => {
   const user = getUser(ctx.from.id);
-  const lang = user.lang;
-  ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
+  ctx.reply(texts[user.lang].start, Markup.keyboard([[texts[user.lang].menu]]).resize());
 });
 
 // Меню
@@ -65,74 +88,73 @@ bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
 bot.action(/lang_(.+)/, (ctx) => {
   const id = ctx.from.id;
   const lang = ctx.match[1];
-  const user = getUser(id);
-  user.lang = lang;
+  getUser(id).lang = lang;
   saveUsers();
   ctx.editMessageText(texts[lang].chooseLang + ' ✅');
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка ссылок
+// Обработка текста
 bot.on('text', async (ctx) => {
   const id = ctx.from.id;
-  const messageId = ctx.message.message_id;
+  const msgId = ctx.message.message_id;
   const url = ctx.message.text;
   const lang = getUser(id).lang;
 
-  const uniqueKey = `${id}_${messageId}`;
+  const uniqueKey = `${id}_${msgId}`;
   if (recentMessages.has(uniqueKey)) return;
   recentMessages.add(uniqueKey);
   setTimeout(() => recentMessages.delete(uniqueKey), 60000);
-
   if (!url.includes('soundcloud.com')) return;
 
-  await ctx.reply(texts[lang].downloading);
+  // Добавляем в очередь задачу
+  addToQueue(async () => {
+    await ctx.reply(texts[lang].downloading);
 
-  try {
-    // Получение информации
-    const info = await youtubedl(url, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      flatPlaylist: true,
-      execOptions: { timeout: 300000 } // ✅ 5 минут
-    });
+    try {
+      const info = await youtubedl(url, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        flatPlaylist: true,
+        execOptions: { timeout: 300000 }
+      });
 
-    const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
-    const filename = path.resolve(__dirname, `${title}.mp3`);
+      const safeTitle = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
+      const filename = path.resolve(cacheDir, `${safeTitle}.mp3`);
 
-    // Загрузка аудио
-    await youtubedl(url, {
-      extractAudio: true,
-      audioFormat: 'mp3',
-      output: filename,
-      execOptions: { timeout: 300000 } // ✅ 5 минут
-    });
+      if (fs.existsSync(filename)) {
+        await ctx.reply(texts[lang].cached);
+        await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: safeTitle });
+        return;
+      }
 
-    users[id].downloads += 1;
-    saveUsers();
+      await youtubedl(url, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: filename,
+        execOptions: { timeout: 300000 }
+      });
 
-    await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename });
-    fs.unlinkSync(filename);
-  } catch (err) {
-    console.error('yt-dlp error:', err.message);
+      users[id].downloads += 1;
+      saveUsers();
 
-    if (err.message && err.message.includes('timed out')) {
-      ctx.reply(texts[lang].timeout);
-    } else {
-      ctx.reply(texts[lang].error);
+      await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: safeTitle });
+    } catch (err) {
+      console.error('yt-dlp error:', err.message);
+      if (err.message.includes('timed out')) {
+        ctx.reply(texts[lang].timeout);
+      } else {
+        ctx.reply(texts[lang].error);
+      }
     }
-  }
+  });
 });
 
 // Webhook
 bot.telegram.setWebhook(WEBHOOK_URL);
-
 app.post('/telegram', express.json(), (req, res) => {
-  res.sendStatus(200); // мгновенный ответ
-  bot.handleUpdate(req.body).catch((err) => {
-    console.error('Ошибка при обработке update:', err);
-  });
+  res.sendStatus(200);
+  bot.handleUpdate(req.body).catch(console.error);
 });
-
 app.get('/', (req, res) => res.send('✅ Бот работает!'));
 app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
