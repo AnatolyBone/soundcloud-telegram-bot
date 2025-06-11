@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Хранилище пользователей
+// Пользователи
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
@@ -20,10 +20,10 @@ const getUser = (id) => {
   return users[id];
 };
 
-// 🛡 Кэш сообщений для анти-дубликата
+// 🛡 Защита от дубликатов
 const recentMessages = new Set();
 
-// Мультиязычные сообщения
+// Языковые сообщения
 const texts = {
   ru: {
     start: '👋 Отправь ссылку на трек с SoundCloud, и я пришлю тебе файл!',
@@ -31,6 +31,7 @@ const texts = {
     chooseLang: '🌐 Выберите язык:',
     downloading: '🎧 Загружаю трек...',
     error: '❌ Не удалось скачать трек.',
+    timeout: '⏱ Трек слишком долго загружается. Попробуй позже или другой трек.',
     downloaded: (n) => `📊 Скачано треков: ${n}`
   },
   en: {
@@ -39,6 +40,7 @@ const texts = {
     chooseLang: '🌐 Choose language:',
     downloading: '🎧 Downloading the track...',
     error: '❌ Failed to download track.',
+    timeout: '⏱ The track took too long to download. Try again later or use a different link.',
     downloaded: (n) => `📊 Tracks downloaded: ${n}`
   }
 };
@@ -50,7 +52,7 @@ bot.start((ctx) => {
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка кнопки меню
+// Меню
 bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
   const lang = getUser(ctx.from.id).lang;
   ctx.reply(texts[lang].chooseLang, Markup.inlineKeyboard([
@@ -59,7 +61,7 @@ bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
   ]));
 });
 
-// Выбор языка
+// Смена языка
 bot.action(/lang_(.+)/, (ctx) => {
   const id = ctx.from.id;
   const lang = ctx.match[1];
@@ -70,14 +72,13 @@ bot.action(/lang_(.+)/, (ctx) => {
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка сообщений
+// Обработка ссылок
 bot.on('text', async (ctx) => {
   const id = ctx.from.id;
   const messageId = ctx.message.message_id;
   const url = ctx.message.text;
   const lang = getUser(id).lang;
 
-  // 🛡 Защита от повторной обработки
   const uniqueKey = `${id}_${messageId}`;
   if (recentMessages.has(uniqueKey)) return;
   recentMessages.add(uniqueKey);
@@ -88,20 +89,23 @@ bot.on('text', async (ctx) => {
   await ctx.reply(texts[lang].downloading);
 
   try {
-    // Получение названия
+    // Получить название трека
     const info = await youtubedl(url, {
       dumpSingleJson: true,
       noWarnings: true,
-      flatPlaylist: true
+      flatPlaylist: true,
+      timeout: 300000 // 5 мин
     });
+
     const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
     const filename = path.resolve(__dirname, `${title}.mp3`);
 
-    // Скачивание
+    // Скачать аудио
     await youtubedl(url, {
       extractAudio: true,
       audioFormat: 'mp3',
-      output: filename
+      output: filename,
+      timeout: 150000
     });
 
     users[id].downloads += 1;
@@ -111,24 +115,24 @@ bot.on('text', async (ctx) => {
     fs.unlinkSync(filename);
   } catch (err) {
     console.error('yt-dlp error:', err.message);
-    ctx.reply(texts[lang].error);
+
+    if (err.message && err.message.includes('timed out')) {
+      ctx.reply(texts[lang].timeout);
+    } else {
+      ctx.reply(texts[lang].error);
+    }
   }
 });
 
-// ✅ Устанавливаем Webhook
+// Webhook
 bot.telegram.setWebhook(WEBHOOK_URL);
 
-// ✅ Обрабатываем Webhook вручную (чтобы ответить мгновенно!)
 app.post('/telegram', express.json(), (req, res) => {
-  res.sendStatus(200); // моментальный ответ Telegram
+  res.sendStatus(200); // мгновенно
   bot.handleUpdate(req.body).catch((err) => {
     console.error('Ошибка при обработке update:', err);
   });
 });
 
-// Статус страницы
 app.get('/', (req, res) => res.send('✅ Бот работает!'));
-
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
