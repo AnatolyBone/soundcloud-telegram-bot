@@ -89,23 +89,23 @@ bot.on('text', async (ctx) => {
   await ctx.reply(texts[lang].downloading);
 
   try {
-    // Получить название трека
+    // Получение информации
     const info = await youtubedl(url, {
       dumpSingleJson: true,
       noWarnings: true,
       flatPlaylist: true,
-      timeout: 300000 // 5 мин
+      execOptions: { timeout: 300000 } // ✅ 5 минут
     });
 
     const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
     const filename = path.resolve(__dirname, `${title}.mp3`);
 
-    // Скачать аудио
+    // Загрузка аудио
     await youtubedl(url, {
       extractAudio: true,
       audioFormat: 'mp3',
       output: filename,
-      timeout: 150000
+      execOptions: { timeout: 300000 } // ✅ 5 минут
     });
 
     users[id].downloads += 1;
@@ -128,7 +128,7 @@ bot.on('text', async (ctx) => {
 bot.telegram.setWebhook(WEBHOOK_URL);
 
 app.post('/telegram', express.json(), (req, res) => {
-  res.sendStatus(200); // мгновенно
+  res.sendStatus(200); // мгновенный ответ
   bot.handleUpdate(req.body).catch((err) => {
     console.error('Ошибка при обработке update:', err);
   });
