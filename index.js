@@ -86,7 +86,7 @@ const texts = {
       'Plus – 50 🎯 (59₽)\n' +
       'Pro – 100 💪 (119₽)\n' +
       'Unlimited – 💎 (199₽)\n\n' +
-      'Оплата: https://boosty.to/anatoly_bone/donate +
+      'Оплата: https://boosty.to/anatoly_bone/donate\n +
       'После оплаты напиши: @AnatolyBone',
     helpInfo:
       'ℹ️ Просто пришли ссылку на трек — бот скачает mp3.\n' +
@@ -112,7 +112,7 @@ const texts = {
       'Plus – 50 (59₽)\n' +
       'Pro – 100 (119₽)\n' +
       'Unlimited – 💎 (199₽)\n\n' +
-      'Pay: https://boosty.to/anatoly_bone/donate +
+      'Pay: https://boosty.to/anatoly_bone/donate\n' +
       'Then message me @AnatolyBone',
     helpInfo:
       'ℹ️ Just send a track link — bot will download mp3.\n' +
