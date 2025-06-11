@@ -3,166 +3,184 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const youtubedl = require('youtube-dl-exec');
-const app = express();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '...твой токен...';
+const ADMIN_ID = 2018254756; // ← замени на свой телеграм id
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 const PORT = process.env.PORT || 3000;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Пользователи
+// Хранилище
 const usersFile = './users.json';
 let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile)) : {};
 const saveUsers = () => fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-const getUser = (id) => {
-  if (!users[id]) users[id] = { lang: 'ru', downloads: 0 };
+const getUser = id => {
+  if (!users[id]) users[id] = { lang: 'ru', downloads: 0, date: todayStr(), count: 0 };
   return users[id];
 };
 
-// Кеш
+// Дата в формате YYYY-MM-DD
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+// Очистка кеша
 const cacheDir = path.resolve(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очередь по каждому пользователю
+function cleanCache() {
+  const files = fs.readdirSync(cacheDir);
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let total = 0, size = 0;
+  files.forEach(fn => {
+    const fp = path.join(cacheDir, fn);
+    const stat = fs.statSync(fp);
+    if (stat.mtimeMs < cutoff) {
+      fs.unlinkSync(fp);
+    } else {
+      total++;
+      size += stat.size;
+    }
+  });
+  return { total, size };
+}
+setInterval(cleanCache, 60 * 60 * 1000);
+cleanCache();
+
+// Очереди per user
 const userQueues = new Map();
 const userProcessing = new Set();
 
-function addToUserQueue(userId, task) {
-  if (!userQueues.has(userId)) userQueues.set(userId, []);
-  userQueues.get(userId).push(task);
-  processUserQueue(userId);
+function addToQueue(uid, task) {
+  if (!userQueues.has(uid)) userQueues.set(uid, []);
+  userQueues.get(uid).push(task);
+  processQueue(uid);
+}
+async function processQueue(uid) {
+  if (userProcessing.has(uid)) return;
+  const q = userQueues.get(uid);
+  if (!q || !q.length) return;
+  userProcessing.add(uid);
+  const task = q.shift();
+  try { await task(); }
+  catch(err) { console.error(`User ${uid} queue error:`, err.message); }
+  userProcessing.delete(uid);
+  processQueue(uid);
 }
 
-async function processUserQueue(userId) {
-  if (userProcessing.has(userId)) return;
+// Антидуп
+const recent = new Set();
 
-  const queue = userQueues.get(userId);
-  if (!queue || queue.length === 0) return;
-
-  userProcessing.add(userId);
-  const task = queue.shift();
-
-  try {
-    await task();
-  } catch (err) {
-    console.error(`Ошибка в очереди пользователя ${userId}:`, err.message);
-  }
-
-  userProcessing.delete(userId);
-  if (queue.length > 0) processUserQueue(userId);
-}
-
-// 🛡 Защита от дубликатов
-const recentMessages = new Set();
-
-// Тексты
+// Языковые тексты
 const texts = {
-  ru: {
-    start: '👋 Отправь ссылку на трек с SoundCloud, и я пришлю тебе файл!',
-    menu: '📋 Меню',
-    chooseLang: '🌐 Выберите язык:',
-    downloading: '🎧 Загружаю трек...',
-    cached: '🔁 Отправляю из кеша...',
-    error: '❌ Не удалось скачать трек.',
-    timeout: '⏱ Слишком долго. Попробуй позже.'
-  },
-  en: {
-    start: '👋 Send a SoundCloud track link and I’ll send you the file!',
-    menu: '📋 Menu',
-    chooseLang: '🌐 Choose language:',
-    downloading: '🎧 Downloading the track...',
-    cached: '🔁 Sending from cache...',
-    error: '❌ Failed to download track.',
-    timeout: '⏱ Took too long. Try again later.'
-  }
+  ru: { start: '👋 Пришли ссылку...', menu: '📋 Меню', chooseLang: '🌐 Выберите язык:',
+         downloading: '🎧 Загружаю...', cached: '🔁 Из кеша...', error: '❌ Ошибка', 
+         timeout: '⏱ Долго загружается...', limit: '🚫 Более 10 треков сегодня.' },
+  en: { start: '👋 Send link...', menu: '📋 Menu', chooseLang: '🌐 Choose language:',
+         downloading: '🎧 Downloading...', cached: '🔁 From cache...', error: '❌ Error',
+         timeout: '⏱ Took too long...', limit: '🚫 Over 10 tracks today.' }
 };
 
 // /start
-bot.start((ctx) => {
-  const user = getUser(ctx.from.id);
-  ctx.reply(texts[user.lang].start, Markup.keyboard([[texts[user.lang].menu]]).resize());
+bot.start(ctx => {
+  const usr = getUser(ctx.from.id);
+  usr.lang = usr.lang || 'ru';
+  saveUsers();
+  ctx.reply(texts[usr.lang].start, Markup.keyboard([[texts[usr.lang].menu]]).resize());
 });
 
-// Меню
-bot.hears([texts.ru.menu, texts.en.menu], (ctx) => {
-  const lang = getUser(ctx.from.id).lang;
-  ctx.reply(texts[lang].chooseLang, Markup.inlineKeyboard([
+// Меню / language
+bot.hears([texts.ru.menu, texts.en.menu], ctx => {
+  const usr = getUser(ctx.from.id);
+  ctx.reply(texts[usr.lang].chooseLang, Markup.inlineKeyboard([
     [Markup.button.callback('🇷🇺 Русский', 'lang_ru')],
     [Markup.button.callback('🇬🇧 English', 'lang_en')]
   ]));
 });
-
-// Смена языка
-bot.action(/lang_(.+)/, (ctx) => {
-  const id = ctx.from.id;
-  const lang = ctx.match[1];
+bot.action(/lang_(.+)/, ctx => {
+  const id = ctx.from.id, lang = ctx.match[1];
   getUser(id).lang = lang;
   saveUsers();
   ctx.editMessageText(texts[lang].chooseLang + ' ✅');
   ctx.reply(texts[lang].start, Markup.keyboard([[texts[lang].menu]]).resize());
 });
 
-// Обработка ссылок
-bot.on('text', async (ctx) => {
-  const id = ctx.from.id;
-  const msgId = ctx.message.message_id;
-  const url = ctx.message.text;
-  const lang = getUser(id).lang;
+// /stats
+bot.command('stats', ctx => {
+  const usr = getUser(ctx.from.id);
+  ctx.reply(`📊 Сегодня: ${usr.count} треков, всего: ${usr.downloads}`);
+});
 
-  const uniqueKey = `${id}_${msgId}`;
-  if (recentMessages.has(uniqueKey)) return;
-  recentMessages.add(uniqueKey);
-  setTimeout(() => recentMessages.delete(uniqueKey), 60000);
+// /admin
+bot.command('admin', ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const totalUsers = Object.keys(users).length;
+  const totalDownloads = Object.values(users).reduce((a,u)=>a+u.downloads,0);
+  const c = cleanCache();
+  ctx.reply(
+    `👤 Пользователей: ${totalUsers}\n` +
+    `🎶 Треков качнуто: ${totalDownloads}\n` +
+    `📂 Cache: ${c.total} файлов, ${(c.size/1024/1024).toFixed(2)} MB`
+  );
+});
+
+// Треки
+bot.on('text', ctx => {
+  const id = ctx.from.id, msgId = ctx.message.message_id;
+  const url = ctx.message.text;
+  const usr = getUser(id);
+  const lang = usr.lang;
+  if (recent.has(`${id}_${msgId}`)) return;
+  recent.add(`${id}_${msgId}`);
+  setTimeout(()=>recent.delete(`${id}_${msgId}`),60000);
   if (!url.includes('soundcloud.com')) return;
 
-  addToUserQueue(id, async () => {
+  addToQueue(id, async () => {
+    if (usr.date !== todayStr()) {
+      usr.date = todayStr();
+      usr.count = 0;
+    }
+    if (id !== ADMIN_ID && usr.count >= 10) {
+      ctx.reply(texts[lang].limit);
+      return;
+    }
     await ctx.reply(texts[lang].downloading);
 
     try {
       const info = await youtubedl(url, {
-        dumpSingleJson: true,
-        noWarnings: true,
-        flatPlaylist: true,
+        dumpSingleJson: true, noWarnings: true, flatPlaylist: true,
         execOptions: { timeout: 300000 }
       });
+      const safe = info.title.replace(/[<>:"/\\|?*]+/g,'');
+      const fn = path.resolve(cacheDir, safe + '.mp3');
 
-      const safeTitle = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
-      const filename = path.resolve(cacheDir, `${safeTitle}.mp3`);
-
-      if (fs.existsSync(filename)) {
+      if (fs.existsSync(fn)) {
         await ctx.reply(texts[lang].cached);
-        await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: safeTitle });
-        return;
-      }
-
-      await youtubedl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: filename,
-        execOptions: { timeout: 300000 }
-      });
-
-      users[id].downloads += 1;
-      saveUsers();
-
-      await ctx.replyWithAudio({ source: fs.createReadStream(filename), filename: safeTitle });
-    } catch (err) {
-      console.error('yt-dlp error:', err.message);
-      if (err.message.includes('timed out')) {
-        ctx.reply(texts[lang].timeout);
+        await ctx.replyWithAudio({ source: fs.createReadStream(fn), filename: safe });
       } else {
-        ctx.reply(texts[lang].error);
+        await youtubedl(url, {
+          extractAudio: true, audioFormat:'mp3',
+          output: fn, execOptions: { timeout:300000 }
+        });
+        usr.downloads++;
+        usr.count++;
+        saveUsers();
+        await ctx.replyWithAudio({ source: fs.createReadStream(fn), filename: safe });
       }
+    } catch(err) {
+      console.error('yt-dlp error:',err.message);
+      ctx.reply(err.message.includes('timed out')? texts[lang].timeout : texts[lang].error);
     }
   });
 });
 
 // Webhook
 bot.telegram.setWebhook(WEBHOOK_URL);
-app.post('/telegram', express.json(), (req, res) => {
+app.use(express.json());
+app.post('/telegram', (req,res)=>{
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(console.error);
 });
-app.get('/', (req, res) => res.send('✅ Бот работает!'));
-app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+app.get('/', (req,res)=>res.send('✅ OK'));
+app.listen(PORT, ()=>console.log(`🚀 on ${PORT}`));
