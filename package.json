@@ -10,7 +10,8 @@
     "express": "^4.19.2",
     "telegraf": "^4.16.3",
     "youtube-dl-exec": "^2.0.1",
-    "better-sqlite3": "^8.4.0"
+    "better-sqlite3": "^8.4.0",
+    "googleapis": "^118.0.0"
   },
   "engines": {
     "node": ">=16"
