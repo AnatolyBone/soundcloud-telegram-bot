@@ -3,6 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
+const { exec } = require('child_process');
 const {
   getUser,
   updateUserField,
@@ -11,6 +12,37 @@ const {
   getAllUsers
 } = require('./db');
 
+// --- Google Drive API ---
+const { google } = require('googleapis');
+
+const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
+const KEYFILEPATH = path.join(__dirname, 'service-account.json');
+
+const auth = new google.auth.GoogleAuth({
+  keyFile: KEYFILEPATH,
+  scopes: SCOPES,
+});
+
+const drive = google.drive({ version: 'v3', auth });
+
+async function uploadBackup(filename, filepath) {
+  try {
+    const response = await drive.files.create({
+      requestBody: {
+        name: filename,
+        parents: ['1FjRTVO4rLCsKdeIg452M4-1MjpmfuChG'], // ВАЖНО: твой ID папки на Google Drive
+      },
+      media: {
+        body: fs.createReadStream(filepath),
+      },
+    });
+    console.log('Backup uploaded, file ID:', response.data.id);
+  } catch (error) {
+    console.error('Failed to upload backup:', error);
+  }
+}
+
+// --- Конфигурация бота ---
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 const ADMIN_ID = 2018254756;
@@ -30,15 +62,30 @@ setInterval(() => {
   });
 }, 3600_000);
 
-// ⏱️ Автоматический бэкап раз в 24 часа
-setInterval(() => {
-  exec('node backup.js', (err, stdout, stderr) => {
-    if (err) return console.error('❌ Backup error:', err);
-    console.log(stdout);
-  });
-}, 24 * 3600 * 1000);
+// --- Автоматический бэкап раз в 24 часа ---
+setInterval(async () => {
+  try {
+    const src = path.join(__dirname, 'database.sqlite');
+    if (!fs.existsSync(src)) {
+      console.warn('❗ Файл базы данных не найден для бэкапа:', src);
+      return;
+    }
 
-// Тексты
+    const backupName = `backup_${Date.now()}.sqlite`;
+    const backupPath = path.join(__dirname, backupName);
+
+    fs.copyFileSync(src, backupPath);
+    console.log('Backup created:', backupName);
+
+    await uploadBackup(backupName, backupPath);
+
+    fs.unlinkSync(backupPath);
+  } catch (err) {
+    console.error('Backup error:', err);
+  }
+}, 24 * 3600 * 1000); // каждые 24 часа
+
+// --- Тексты и клавиатура ---
 const texts = {
   ru: {
     start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -49,7 +96,9 @@ const texts = {
     upgradeInfo:
       '🚀 Хочешь больше треков?\n\n🆓 Free – 10 🟢\nPlus – 50 🎯 (59₽)\nPro – 100 💪 (119₽)\nUnlimited – 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate\n✉️ После оплаты жми “Подтвердить оплату”',
     helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
-    chooseLang: '🌐 Выберите язык:'
+    chooseLang: '🌐 Выберите язык:',
+    backupError: '❌ Ошибка бэкапа',
+    backupDone: '✅ Бэкап выполнен'
   },
   en: {
     start: '👋 Send a SoundCloud track link.',
@@ -60,7 +109,9 @@ const texts = {
     upgradeInfo:
       '🚀 Want more tracks?\n\n🆓 Free – 10 🟢\nPlus – 50 🎯 (59₽)\nPro – 100 💪 (119₽)\nUnlimited – 💎 (199₽)\n\n👉 Donate: https://boosty.to/anatoly_bone/donate\n✉️ After payment press “Confirm payment”',
     helpInfo: 'ℹ️ Just send a SoundCloud link to get mp3.\n🔓 Upgrade — pay and confirm.\n🎵 My tracks — list of today\'s downloads.\n📋 Menu — change language.',
-    chooseLang: '🌐 Choose language:'
+    chooseLang: '🌐 Choose language:',
+    backupError: '❌ Backup error',
+    backupDone: '✅ Backup done'
   }
 };
 
@@ -69,7 +120,7 @@ const kb = lang => Markup.keyboard([
   [texts[lang].mytracks, texts[lang].help]
 ]).resize();
 
-// Команды
+// --- Команды и обработчики ---
 bot.start(ctx => {
   const user = getUser(
     ctx.from.id,
@@ -117,7 +168,6 @@ bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
   }
 });
 
-// Тест бд
 bot.command('testdb', ctx => {
   const user = getUser(ctx.from.id);
   if (user) {
@@ -126,7 +176,7 @@ bot.command('testdb', ctx => {
     ctx.reply('Пользователь не найден в базе');
   }
 });
-// Команда администратора
+
 bot.command('admin', ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
 
@@ -181,62 +231,89 @@ bot.action(/plan_(\d+)_(\d+)/, ctx => {
   setPremium(id, parseInt(lim));
   ctx.reply(`✅ Пользователю ${id} установлен лимит: ${lim}`);
 });
-// 🆕 Команда /backup для ручного запуска бэкапа
-bot.command('backup', ctx => {
+
+bot.command('backup', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
-  exec('node backup.js', (err, stdout, stderr) => {
-    if (err) {
-      console.error('❌ Backup error:', err);
-      return ctx.reply(texts[getUser(ctx.from.id).lang].backupError);
-    }
+  try {
+    const src = path.join(__dirname, 'database.sqlite');
+    const backupName = `backup_manual_${Date.now()}.sqlite`;
+    const backupPath = path.join(__dirname, backupName);
+
+    fs.copyFileSync(src, backupPath);
+    await uploadBackup(backupName, backupPath);
+    fs.unlinkSync(backupPath);
+
     ctx.reply(texts[getUser(ctx.from.id).lang].backupDone);
+  } catch (err) {
+    console.error('Manual backup error:', err);
+    ctx.reply(texts[getUser(ctx.from.id).lang].backupError);
+  }
+});
+
+// --- Обработка сообщений со ссылками SoundCloud ---
+bot.on('text', async ctx => {
+  const user = getUser(ctx.from.id);
+  const lang = user.lang;
+  const text = ctx.message.text.trim();
+
+  if (!text.includes('soundcloud.com')) return;
+
+  if (user.downloads_today >= user.premium_limit) {
+    return ctx.reply(texts[lang].limitReached);
+  }
+
+  ctx.reply(texts[lang].downloading);
+
+  try {
+    // Получаем метаданные и файл через youtube-dl
+    const info = await ytdl(text, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificates: true,
+      preferFreeFormats: true,
+      youtubeSkipDashManifest: true
+    });
+
+    if (!info || !info.title) {
+      return ctx.reply(texts[lang].error);
+    }
+
+    const filename = info.title.replace(/[^\w\d]/g, '_');
+    const filepath = path.join(cacheDir, filename + '.mp3');
+
+    if (fs.existsSync(filepath)) {
+      ctx.reply(texts[lang].cached);
+      return ctx.replyWithAudio({ source: filepath });
+    }
+
+    await ytdl(text, {
+      extractAudio: true,
+      audioFormat: 'mp3',
+      output: filepath,
+      noWarnings: true,
+      noCheckCertificates: true,
+      preferFreeFormats: true,
+      youtubeSkipDashManifest: true
+    });
+
+    incrementDownloads(ctx.from.id, filename);
+
+    ctx.replyWithAudio({ source: filepath });
+  } catch (err) {
+    console.error('Download error:', err);
+    ctx.reply(texts[lang].error);
+  }
+});
+
+// --- Запуск сервера и webhook ---
+app.use(bot.webhookCallback('/telegram'));
+
+app.get('/', (req, res) => {
+  res.send('SoundCloud Telegram Bot is running');
+});
+
+bot.telegram.setWebhook(WEBHOOK_URL).then(() => {
+  app.listen(process.env.PORT || 3000, () => {
+    console.log('Server started');
   });
 });
-
-// Получение ссылки
-bot.on('text', async ctx => {
-  const text = ctx.message.text;
-  if (!text.includes('soundcloud.com') && !text.includes('on.soundcloud.com')) return;
-
-  const user = getUser(ctx.from.id, ctx.from.username);
-
-  if (ctx.from.id !== ADMIN_ID && user.downloads_today >= user.premium_limit)
-    return ctx.reply(texts[user.lang].limitReached);
-
-  await ctx.reply(texts[user.lang].downloading);
-
-  try {
-    const info = await ytdl(text, { dumpSingleJson: true });
-    const title = (info.title || 'track').replace(/[<>:"/\\|?*]+/g, '');
-    const fp = path.join(cacheDir, `${title}.mp3`);
-
-    if (!fs.existsSync(fp)) {
-      await ytdl(text, { extractAudio: true, audioFormat: 'mp3', output: fp });
-    }
-
-    incrementDownloads(ctx.from.id, title);
-
-    await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${title}.mp3` });
-  } catch (err) {
-    console.error(err);
-    ctx.reply(texts[user.lang].error);
-  }
-});
-
-// Webhook
-(async () => {
-  try {
-    await bot.telegram.setWebhook(WEBHOOK_URL);
-    console.log('✅ Webhook установлен');
-  } catch (e) {
-    console.error('❌ Webhook error:', e.description || e.message);
-  }
-})();
-
-app.use(express.json());
-app.post('/telegram', (req, res) => {
-  bot.handleUpdate(req.body).catch(console.error);
-  res.sendStatus(200);
-});
-app.get('/', (_, res) => res.send('✅ OK'));
-app.listen(process.env.PORT || 3000, () => console.log('🚀 Server running'));
