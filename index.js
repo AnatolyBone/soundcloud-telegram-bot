@@ -21,6 +21,7 @@ const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
+// Автоочистка кэша
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400_000;
   fs.readdirSync(cacheDir).forEach(file => {
@@ -111,12 +112,39 @@ bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
 // Команда администратора
 bot.command('admin', ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
+
   const users = getAllUsers();
+  const files = fs.readdirSync(cacheDir);
+  const totalSize = files.reduce((sum, file) => {
+    const stats = fs.statSync(path.join(cacheDir, file));
+    return sum + stats.size;
+  }, 0);
+
+  const free = users.filter(u => u.premium_limit === 10).length;
+  const plus = users.filter(u => u.premium_limit === 50).length;
+  const pro = users.filter(u => u.premium_limit === 100).length;
+  const unlimited = users.filter(u => u.premium_limit >= 1000).length;
+  const totalDownloads = users.reduce((sum, u) => sum + u.total_downloads, 0);
+
+  const summary =
+    `📊 Общая статистика:\n` +
+    `👥 Пользователей: ${users.length}\n` +
+    `📥 Загрузок: ${totalDownloads}\n` +
+    `📁 Кеш: ${files.length} файлов, ${(totalSize / 1024 / 1024).toFixed(1)} MB\n\n` +
+    `🔐 Тарифы:\n` +
+    `🆓 Free: ${free}\n` +
+    `🎯 Plus: ${plus}\n` +
+    `💪 Pro: ${pro}\n` +
+    `💎 Unlimited: ${unlimited}`;
+
+  ctx.reply(summary);
+
   const btns = users.map(u => {
     const name = u.username ? '@' + u.username : u.id;
     const label = `${name} | ${u.downloads_today}/${u.premium_limit}`;
     return Markup.button.callback(label, `user_${u.id}`);
   });
+
   ctx.reply('👥 Пользователи:', Markup.inlineKeyboard(btns, { columns: 1 }));
 });
 
@@ -176,6 +204,7 @@ bot.on('text', async ctx => {
     console.error('❌ Webhook error:', e.description || e.message);
   }
 })();
+
 app.use(express.json());
 app.post('/telegram', (req, res) => {
   bot.handleUpdate(req.body).catch(console.error);
