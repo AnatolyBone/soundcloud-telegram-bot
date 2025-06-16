@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 `);
 
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+
 // Получить пользователя (или создать)
 function getUser(id, username = '') {
   let user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -24,7 +28,7 @@ function getUser(id, username = '') {
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   }
 
-  // Сброс лимита, если новый день
+  // Сброс лимита если новый день
   if (user.last_reset !== today()) {
     db.prepare('UPDATE users SET downloads_today = 0, tracks_today = ?, last_reset = ? WHERE id = ?')
       .run('', today(), id);
@@ -44,14 +48,15 @@ function getUser(id, username = '') {
 }
 
 function updateUserField(id, field, value) {
-  db.prepare('UPDATE users SET ' + field + ' = ? WHERE id = ?').run(value, id);
+  const stmt = db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`);
+  stmt.run(value, id);
 }
 
 function incrementDownloads(id, title) {
   const user = getUser(id);
   const titles = user.tracks_today ? user.tracks_today.split(',') : [];
   titles.push(title);
-  db.prepare('UPDATE users SET downloads_today = downloads_today + 1, total_downloads = total_downloads + 1, tracks_today = ? WHERE id = ?')
+  db.prepare(`UPDATE users SET downloads_today = downloads_today + 1, total_downloads = total_downloads + 1, tracks_today = ? WHERE id = ?`)
     .run(titles.join(','), id);
 }
 
@@ -63,10 +68,6 @@ function setPremium(id, limit, days = 30) {
 
 function getAllUsers() {
   return db.prepare('SELECT * FROM users').all();
-}
-
-function today() {
-  return new Date().toISOString().split('T')[0];
 }
 
 module.exports = {
