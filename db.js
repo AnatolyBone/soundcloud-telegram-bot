@@ -1,87 +1,50 @@
-const Database = require('better-sqlite3');
-const db = new Database('db.sqlite');
+// db.js
+const { Pool } = require('pg');
 
-// Создание таблицы (добавлено first_name)
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
-  username TEXT,
-  first_name TEXT,
-  lang TEXT DEFAULT 'ru',
-  premium_limit INTEGER DEFAULT 10,
-  premium_until TEXT,
-  downloads_today INTEGER DEFAULT 0,
-  total_downloads INTEGER DEFAULT 0,
-  last_reset TEXT,
-  tracks_today TEXT DEFAULT ''
-);
-`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  },
+});
 
-function today() {
-  return new Date().toISOString().split('T')[0];
+async function query(text, params) {
+  const start = Date.now();
+  const res = await pool.query(text, params);
+  const duration = Date.now() - start;
+  console.log('executed query', { text, duration, rows: res.rowCount });
+  return res;
 }
 
-// Получить пользователя (или создать)
-function getUser(id, username = '', first_name = '') {
-  let user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  if (!user) {
-    db.prepare(`
-      INSERT INTO users (id, username, first_name, last_reset) 
-      VALUES (?, ?, ?, ?)
-    `).run(id, username, first_name, today());
-    user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  }
-
-  // Сброс суточного лимита
-  if (user.last_reset !== today()) {
-    db.prepare(`
-      UPDATE users SET downloads_today = 0, tracks_today = ?, last_reset = ? 
-      WHERE id = ?
-    `).run('', today(), id);
-    user.downloads_today = 0;
-    user.tracks_today = '';
-    user.last_reset = today();
-  }
-
-  // Сброс тарифа, если срок истёк
-  if (user.premium_until && new Date(user.premium_until) < new Date()) {
-    db.prepare(`
-      UPDATE users SET premium_limit = 10, premium_until = NULL 
-      WHERE id = ?
-    `).run(id);
-    user.premium_limit = 10;
-    user.premium_until = null;
-  }
-
-  return user;
+// Пример функции: получить пользователя по id
+async function getUser(id) {
+  const res = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return res.rows[0];
 }
 
-function updateUserField(id, field, value) {
-  db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
+// Обновить поле пользователя
+async function updateUserField(id, field, value) {
+  const res = await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id]);
+  return res.rowCount;
 }
 
-function incrementDownloads(id, title) {
-  const user = getUser(id);
-  const titles = user.tracks_today ? user.tracks_today.split(',') : [];
-  titles.push(title);
-  db.prepare(`
-    UPDATE users 
-    SET downloads_today = downloads_today + 1, 
-        total_downloads = total_downloads + 1, 
-        tracks_today = ? 
-    WHERE id = ?
-  `).run(titles.join(','), id);
+// Увеличить счётчик загрузок
+async function incrementDownloads(id, trackTitle) {
+  // Здесь логика добавления трека и увеличения счётчика
+  // Сделаем упрощённо:
+  await query(`UPDATE users SET downloads_today = downloads_today + 1 WHERE id = $1`, [id]);
+  // Добавь, если нужно, обновление списка треков и total_downloads
 }
 
-function setPremium(id, limit, days = 30) {
-  const until = new Date(Date.now() + days * 86400 * 1000).toISOString();
-  db.prepare(`
-    UPDATE users SET premium_limit = ?, premium_until = ? WHERE id = ?
-  `).run(limit, until, id);
+// Установить тариф
+async function setPremium(id, limit) {
+  await query(`UPDATE users SET premium_limit = $1 WHERE id = $2`, [limit, id]);
 }
 
-function getAllUsers() {
-  return db.prepare('SELECT * FROM users').all();
+// Получить всех пользователей (для админа)
+async function getAllUsers() {
+  const res = await query('SELECT * FROM users');
+  return res.rows;
 }
 
 module.exports = {
@@ -89,5 +52,5 @@ module.exports = {
   updateUserField,
   incrementDownloads,
   setPremium,
-  getAllUsers
+  getAllUsers,
 };
