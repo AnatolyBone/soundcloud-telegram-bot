@@ -20,12 +20,11 @@ CREATE TABLE IF NOT EXISTS users (
 function getUser(id, username = '') {
   let user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) {
-    db.prepare('INSERT INTO users (id, username, last_reset) VALUES (?, ?, ?)')
-      .run(id, username, today());
+    db.prepare('INSERT INTO users (id, username, last_reset) VALUES (?, ?, ?)').run(id, username, today());
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   }
 
-  // Сброс лимита если новый день
+  // Сброс лимита, если новый день
   if (user.last_reset !== today()) {
     db.prepare('UPDATE users SET downloads_today = 0, tracks_today = ?, last_reset = ? WHERE id = ?')
       .run('', today(), id);
@@ -45,7 +44,7 @@ function getUser(id, username = '') {
 }
 
 function updateUserField(id, field, value) {
-  db.prepare(\`UPDATE users SET \${field} = ? WHERE id = ?\`).run(value, id);
+  db.prepare('UPDATE users SET ' + field + ' = ? WHERE id = ?').run(value, id);
 }
 
 function incrementDownloads(id, title) {
