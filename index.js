@@ -1,6 +1,3 @@
-npm install googleapis @google-cloud/local-auth
-node backup.js
-
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const fs = require('fs');
