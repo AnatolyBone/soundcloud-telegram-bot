@@ -1,91 +1,76 @@
+// index.js
+require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
+const { google } = require('googleapis');
 const { exec } = require('child_process');
 const {
   getUser,
+  createUser,
   updateUserField,
   incrementDownloads,
   setPremium,
   getAllUsers
 } = require('./db');
 
-// --- Google Drive API ---
-const { google } = require('googleapis');
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
+const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
-const KEYFILEPATH = path.join(__dirname, 'service-account.json');
-
 const auth = new google.auth.GoogleAuth({
-  keyFile: KEYFILEPATH,
+  keyFile: path.join(__dirname, 'service-account.json'),
   scopes: SCOPES,
 });
-
 const drive = google.drive({ version: 'v3', auth });
 
 async function uploadBackup(filename, filepath) {
   try {
-    const response = await drive.files.create({
+    await drive.files.create({
       requestBody: {
         name: filename,
-        parents: ['1FjRTVO4rLCsKdeIg452M4-1MjpmfuChG'], // ВАЖНО: твой ID папки на Google Drive
+        parents: ['1FjRTVO4rLCsKdeIg452M4-1MjpmfuChG']
       },
       media: {
         body: fs.createReadStream(filepath),
       },
     });
-    console.log('Backup uploaded, file ID:', response.data.id);
-  } catch (error) {
-    console.error('Failed to upload backup:', error);
+    console.log('✅ Backup uploaded:', filename);
+  } catch (err) {
+    console.error('❌ Backup upload failed:', err);
   }
 }
 
-// --- Конфигурация бота ---
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
-const ADMIN_ID = 2018254756;
-
 const app = express();
 const bot = new Telegraf(BOT_TOKEN);
-
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Автоочистка кэша
 setInterval(() => {
-  const cutoff = Date.now() - 7 * 86400_000;
+  const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
-    const filePath = path.join(cacheDir, file);
-    if (fs.statSync(filePath).mtimeMs < cutoff) fs.unlinkSync(filePath);
+    const fp = path.join(cacheDir, file);
+    if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
   });
-}, 3600_000);
+}, 3600 * 1000);
 
-// --- Автоматический бэкап раз в 24 часа ---
 setInterval(async () => {
-  try {
-    const src = path.join(__dirname, 'database.sqlite');
-    if (!fs.existsSync(src)) {
-      console.warn('❗ Файл базы данных не найден для бэкапа:', src);
-      return;
-    }
-
-    const backupName = `backup_${Date.now()}.sqlite`;
-    const backupPath = path.join(__dirname, backupName);
-
-    fs.copyFileSync(src, backupPath);
-    console.log('Backup created:', backupName);
-
-    await uploadBackup(backupName, backupPath);
-
-    fs.unlinkSync(backupPath);
-  } catch (err) {
-    console.error('Backup error:', err);
+  const src = path.join(__dirname, 'database.sqlite');
+  if (!fs.existsSync(src)) {
+    console.warn('❗ No database.sqlite found for backup');
+    return;
   }
-}, 24 * 3600 * 1000); // каждые 24 часа
+  const fname = `backup_${Date.now()}.sqlite`;
+  const dst = path.join(__dirname, fname);
+  fs.copyFileSync(src, dst);
+  console.log('📁 Backup file created:', fname);
+  await uploadBackup(fname, dst);
+  fs.unlinkSync(dst);
+}, 24 * 3600 * 1000);
 
-// --- Тексты и клавиатура ---
 const texts = {
   ru: {
     start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -115,50 +100,54 @@ const texts = {
   }
 };
 
-const kb = lang => Markup.keyboard([
-  [texts[lang].menu, texts[lang].upgrade],
-  [texts[lang].mytracks, texts[lang].help]
-]).resize();
+const kb = lang =>
+  Markup.keyboard([
+    [texts[lang].menu, texts[lang].upgrade],
+    [texts[lang].mytracks, texts[lang].help]
+  ]).resize();
 
-// --- Команды и обработчики ---
-bot.start(ctx => {
-  const user = getUser(
-    ctx.from.id,
-    ctx.from.username || '',
-    ctx.from.first_name || ''
-  );
-  ctx.reply(texts[user.lang].start, kb(user.lang));
+const getLang = (u) => (u?.lang || 'ru');
+
+// Команда /start
+bot.start(async (ctx) => {
+  const { id, username, first_name } = ctx.from;
+  await createUser(id, username, first_name);
+  const u = await getUser(id);
+  ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
 });
 
-bot.hears([texts.ru.menu, texts.en.menu], ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].chooseLang, Markup.inlineKeyboard([
+// Меню
+bot.hears([texts.ru.menu, texts.en.menu], async (ctx) => {
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].chooseLang, Markup.inlineKeyboard([
     Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
     Markup.button.callback('🇬🇧 English', 'lang_en')
   ]));
 });
 
-bot.action(/lang_(\w+)/, ctx => {
+// Языковая смена
+bot.action(/lang_(\w+)/, async (ctx) => {
   const lang = ctx.match[1];
-  updateUserField(ctx.from.id, 'lang', lang);
+  await updateUserField(ctx.from.id, 'lang', lang);
   ctx.editMessageText(texts[lang].chooseLang + ' ✅');
   ctx.reply(texts[lang].start, kb(lang));
 });
 
-bot.hears([texts.ru.upgrade, texts.en.upgrade], ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].upgradeInfo);
+// Помощь и апгрейд
+bot.hears([texts.ru.upgrade, texts.en.upgrade], async ctx => {
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].upgradeInfo);
+});
+bot.hears([texts.ru.help, texts.en.help], async ctx => {
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].helpInfo);
 });
 
-bot.hears([texts.ru.help, texts.en.help], ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(texts[u.lang].helpInfo);
-});
-
-bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
-  const u = getUser(ctx.from.id);
+// Мои треки
+bot.hears([texts.ru.mytracks, texts.en.mytracks], async ctx => {
+  const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
-  if (list.length === 0) return ctx.reply('Сегодня нет треков.');
+  if (!list.length) return ctx.reply('Сегодня нет треков.');
   const media = list.map(name => {
     const fp = path.join(cacheDir, `${name}.mp3`);
     return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
@@ -168,104 +157,78 @@ bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
   }
 });
 
-bot.command('testdb', ctx => {
-  const user = getUser(ctx.from.id);
-  if (user) {
-    ctx.reply(`User ID: ${user.id}\nDownloads today: ${user.downloads_today}\nLimit: ${user.premium_limit}`);
-  } else {
-    ctx.reply('Пользователь не найден в базе');
-  }
+// Тест БД
+bot.command('testdb', async ctx => {
+  const u = await getUser(ctx.from.id);
+  if (u) {
+    ctx.reply(`ID: ${u.id}\nСегодня: ${u.downloads_today}/${u.premium_limit}`);
+  } else ctx.reply('Пользователь не найден');
 });
 
-bot.command('admin', ctx => {
+// Админ
+bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
-
-  const users = getAllUsers();
+  const users = await getAllUsers();
   const files = fs.readdirSync(cacheDir);
-  const totalSize = files.reduce((sum, file) => {
-    const stats = fs.statSync(path.join(cacheDir, file));
-    return sum + stats.size;
-  }, 0);
-
+  const totalSize = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
   const free = users.filter(u => u.premium_limit === 10).length;
   const plus = users.filter(u => u.premium_limit === 50).length;
   const pro = users.filter(u => u.premium_limit === 100).length;
   const unlimited = users.filter(u => u.premium_limit >= 1000).length;
-  const totalDownloads = users.reduce((sum, u) => sum + u.total_downloads, 0);
-
-  const summary =
-    `📊 Общая статистика:\n` +
-    `👥 Пользователей: ${users.length}\n` +
-    `📥 Загрузок: ${totalDownloads}\n` +
-    `📁 Кеш: ${files.length} файлов, ${(totalSize / 1024 / 1024).toFixed(1)} MB\n\n` +
-    `🔐 Тарифы:\n` +
-    `🆓 Free: ${free}\n` +
-    `🎯 Plus: ${plus}\n` +
-    `💪 Pro: ${pro}\n` +
-    `💎 Unlimited: ${unlimited}`;
-
+  const totalDownloads = users.reduce((s, u) => s + u.total_downloads, 0);
+  const summary = `📊 Пользователи: ${users.length}\n📥 Загрузок: ${totalDownloads}\n📁 Кеш: ${files.length} файлов, ${(totalSize/1024/1024).toFixed(1)} MB\n\n🆓 Free: ${free}\n🎯 Plus: ${plus}\n💪 Pro: ${pro}\n💎 Unlimited: ${unlimited}`;
   ctx.reply(summary);
-
-  const btns = users.map(u => {
+  const buttons = users.map(u => {
     const name = u.username ? '@' + u.username : u.id;
-    const label = `${name} | ${u.downloads_today}/${u.premium_limit}`;
-    return Markup.button.callback(label, `user_${u.id}`);
+    return Markup.button.callback(`${name} | ${u.downloads_today}/${u.premium_limit}`, `user_${u.id}`);
   });
-
-  ctx.reply('👥 Пользователи:', Markup.inlineKeyboard(btns, { columns: 1 }));
+  ctx.reply('👥 Пользователи:', Markup.inlineKeyboard(buttons, { columns: 1 }));
 });
 
-bot.action(/user_(\d+)/, ctx => {
+bot.action(/user_(\d+)/, async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const id = ctx.match[1];
-  ctx.reply('💳 Выбери тариф:', Markup.inlineKeyboard([
+  ctx.reply('💳 Выберите тариф:', Markup.inlineKeyboard([
     Markup.button.callback('Plus (50)', `plan_${id}_50`),
     Markup.button.callback('Pro (100)', `plan_${id}_100`),
     Markup.button.callback('Unlimited (∞)', `plan_${id}_1000`)
   ]));
 });
 
-bot.action(/plan_(\d+)_(\d+)/, ctx => {
+bot.action(/plan_(\d+)_(\d+)/, async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const [_, id, lim] = ctx.match;
-  setPremium(id, parseInt(lim));
-  ctx.reply(`✅ Пользователю ${id} установлен лимит: ${lim}`);
+  await setPremium(id, parseInt(lim));
+  ctx.reply(`✅ Лимит для ${id} установлен: ${lim}`);
 });
 
+// Бэкап вручную
 bot.command('backup', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
+  const u = await getUser(ctx.from.id);
   try {
     const src = path.join(__dirname, 'database.sqlite');
-    const backupName = `backup_manual_${Date.now()}.sqlite`;
-    const backupPath = path.join(__dirname, backupName);
-
-    fs.copyFileSync(src, backupPath);
-    await uploadBackup(backupName, backupPath);
-    fs.unlinkSync(backupPath);
-
-    ctx.reply(texts[getUser(ctx.from.id).lang].backupDone);
-  } catch (err) {
-    console.error('Manual backup error:', err);
-    ctx.reply(texts[getUser(ctx.from.id).lang].backupError);
+    const name = `backup_manual_${Date.now()}.sqlite`;
+    const dst = path.join(__dirname, name);
+    fs.copyFileSync(src, dst);
+    await uploadBackup(name, dst);
+    fs.unlinkSync(dst);
+    ctx.reply(texts[getLang(u)].backupDone);
+  } catch (e) {
+    console.error(e);
+    ctx.reply(texts[getLang(u)].backupError);
   }
 });
 
-// --- Обработка сообщений со ссылками SoundCloud ---
+// Скачивание треков
 bot.on('text', async ctx => {
-  const user = getUser(ctx.from.id);
-  const lang = user.lang;
   const text = ctx.message.text.trim();
-
   if (!text.includes('soundcloud.com')) return;
-
-  if (user.downloads_today >= user.premium_limit) {
-    return ctx.reply(texts[lang].limitReached);
-  }
-
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  if (u.downloads_today >= u.premium_limit) return ctx.reply(texts[lang].limitReached);
   ctx.reply(texts[lang].downloading);
-
   try {
-    // Получаем метаданные и файл через youtube-dl
     const info = await ytdl(text, {
       dumpSingleJson: true,
       noWarnings: true,
@@ -273,47 +236,33 @@ bot.on('text', async ctx => {
       preferFreeFormats: true,
       youtubeSkipDashManifest: true
     });
-
-    if (!info || !info.title) {
-      return ctx.reply(texts[lang].error);
+    if (!info || !info.title) throw new Error('no info');
+    const name = info.title.replace(/[^\w\d]/g, '_').slice(0, 50);
+    const fp = path.join(cacheDir, `${name}.mp3`);
+    if (!fs.existsSync(fp)) {
+      await ytdl(text, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: fp,
+        noWarnings: true,
+        noCheckCertificates: true,
+        preferFreeFormats: true,
+        youtubeSkipDashManifest: true
+      });
     }
-
-    const filename = info.title.replace(/[^\w\d]/g, '_');
-    const filepath = path.join(cacheDir, filename + '.mp3');
-
-    if (fs.existsSync(filepath)) {
-      ctx.reply(texts[lang].cached);
-      return ctx.replyWithAudio({ source: filepath });
-    }
-
-    await ytdl(text, {
-      extractAudio: true,
-      audioFormat: 'mp3',
-      output: filepath,
-      noWarnings: true,
-      noCheckCertificates: true,
-      preferFreeFormats: true,
-      youtubeSkipDashManifest: true
-    });
-
-    incrementDownloads(ctx.from.id, filename);
-
-    ctx.replyWithAudio({ source: filepath });
-  } catch (err) {
-    console.error('Download error:', err);
+    await incrementDownloads(ctx.from.id, name);
+    await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
+  } catch (e) {
+    console.error(e);
     ctx.reply(texts[lang].error);
   }
 });
 
-// --- Запуск сервера и webhook ---
 app.use(bot.webhookCallback('/telegram'));
+app.get('/', (_, res) => res.send('✅ OK'));
 
-app.get('/', (req, res) => {
-  res.send('SoundCloud Telegram Bot is running');
-});
+bot.telegram.setWebhook(WEBHOOK_URL)
+  .then(() => console.log('Webhook установлен'))
+  .catch(e => console.error('Webhook error', e));
 
-bot.telegram.setWebhook(WEBHOOK_URL).then(() => {
-  app.listen(process.env.PORT || 3000, () => {
-    console.log('Server started');
-  });
-});
+app.listen(process.env.PORT || 3000, () => console.log('Server listening'));
