@@ -1,6 +1,11 @@
 // db.js
 const { Pool } = require('pg');
+import postgres from 'postgres'
 
+const connectionString = process.env.DATABASE_URL
+const sql = postgres(connectionString)
+
+export default sql
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
