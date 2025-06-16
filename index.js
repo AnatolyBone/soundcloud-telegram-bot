@@ -62,8 +62,12 @@ const kb = lang => Markup.keyboard([
 
 // Команды
 bot.start(ctx => {
-  const u = getUser(ctx.from.id, ctx.from.username);
-  ctx.reply(texts[u.lang].start, kb(u.lang));
+  const user = getUser(
+    ctx.from.id,
+    ctx.from.username || '',
+    ctx.from.first_name || ''
+  );
+  ctx.reply(texts[user.lang].start, kb(user.lang));
 });
 
 bot.hears([texts.ru.menu, texts.en.menu], ctx => {
