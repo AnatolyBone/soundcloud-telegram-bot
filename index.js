@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const { google } = require('googleapis');
+const { createUser, getUser, updateUserField, incrementDownloads, setPremium, getAllUsers } = require('./db.js');
 const { exec } = require('child_process');
 const {
   getUser,
@@ -17,7 +18,7 @@ const {
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
+const ADMIN_ID = parseInt(process.env.ADMIN_ID, 1000);
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
