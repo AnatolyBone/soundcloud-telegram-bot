@@ -1,11 +1,12 @@
 const Database = require('better-sqlite3');
 const db = new Database('db.sqlite');
 
-// Создание таблицы
+// Создание таблицы (добавлено first_name)
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   username TEXT,
+  first_name TEXT,
   lang TEXT DEFAULT 'ru',
   premium_limit INTEGER DEFAULT 10,
   premium_until TEXT,
@@ -21,17 +22,22 @@ function today() {
 }
 
 // Получить пользователя (или создать)
-function getUser(id, username = '') {
+function getUser(id, username = '', first_name = '') {
   let user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) {
-    db.prepare('INSERT INTO users (id, username, last_reset) VALUES (?, ?, ?)').run(id, username, today());
+    db.prepare(`
+      INSERT INTO users (id, username, first_name, last_reset) 
+      VALUES (?, ?, ?, ?)
+    `).run(id, username, first_name, today());
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   }
 
-  // Сброс лимита если новый день
+  // Сброс суточного лимита
   if (user.last_reset !== today()) {
-    db.prepare('UPDATE users SET downloads_today = 0, tracks_today = ?, last_reset = ? WHERE id = ?')
-      .run('', today(), id);
+    db.prepare(`
+      UPDATE users SET downloads_today = 0, tracks_today = ?, last_reset = ? 
+      WHERE id = ?
+    `).run('', today(), id);
     user.downloads_today = 0;
     user.tracks_today = '';
     user.last_reset = today();
@@ -39,7 +45,10 @@ function getUser(id, username = '') {
 
   // Сброс тарифа, если срок истёк
   if (user.premium_until && new Date(user.premium_until) < new Date()) {
-    db.prepare('UPDATE users SET premium_limit = 10, premium_until = NULL WHERE id = ?').run(id);
+    db.prepare(`
+      UPDATE users SET premium_limit = 10, premium_until = NULL 
+      WHERE id = ?
+    `).run(id);
     user.premium_limit = 10;
     user.premium_until = null;
   }
@@ -48,22 +57,27 @@ function getUser(id, username = '') {
 }
 
 function updateUserField(id, field, value) {
-  const stmt = db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`);
-  stmt.run(value, id);
+  db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
 }
 
 function incrementDownloads(id, title) {
   const user = getUser(id);
   const titles = user.tracks_today ? user.tracks_today.split(',') : [];
   titles.push(title);
-  db.prepare(`UPDATE users SET downloads_today = downloads_today + 1, total_downloads = total_downloads + 1, tracks_today = ? WHERE id = ?`)
-    .run(titles.join(','), id);
+  db.prepare(`
+    UPDATE users 
+    SET downloads_today = downloads_today + 1, 
+        total_downloads = total_downloads + 1, 
+        tracks_today = ? 
+    WHERE id = ?
+  `).run(titles.join(','), id);
 }
 
 function setPremium(id, limit, days = 30) {
   const until = new Date(Date.now() + days * 86400 * 1000).toISOString();
-  db.prepare('UPDATE users SET premium_limit = ?, premium_until = ? WHERE id = ?')
-    .run(limit, until, id);
+  db.prepare(`
+    UPDATE users SET premium_limit = ?, premium_until = ? WHERE id = ?
+  `).run(limit, until, id);
 }
 
 function getAllUsers() {
