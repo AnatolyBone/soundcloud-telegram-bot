@@ -1,3 +1,6 @@
+npm install googleapis @google-cloud/local-auth
+node backup.js
+
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const fs = require('fs');
@@ -29,6 +32,14 @@ setInterval(() => {
     if (fs.statSync(filePath).mtimeMs < cutoff) fs.unlinkSync(filePath);
   });
 }, 3600_000);
+
+// ⏱️ Автоматический бэкап раз в 24 часа
+setInterval(() => {
+  exec('node backup.js', (err, stdout, stderr) => {
+    if (err) return console.error('❌ Backup error:', err);
+    console.log(stdout);
+  });
+}, 24 * 3600 * 1000);
 
 // Тексты
 const texts = {
@@ -163,6 +174,17 @@ bot.action(/plan_(\d+)_(\d+)/, ctx => {
   const [_, id, lim] = ctx.match;
   setPremium(id, parseInt(lim));
   ctx.reply(`✅ Пользователю ${id} установлен лимит: ${lim}`);
+});
+// 🆕 Команда /backup для ручного запуска бэкапа
+bot.command('backup', ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  exec('node backup.js', (err, stdout, stderr) => {
+    if (err) {
+      console.error('❌ Backup error:', err);
+      return ctx.reply(texts[getUser(ctx.from.id).lang].backupError);
+    }
+    ctx.reply(texts[getUser(ctx.from.id).lang].backupDone);
+  });
 });
 
 // Получение ссылки
