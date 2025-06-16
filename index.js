@@ -28,6 +28,14 @@ function getUser(id) {
   return users[uid];
 }
 
+// --- Logger ---
+const logFile = './logs.json';
+function logEvent(data) {
+  const logs = fs.existsSync(logFile) ? JSON.parse(fs.readFileSync(logFile)) : [];
+  logs.push({ time: new Date().toISOString(), ...data });
+  fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
+}
+
 // --- Queue ---
 const queues = new Map(), processing = new Set();
 function addToQueue(uid, task) {
@@ -50,7 +58,6 @@ async function processQueue(uid) {
 // --- Cache ---
 const cacheDir = path.resolve(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
 function cleanCache() {
   const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
   const today = todayStr();
@@ -94,8 +101,7 @@ const kb = lang => Markup.keyboard([
   [texts[lang].mytracks, texts[lang].help]
 ]).resize();
 
-// --- Helpers ---
-const tierName = (lim, lang) => {
+const tierName = (lim) => {
   if (lim >= 1000) return 'Unlimited 💎';
   if (lim >= 100) return 'Pro';
   if (lim >= 50) return 'Plus';
@@ -146,17 +152,10 @@ bot.hears([texts.ru.mytracks, texts.en.mytracks], async ctx => {
   }).filter(Boolean);
   if (media.length === 0) return ctx.reply(u.lang === 'ru' ? 'Файлы не найдены.' : 'Files not found.');
   for (let i = 0; i < media.length; i += 10) {
-    await ctx.replyWithMediaGroup(media.slice(i, i+10));
+    await ctx.replyWithMediaGroup(media.slice(i, i + 10));
   }
 });
 
-// --- Statistics ---
-bot.command('stats', ctx => {
-  const u = getUser(ctx.from.id);
-  ctx.reply(`📊 Total: ${u.downloads}\n📅 Today: ${u.count}`);
-});
-
-// --- Admin interface ---
 bot.command('admin', ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const ids = Object.keys(users);
@@ -199,10 +198,10 @@ bot.action(/plan_(\d+)_(\d+)/, ctx => {
   u.premiumLimit = parseInt(val, 10);
   saveUsers();
   ctx.answerCbQuery('Лимит обновлён');
-  ctx.reply(`✅ @${u.username || id} теперь имеет лимит: ${tierName(u.premiumLimit, u.lang)}`);
+  ctx.reply(`✅ @${u.username || id} теперь имеет лимит: ${tierName(u.premiumLimit)}`);
 });
 
-// --- Track download logic ---
+// --- Main logic ---
 const recent = new Set();
 bot.on('text', ctx => {
   const text = ctx.message.text;
@@ -217,8 +216,12 @@ bot.on('text', ctx => {
     if (u.date !== todayStr()) {
       u.date = todayStr(); u.count = 0; u.tracksToday = [];
     }
-    if (ctx.from.id !== ADMIN_ID && u.count >= u.premiumLimit)
-      return ctx.reply(texts[u.lang].limitReached);
+
+    if (ctx.from.id !== ADMIN_ID && u.count >= u.premiumLimit) {
+      ctx.reply(texts[u.lang].limitReached);
+      logEvent({ user_id: ctx.from.id, username: ctx.from.username, result: 'limit', url: text });
+      return;
+    }
 
     await ctx.reply(texts[u.lang].downloading);
 
@@ -233,12 +236,14 @@ bot.on('text', ctx => {
       u.tracksToday.push(title);
       u.count++; u.downloads++;
       saveUsers();
+      logEvent({ user_id: ctx.from.id, username: ctx.from.username, result: 'success', title });
 
       await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${title}.mp3` });
 
     } catch (e) {
       console.error(e);
       ctx.reply(e.message.includes('timeout') ? texts[u.lang].timeout : texts[u.lang].error);
+      logEvent({ user_id: ctx.from.id, username: ctx.from.username, result: 'error', error: e.message });
     }
   });
 });
