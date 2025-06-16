@@ -117,6 +117,15 @@ bot.hears([texts.ru.mytracks, texts.en.mytracks], ctx => {
   }
 });
 
+// Тест бд
+bot.command('testdb', ctx => {
+  const user = getUser(ctx.from.id);
+  if (user) {
+    ctx.reply(`User ID: ${user.id}\nDownloads today: ${user.downloads_today}\nLimit: ${user.premium_limit}`);
+  } else {
+    ctx.reply('Пользователь не найден в базе');
+  }
+});
 // Команда администратора
 bot.command('admin', ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
