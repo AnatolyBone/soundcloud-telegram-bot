@@ -1,7 +1,7 @@
 {
   "name": "soundcloud-telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot that downloads SoundCloud tracks using yt-dlp",
+  "description": "Telegram bot for downloading SoundCloud tracks via yt-dlp",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -9,11 +9,12 @@
   "dependencies": {
     "express": "^4.19.2",
     "telegraf": "^4.16.3",
-    "youtube-dl-exec": "^2.0.1"
+    "youtube-dl-exec": "^2.0.1",
+    "sqlite3": "^5.1.6"
   },
   "engines": {
     "node": ">=16"
   },
-  "author": "you",
-  "license": "ISC"
+  "author": "Anatoly Bone",
+  "license": "MIT"
 }
