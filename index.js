@@ -5,7 +5,8 @@ const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
-  setPremium, getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview
+  setPremium, getAllUsers, resetDailyStats, addReview,
+  saveTrackForUser, hasLeftReview
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -17,7 +18,6 @@ const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очистка кеша
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
@@ -26,7 +26,6 @@ setInterval(() => {
   });
 }, 3600 * 1000);
 
-// Ежедневный сброс лимитов
 setInterval(async () => {
   try {
     await resetDailyStats();
@@ -36,8 +35,8 @@ setInterval(async () => {
   }
 }, 24 * 3600 * 1000);
 
-// Очередь
 const queues = {};
+const reviewMode = new Set();
 
 const texts = {
   ru: {
@@ -52,37 +51,15 @@ const texts = {
     chooseLang: '🌐 Выберите язык:',
     reviewAsk: '✍️ Напиши свой отзыв о боте. После этого ты получишь тариф Plus на 30 дней.',
     reviewThanks: '✅ Спасибо за отзыв! Тебе выдан тариф Plus (50 треков/день) на 30 дней.',
+    alreadyReviewed: 'Ты уже оставил отзыв 😊 Спасибо!',
     noTracks: 'Сегодня нет треков.',
     queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
-    alreadyReviewed: 'Ты уже оставил отзыв 😊 Спасибо!',
     adminCommands:
       '\n\n📋 Команды админа:\n' +
       '/admin — статистика\n' +
       '/testdb — мои данные\n' +
       '/backup — резервная копия\n' +
-      '/reviews — все отзывы'
-  },
-  en: {
-    start: '👋 Send a SoundCloud track link.',
-    menu: '📋 Menu', upgrade: '🔓 Upgrade limit',
-    mytracks: '🎵 My tracks', help: 'ℹ️ Help',
-    downloading: '🎧 Downloading...', cached: '🔁 From cache...',
-    error: '❌ Error', timeout: '⏱ Timeout...', limitReached: '🚫 Limit reached.',
-    upgradeInfo:
-      '🚀 Want more tracks?\n\n🆓 Free – 10 🟢\nPlus – 50 🎯 (59₽)\nPro – 100 💪 (119₽)\nUnlimited – 💎 (199₽)\n\n👉 Donate: https://boosty.to/anatoly_bone/donate\n✉️ After payment message: @anatolybone',
-    helpInfo: 'ℹ️ Just send a SoundCloud link to get mp3.\n🔓 Upgrade — pay and confirm.\n🎵 My tracks — list of today\'s downloads.\n📋 Menu — change language.',
-    chooseLang: '🌐 Choose language:',
-    reviewAsk: '✍️ Write your review about the bot. You will receive Plus plan (50 tracks/day) for 30 days.',
-    reviewThanks: '✅ Thank you! You’ve got Plus (50 tracks/day) for 30 days.',
-    noTracks: 'No tracks today.',
-    queuePosition: pos => `⏳ Added to queue (#${pos})`,
-    alreadyReviewed: 'You already left a review 😊 Thanks!',
-    adminCommands:
-      '\n\n📋 Admin commands:\n' +
-      '/admin — stats\n' +
-      '/testdb — my data\n' +
-      '/backup — manual backup\n' +
-      '/reviews — all reviews'
+      '/reviews — отзывы'
   }
 };
 
@@ -101,7 +78,7 @@ bot.start(async ctx => {
   ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
 });
 
-bot.hears([texts.ru.menu, texts.en.menu], async ctx => {
+bot.hears(texts.ru.menu, async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].chooseLang, Markup.inlineKeyboard([
     Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
@@ -116,17 +93,16 @@ bot.action(/lang_(\w+)/, async ctx => {
   ctx.reply(texts[lang].start, kb(lang));
 });
 
-bot.hears([texts.ru.upgrade, texts.en.upgrade], async ctx => {
+bot.hears(texts.ru.upgrade, async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].upgradeInfo);
 });
 
-bot.hears([texts.ru.help, texts.en.help], async ctx => {
+bot.hears(texts.ru.help, async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].helpInfo);
 });
 
-const reviewMode = new Set();
 bot.hears('✍️ Оставить отзыв', async ctx => {
   const u = await getUser(ctx.from.id);
   if (await hasLeftReview(ctx.from.id)) {
@@ -147,27 +123,29 @@ bot.command('admin', async ctx => {
     pro: users.filter(u => u.premium_limit === 100).length,
     unlimited: users.filter(u => u.premium_limit >= 1000).length
   };
-  const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
+  const totalDownloads = users.reduce((s, u) => s + u.total_downloads, 0);
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
-  const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} files, ${(size / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
-  ctx.reply(msg + texts[lang].adminCommands);
+  const msg = `📊 Пользователи: ${users.length}\n📥 Загрузок: ${totalDownloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
+  await ctx.reply(msg + texts[lang].adminCommands);
+
+  const list = users.slice(-20).reverse();
+  for (const user of list) {
+    await ctx.reply(
+      `👤 @${user.username || '-'} (${user.first_name})\nID: ${user.id}\n📊 ${user.downloads_today}/${user.premium_limit}`,
+      Markup.inlineKeyboard([
+        Markup.button.callback('🆓 Free', `set_10_${user.id}`),
+        Markup.button.callback('🎯 Plus', `set_50_${user.id}`),
+        Markup.button.callback('💪 Pro', `set_100_${user.id}`),
+        Markup.button.callback('💎 Unlim', `set_1000_${user.id}`)
+      ])
+    );
+  }
 });
 
 bot.command('testdb', async ctx => {
   const u = await getUser(ctx.from.id);
-  ctx.reply(`ID: ${u.id}\n👤 Username: @${u.username}\n📅 Сегодня: ${u.downloads_today}/${u.premium_limit}`);
-});
-
-bot.command('backup', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
-  try {
-    const file = path.join(__dirname, 'reviews.json');
-    await ctx.replyWithDocument({ source: file, filename: 'reviews.json' });
-  } catch (e) {
-    console.error('❌', e);
-    ctx.reply('❌ Ошибка при выгрузке');
-  }
+  ctx.reply(`ID: ${u.id}\nСегодня: ${u.downloads_today}/${u.premium_limit}`);
 });
 
 bot.command('reviews', async ctx => {
@@ -183,7 +161,13 @@ bot.command('reviews', async ctx => {
   }
 });
 
-bot.hears([texts.ru.mytracks, texts.en.mytracks], async ctx => {
+bot.action(/set_(\d+)_(\d+)/, async ctx => {
+  const [_, limit, userId] = ctx.match;
+  await setPremium(userId, parseInt(limit));
+  await ctx.answerCbQuery(`✅ Установлен лимит ${limit}`);
+});
+
+bot.hears(texts.ru.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
   if (!list.length) return ctx.reply(texts[getLang(u)].noTracks);
