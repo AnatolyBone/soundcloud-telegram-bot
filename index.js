@@ -27,6 +27,17 @@ setInterval(() => {
   });
 }, 3600 * 1000);
 
+const { resetDailyStats } = require('./db');
+
+// Ежедневный сброс статистики (раз в сутки)
+setInterval(async () => {
+  try {
+    await resetDailyStats();
+    console.log('✅ Daily stats reset');
+  } catch (err) {
+    console.error('❌ Failed to reset daily stats:', err);
+  }
+}, 24 * 60 * 60 * 1000); // раз в 24 часа
 // Очередь загрузки: ID пользователя → массив задач
 const queues = {};
 
