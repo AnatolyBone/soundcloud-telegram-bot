@@ -185,7 +185,20 @@ bot.command('admin', async ctx => {
   });
   ctx.reply('👥 Пользователи:', Markup.inlineKeyboard(buttons, { columns: 1 }));
 });
+// Просмотр отзывов
+bot.command('reviews', async ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const file = path.join(__dirname, 'reviews.json');
+  if (!fs.existsSync(file)) return ctx.reply('❌ Отзывов пока нет.');
+  const reviews = JSON.parse(fs.readFileSync(file, 'utf8'));
 
+  if (!reviews.length) return ctx.reply('❌ Отзывов пока нет.');
+
+  for (const r of reviews.slice(-10).reverse()) {
+    const user = r.username ? `@${r.username}` : `${r.name || r.id}`;
+    await ctx.reply(`🗣 ${user}\n🕒 ${new Date(r.date).toLocaleString()}\n\n${r.text}`);
+  }
+});
 bot.action(/user_(\d+)/, async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const id = ctx.match[1];
