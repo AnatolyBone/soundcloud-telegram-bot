@@ -90,6 +90,18 @@ async function addReview(userId, text) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+async function hasLeftReview(userId) {
+  const filePath = path.join(__dirname, 'reviews.json');
+  if (!fs.existsSync(filePath)) return false;
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8') || '[]');
+    return data.some(r => r.userId === userId);
+  } catch (e) {
+    console.error('❌ Ошибка чтения reviews.json', e);
+    return false;
+  }
+}
+
 module.exports = {
   createUser,
   getUser,
@@ -100,4 +112,5 @@ module.exports = {
   resetDailyStats,
   addReview,
   saveTrackForUser,
+  hasLeftReview,
 };
