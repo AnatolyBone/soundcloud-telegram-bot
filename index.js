@@ -312,12 +312,15 @@ bot.on('text', async ctx => {
       const fp = path.join(cacheDir, `${name}.mp3`);
 
       if (!fs.existsSync(fp)) {
-        await ytdl(trackUrl, {
-          extractAudio: true,
+        await ytdl(text, {
+          extractAudio: true, 
           audioFormat: 'mp3',
-          output: fp
+          output: fp, 
+          noWarnings: true, 
+          noCheckCertificates: true,
+          preferFreeFormats: true, 
+          youtubeSkipDashManifest: true
         });
-      }
 
       await incrementDownloads(userId, name);
       await trackCtx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
