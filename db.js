@@ -1,3 +1,4 @@
+// db.js
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
@@ -17,8 +18,8 @@ async function query(text, params) {
 
 async function createUser(id, username, first_name) {
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads)
-    VALUES ($1, $2, $3, 0, 10, 0)
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, reviewed)
+    VALUES ($1, $2, $3, 0, 10, 0, false)
     ON CONFLICT (id) DO NOTHING
   `, [id, username, first_name]);
 }
@@ -32,7 +33,7 @@ async function updateUserField(id, field, value) {
   return (await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id])).rowCount;
 }
 
-async function incrementDownloads(id, trackTitle) {
+async function incrementDownloads(id) {
   await query(`
     UPDATE users SET 
       downloads_today = downloads_today + 1,
@@ -61,8 +62,6 @@ async function resetDailyStats() {
   await query(`
     UPDATE users SET downloads_today = 0, tracks_today = ''
   `);
-
-  // Удаление истекших тарифов
   await query(`
     UPDATE users
     SET premium_limit = 10, premium_until = NULL
@@ -90,15 +89,15 @@ async function addReview(userId, text) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-async function hasLeftReview(userId) {
+async function getAllReviews() {
   const filePath = path.join(__dirname, 'reviews.json');
-  if (!fs.existsSync(filePath)) return false;
+  if (!fs.existsSync(filePath)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8') || '[]');
-    return data.some(r => r.userId === userId);
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content);
   } catch (e) {
     console.error('❌ Ошибка чтения reviews.json', e);
-    return false;
+    return [];
   }
 }
 
@@ -112,5 +111,5 @@ module.exports = {
   resetDailyStats,
   addReview,
   saveTrackForUser,
-  hasLeftReview,
+  getAllReviews
 };
