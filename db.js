@@ -1,11 +1,8 @@
-// db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: { rejectUnauthorized: false },
 });
 
 async function query(text, params) {
@@ -18,8 +15,8 @@ async function query(text, params) {
 
 async function createUser(id, username, first_name) {
   const text = `
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit)
-    VALUES ($1, $2, $3, 0, 10)
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, tracks_today)
+    VALUES ($1, $2, $3, 0, 10, '')
     ON CONFLICT (id) DO NOTHING
   `;
   await query(text, [id, username, first_name]);
@@ -36,7 +33,15 @@ async function updateUserField(id, field, value) {
 }
 
 async function incrementDownloads(id, trackTitle) {
-  await query(`UPDATE users SET downloads_today = downloads_today + 1 WHERE id = $1`, [id]);
+  // Увеличиваем количество скачек и добавляем имя трека в список
+  const user = await getUser(id);
+  const updatedList = user.tracks_today ? `${user.tracks_today},${trackTitle}` : trackTitle;
+  await query(`
+    UPDATE users
+    SET downloads_today = downloads_today + 1,
+        tracks_today = $1
+    WHERE id = $2
+  `, [updatedList, id]);
 }
 
 async function setPremium(id, limit) {
@@ -48,6 +53,10 @@ async function getAllUsers() {
   return res.rows;
 }
 
+async function resetDailyStats() {
+  await query(`UPDATE users SET downloads_today = 0, tracks_today = ''`);
+}
+
 module.exports = {
   createUser,
   getUser,
@@ -55,4 +64,5 @@ module.exports = {
   incrementDownloads,
   setPremium,
   getAllUsers,
+  resetDailyStats
 };
