@@ -1,8 +1,11 @@
+// db.js
 const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 
 async function query(text, params) {
@@ -33,15 +36,20 @@ async function updateUserField(id, field, value) {
 }
 
 async function incrementDownloads(id, trackTitle) {
-  // Увеличиваем количество скачек и добавляем имя трека в список
+  await query(`UPDATE users SET downloads_today = downloads_today + 1 WHERE id = $1`, [id]);
+}
+
+async function saveTrackForUser(id, trackTitle) {
   const user = await getUser(id);
-  const updatedList = user.tracks_today ? `${user.tracks_today},${trackTitle}` : trackTitle;
+  const updated = user.tracks_today
+    ? `${user.tracks_today},${trackTitle}`
+    : trackTitle;
   await query(`
     UPDATE users
     SET downloads_today = downloads_today + 1,
         tracks_today = $1
     WHERE id = $2
-  `, [updatedList, id]);
+  `, [updated, id]);
 }
 
 async function setPremium(id, limit) {
@@ -64,5 +72,6 @@ module.exports = {
   incrementDownloads,
   setPremium,
   getAllUsers,
-  resetDailyStats
+  resetDailyStats,
+  saveTrackForUser, // 🔥 экспортируем функцию
 };
