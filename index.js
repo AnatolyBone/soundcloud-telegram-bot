@@ -276,40 +276,58 @@ bot.on('message', async ctx => {
   // Далее — обычная проверка ссылки
 });
 // Скачивание треков
+const queues = {};
+
 bot.on('text', async ctx => {
   const text = ctx.message.text.trim();
   if (!text.includes('soundcloud.com')) return;
-  const u = await getUser(ctx.from.id);
+
+  const userId = ctx.from.id;
+  const u = await getUser(userId);
   const lang = getLang(u);
-  if (u.downloads_today >= u.premium_limit) return ctx.reply(texts[lang].limitReached);
-  ctx.reply(texts[lang].downloading);
-  try {
-    const info = await ytdl(text, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificates: true,
-      preferFreeFormats: true,
-      youtubeSkipDashManifest: true
-    });
-    if (!info || !info.title) throw new Error('no info');
-    const name = info.title.replace(/[^\w\d]/g, '_').slice(0, 50);
-    const fp = path.join(cacheDir, `${name}.mp3`);
-    if (!fs.existsSync(fp)) {
-      await ytdl(text, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: fp,
-        noWarnings: true,
-        noCheckCertificates: true,
-        preferFreeFormats: true,
-        youtubeSkipDashManifest: true
-      });
+
+  if (u.downloads_today >= u.premium_limit)
+    return ctx.reply(texts[lang].limitReached);
+
+  if (!queues[userId]) queues[userId] = [];
+
+  const queue = queues[userId];
+  queue.push({ text, ctx });
+
+  const pos = queue.length;
+  await ctx.reply(`⏳ Трек добавлен в очередь (#${pos})`);
+
+  if (pos > 1) return;
+
+  while (queue.length > 0) {
+    const item = queue[0];
+    const { text: trackUrl, ctx: trackCtx } = item;
+
+    try {
+      await trackCtx.reply(texts[lang].downloading);
+
+      const info = await ytdl(trackUrl, { dumpSingleJson: true });
+      if (!info || !info.title) throw new Error('no info');
+      const name = info.title.replace(/[^\w\d]/g, '_').slice(0, 50);
+      const fp = path.join(cacheDir, `${name}.mp3`);
+
+      if (!fs.existsSync(fp)) {
+        await ytdl(trackUrl, {
+          extractAudio: true,
+          audioFormat: 'mp3',
+          output: fp
+        });
+      }
+
+      await incrementDownloads(userId, name);
+      await trackCtx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
+
+    } catch (e) {
+      console.error(e);
+      await trackCtx.reply(texts[lang].error);
     }
-    await incrementDownloads(ctx.from.id, name);
-    await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
-  } catch (e) {
-    console.error(e);
-    ctx.reply(texts[lang].error);
+
+    queue.shift();
   }
 });
 
