@@ -321,7 +321,7 @@ bot.on('text', async ctx => {
           preferFreeFormats: true, 
           youtubeSkipDashManifest: true
         });
-
+}
       await incrementDownloads(userId, name);
       await trackCtx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
 
