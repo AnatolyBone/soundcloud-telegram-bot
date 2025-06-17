@@ -1,11 +1,10 @@
-// db.js
 const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: { rejectUnauthorized: false }
 });
 
 async function query(text, params) {
@@ -17,12 +16,11 @@ async function query(text, params) {
 }
 
 async function createUser(id, username, first_name) {
-  const text = `
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, tracks_today)
-    VALUES ($1, $2, $3, 0, 10, '')
+  await query(`
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads)
+    VALUES ($1, $2, $3, 0, 10, 0)
     ON CONFLICT (id) DO NOTHING
-  `;
-  await query(text, [id, username, first_name]);
+  `, [id, username, first_name]);
 }
 
 async function getUser(id) {
@@ -31,29 +29,45 @@ async function getUser(id) {
 }
 
 async function updateUserField(id, field, value) {
-  const res = await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id]);
-  return res.rowCount;
+  return (await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id])).rowCount;
 }
 
 async function incrementDownloads(id, trackTitle) {
-  await query(`UPDATE users SET downloads_today = downloads_today + 1 WHERE id = $1`, [id]);
+  await query(`
+    UPDATE users SET 
+      downloads_today = downloads_today + 1,
+      total_downloads = total_downloads + 1
+    WHERE id = $1
+  `, [id]);
 }
 
-async function saveTrackForUser(id, trackTitle) {
+async function saveTrackForUser(id, title) {
   const user = await getUser(id);
-  const updated = user.tracks_today
-    ? `${user.tracks_today},${trackTitle}`
-    : trackTitle;
+  let updated = user.tracks_today || '';
+  updated = updated ? `${updated},${title}` : title;
+  await query(`UPDATE users SET tracks_today = $1 WHERE id = $2`, [updated, id]);
+}
+
+async function setPremium(id, limit, days = null) {
+  await query(`UPDATE users SET premium_limit = $1 WHERE id = $2`, [limit, id]);
+  if (days) {
+    const until = new Date(Date.now() + days * 86400000).toISOString();
+    await query(`UPDATE users SET premium_until = $1 WHERE id = $2`, [until, id]);
+  }
+}
+
+async function resetDailyStats() {
+  const now = new Date().toISOString();
+  await query(`
+    UPDATE users SET downloads_today = 0, tracks_today = ''
+  `);
+
+  // Удаление истекших тарифов
   await query(`
     UPDATE users
-    SET downloads_today = downloads_today + 1,
-        tracks_today = $1
-    WHERE id = $2
-  `, [updated, id]);
-}
-
-async function setPremium(id, limit) {
-  await query(`UPDATE users SET premium_limit = $1 WHERE id = $2`, [limit, id]);
+    SET premium_limit = 10, premium_until = NULL
+    WHERE premium_until IS NOT NULL AND premium_until < $1
+  `, [now]);
 }
 
 async function getAllUsers() {
@@ -61,8 +75,19 @@ async function getAllUsers() {
   return res.rows;
 }
 
-async function resetDailyStats() {
-  await query(`UPDATE users SET downloads_today = 0, tracks_today = ''`);
+async function addReview(userId, text) {
+  const filePath = path.join(__dirname, 'reviews.json');
+  let data = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      data = JSON.parse(content);
+    } catch (e) {
+      console.error('❌ Ошибка чтения reviews.json', e);
+    }
+  }
+  data.push({ userId, text, time: new Date().toISOString() });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
 module.exports = {
@@ -73,5 +98,6 @@ module.exports = {
   setPremium,
   getAllUsers,
   resetDailyStats,
-  saveTrackForUser, // 🔥 экспортируем функцию
+  addReview,
+  saveTrackForUser,
 };
