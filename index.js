@@ -103,7 +103,8 @@ const texts = {
 const kb = lang =>
   Markup.keyboard([
     [texts[lang].menu, texts[lang].upgrade],
-    [texts[lang].mytracks, texts[lang].help]
+    [texts[lang].mytracks, texts[lang].help],
+    ['✍️ Оставить отзыв'] // 👈 новая кнопка
   ]).resize();
 
 const getLang = (u) => (u?.lang || 'ru');
@@ -219,7 +220,48 @@ bot.command('backup', async ctx => {
     ctx.reply(texts[getLang(u)].backupError);
   }
 });
+// Ожидание отзыва
+const pendingReviews = new Map();
 
+bot.hears('✍️ Оставить отзыв', async ctx => {
+  const u = await getUser(ctx.from.id);
+  ctx.reply('✍️ Напиши свой отзыв одним сообщением. За отзыв ты получишь тариф Plus (50 треков в день) на 30 дней 🎁');
+  pendingReviews.set(ctx.from.id, true);
+});
+
+bot.on('message', async ctx => {
+  const uid = ctx.from.id;
+  const u = await getUser(uid);
+  const lang = getLang(u);
+
+  // Отзыв
+  if (pendingReviews.get(uid) && ctx.message.text) {
+    const review = {
+      id: uid,
+      username: ctx.from.username || '',
+      name: ctx.from.first_name || '',
+      text: ctx.message.text.trim(),
+      date: new Date().toISOString()
+    };
+
+    const filePath = path.join(__dirname, 'reviews.json');
+    let reviews = [];
+    if (fs.existsSync(filePath)) {
+      reviews = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+    reviews.push(review);
+    fs.writeFileSync(filePath, JSON.stringify(reviews, null, 2));
+    pendingReviews.delete(uid);
+
+    // Выдача тарифа Plus на месяц
+    const thirtyDays = Date.now() + 30 * 86400 * 1000;
+    await setPremium(uid, 50, thirtyDays);
+
+    return ctx.reply('✅ Спасибо за отзыв! Тебе выдан тариф Plus на 30 дней 🎉');
+  }
+
+  // Далее — обычная проверка ссылки
+});
 // Скачивание треков
 bot.on('text', async ctx => {
   const text = ctx.message.text.trim();
