@@ -1,12 +1,13 @@
+// index.js
+
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
-const { google } = require('googleapis');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
-  setPremium, getAllUsers, addReview, saveTrackForUser
+  setPremium, getAllUsers, addReview, saveTrackForUser, resetDailyStats
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -27,9 +28,7 @@ setInterval(() => {
   });
 }, 3600 * 1000);
 
-const { resetDailyStats } = require('./db');
-
-// Ежедневный сброс статистики (раз в сутки)
+// Сброс лимитов раз в сутки
 setInterval(async () => {
   try {
     await resetDailyStats();
@@ -37,8 +36,9 @@ setInterval(async () => {
   } catch (err) {
     console.error('❌ Failed to reset daily stats:', err);
   }
-}, 24 * 60 * 60 * 1000); // раз в 24 часа
-// Очередь загрузки: ID пользователя → массив задач
+}, 24 * 3600 * 1000);
+
+// Персональные очереди
 const queues = {};
 
 const texts = {
@@ -56,6 +56,11 @@ const texts = {
     reviewThanks: '✅ Спасибо за отзыв! Тебе выдан тариф Plus (50 треков/день) на 30 дней.',
     noTracks: 'Сегодня нет треков.',
     queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
+    adminCommands:
+      '\n\n📋 Команды админа:\n' +
+      '/admin — статистика и тарифы\n' +
+      '/testdb — проверить данные о себе\n' +
+      '/backup — ручной бэкап базы'
   },
   en: {
     start: '👋 Send a SoundCloud track link.',
@@ -71,6 +76,11 @@ const texts = {
     reviewThanks: '✅ Thank you! You’ve got Plus (50 tracks/day) for 30 days.',
     noTracks: 'No tracks today.',
     queuePosition: pos => `⏳ Added to queue (#${pos})`,
+    adminCommands:
+      '\n\n📋 Admin commands:\n' +
+      '/admin — stats & plans\n' +
+      '/testdb — check your data\n' +
+      '/backup — manual DB backup'
   }
 };
 
@@ -85,20 +95,20 @@ const getLang = u => u?.lang || 'ru';
 
 // /start
 bot.start(async ctx => {
-  const u = ctx.from;
-  await createUser(u.id, u.username, u.first_name);
-  const user = await getUser(u.id);
-  ctx.reply(texts[getLang(user)].start, kb(getLang(user)));
+  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
 });
 
 // Меню
 bot.hears([texts.ru.menu, texts.en.menu], async ctx => {
-  const user = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(user)].chooseLang, Markup.inlineKeyboard([
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].chooseLang, Markup.inlineKeyboard([
     Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
     Markup.button.callback('🇬🇧 English', 'lang_en')
   ]));
 });
+
 bot.action(/lang_(\w+)/, async ctx => {
   const lang = ctx.match[1];
   await updateUserField(ctx.from.id, 'lang', lang);
@@ -106,28 +116,34 @@ bot.action(/lang_(\w+)/, async ctx => {
   ctx.reply(texts[lang].start, kb(lang));
 });
 
-// Апгрейд / помощь
-bot.hears([texts.ru.upgrade, texts.en.upgrade], async ctx => {
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].upgradeInfo);
-});
-bot.hears([texts.ru.help, texts.en.help], async ctx => {
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].helpInfo);
-});
-
-// Отзывы
+// Отзыв
 const reviewMode = new Set();
 bot.hears('✍️ Оставить отзыв', async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].reviewAsk);
   reviewMode.add(ctx.from.id);
 });
+
+// Мои треки
+bot.hears([texts.ru.mytracks, texts.en.mytracks], async ctx => {
+  const u = await getUser(ctx.from.id);
+  const list = u.tracks_today?.split(',').filter(Boolean) || [];
+  if (!list.length) return ctx.reply(texts[getLang(u)].noTracks);
+  const media = list.map(name => {
+    const fp = path.join(cacheDir, `${name}.mp3`);
+    return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
+  }).filter(Boolean);
+  for (let i = 0; i < media.length; i += 10) {
+    await ctx.replyWithMediaGroup(media.slice(i, i + 10));
+  }
+});
+
+// Сообщение с отзывом
 bot.on('text', async ctx => {
   if (reviewMode.has(ctx.from.id)) {
     reviewMode.delete(ctx.from.id);
     await addReview(ctx.from.id, ctx.message.text);
-    await setPremium(ctx.from.id, 50, 30); // 30 дней тарифа Plus
+    await setPremium(ctx.from.id, 50, 30);
     const u = await getUser(ctx.from.id);
     return ctx.reply(texts[getLang(u)].reviewThanks, kb(getLang(u)));
   }
@@ -135,9 +151,9 @@ bot.on('text', async ctx => {
   const url = ctx.message.text;
   if (!url.includes('soundcloud.com')) return;
 
-  const user = await getUser(ctx.from.id);
-  const lang = getLang(user);
-  if (user.downloads_today >= user.premium_limit) return ctx.reply(texts[lang].limitReached);
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  if (u.downloads_today >= u.premium_limit) return ctx.reply(texts[lang].limitReached);
 
   if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
   const pos = queues[ctx.from.id].length + 1;
@@ -147,7 +163,7 @@ bot.on('text', async ctx => {
 });
 
 async function processNext(userId) {
-  if (!queues[userId] || queues[userId].length === 0) return;
+  if (!queues[userId]?.length) return;
   const job = queues[userId][0];
   await job();
   queues[userId].shift();
@@ -163,9 +179,7 @@ async function processTrack(ctx, url) {
     const name = (info.title || 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
-      await ytdl(url, {
-        extractAudio: true, audioFormat: 'mp3', output: fp
-      });
+      await ytdl(url, { extractAudio: true, audioFormat: 'mp3', output: fp });
     }
     await incrementDownloads(ctx.from.id, name);
     await saveTrackForUser(ctx.from.id, name);
@@ -176,20 +190,45 @@ async function processTrack(ctx, url) {
   }
 }
 
-// Мои треки
-bot.hears([texts.ru.mytracks, texts.en.mytracks], async ctx => {
+// Команды админа
+bot.command('admin', async ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const users = await getAllUsers();
+  const files = fs.readdirSync(cacheDir);
+  const totalSize = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
+  const stats = {
+    free: users.filter(u => u.premium_limit === 10).length,
+    plus: users.filter(u => u.premium_limit === 50).length,
+    pro: users.filter(u => u.premium_limit === 100).length,
+    unlimited: users.filter(u => u.premium_limit >= 1000).length
+  };
+  const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
   const u = await getUser(ctx.from.id);
-  const list = u.tracks_today?.split(',').filter(Boolean) || [];
-  if (!list.length) return ctx.reply(texts[getLang(u)].noTracks);
-  const media = list.map(name => {
-    const fp = path.join(cacheDir, `${name}.mp3`);
-    return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
-  }).filter(Boolean);
-  for (let i = 0; i < media.length; i += 10) {
-    ctx.replyWithMediaGroup(media.slice(i, i + 10));
+  const lang = getLang(u);
+  const summary = `📊 Пользователи: ${users.length}\n📥 Загрузок: ${downloads}\n📁 Кеш: ${files.length} файлов, ${(totalSize / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
+  ctx.reply(summary + texts[lang].adminCommands);
+});
+
+bot.command('testdb', async ctx => {
+  const u = await getUser(ctx.from.id);
+  if (!u) return ctx.reply('Пользователь не найден');
+  ctx.reply(`ID: ${u.id}\nСегодня: ${u.downloads_today}/${u.premium_limit}`);
+});
+
+bot.command('backup', async ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  try {
+    const src = path.join(__dirname, 'database.sqlite');
+    const dst = path.join(__dirname, `backup_${Date.now()}.sqlite`);
+    fs.copyFileSync(src, dst);
+    ctx.reply('✅ Бэкап готов');
+  } catch (e) {
+    console.error(e);
+    ctx.reply('❌ Ошибка при бэкапе');
   }
 });
 
+// Webhook
 app.use(bot.webhookCallback('/telegram'));
 app.get('/', (_, res) => res.send('✅ OK'));
 
