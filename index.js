@@ -1,5 +1,7 @@
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
+const session = require('express-session');
+const ejs = require('ejs');
 const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
@@ -18,6 +20,7 @@ const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
+// Очистка кеша
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
@@ -26,6 +29,7 @@ setInterval(() => {
   });
 }, 3600 * 1000);
 
+// Сброс суточной статистики
 setInterval(async () => {
   try {
     await resetDailyStats();
@@ -71,6 +75,8 @@ const kb = lang =>
   ]).resize();
 
 const getLang = u => u?.lang || 'ru';
+
+// Telegram-логика
 
 bot.start(async ctx => {
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
@@ -152,12 +158,6 @@ bot.command('reviews', async ctx => {
   }
 });
 
-bot.action(/set_(\d+)_(\d+)/, async ctx => {
-  const [_, limit, userId] = ctx.match;
-  await setPremium(userId, parseInt(limit));
-  await ctx.answerCbQuery(`✅ Установлен лимит ${limit}`);
-});
-
 bot.hears(texts.ru.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
@@ -222,7 +222,57 @@ async function processTrack(ctx, url) {
   }
 }
 
+// Webhook
 app.use(bot.webhookCallback('/telegram'));
+
+// ==== Веб-админка ====
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'secret',
+  resave: false,
+  saveUninitialized: false
+}));
+
+function requireAuth(req, res, next) {
+  if (req.session.authenticated) return next();
+  res.redirect('/admin');
+}
+
+app.get('/admin', (req, res) => {
+  res.render('login', { error: null });
+});
+
+app.post('/admin', (req, res) => {
+  const { username, password } = req.body;
+  if (
+    username === process.env.ADMIN_LOGIN &&
+    password === process.env.ADMIN_PASSWORD
+  ) {
+    req.session.authenticated = true;
+    return res.redirect('/dashboard');
+  }
+  res.render('login', { error: 'Неверные данные' });
+});
+
+app.get('/dashboard', requireAuth, async (req, res) => {
+  const users = await getAllUsers();
+  const stats = {
+    free: users.filter(u => u.premium_limit === 10).length,
+    plus: users.filter(u => u.premium_limit === 50).length,
+    pro: users.filter(u => u.premium_limit === 100).length,
+    unlim: users.filter(u => u.premium_limit >= 1000).length
+  };
+  res.render('dashboard', { users, stats });
+});
+
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/admin');
+  });
+});
+
 app.get('/', (_, res) => res.send('✅ OK'));
 
 bot.telegram.setWebhook(WEBHOOK_URL)
