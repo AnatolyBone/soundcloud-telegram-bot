@@ -295,11 +295,17 @@ const { getLatestReviews } = require('./db');
 
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
+
+  // Предположим, что у каждого user есть поле downloads_today или downloads_total
+  const totalDownloads = users.reduce((sum, u) => sum + (u.downloads_today || 0), 0);
+
   const stats = {
+    totalUsers: users.length,
+    totalDownloads,
     free: users.filter(u => u.premium_limit === 10).length,
     plus: users.filter(u => u.premium_limit === 50).length,
     pro: users.filter(u => u.premium_limit === 100).length,
-    unlim: users.filter(u => u.premium_limit >= 1000).length
+    unlimited: users.filter(u => u.premium_limit >= 1000).length
   };
 
   const reviews = await getLatestReviews(10);
