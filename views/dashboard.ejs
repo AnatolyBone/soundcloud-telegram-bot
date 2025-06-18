@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Panel</title>
+  <meta charset="UTF-8" />
+</head>
+<body>
+  <h1>📊 Admin Dashboard</h1>
+  <p>Total users: <%= stats.totalUsers %></p>
+  <p>Total downloads: <%= stats.totalDownloads %></p>
+  <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
+
+  <h3>📝 Latest Reviews:</h3>
+  <ul>
+    <% reviews.forEach(r => { %>
+      <li><strong><%= r.time %></strong>: <%= r.text %></li>
+    <% }) %>
+  </ul>
+</body>
+</html>
