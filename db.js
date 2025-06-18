@@ -58,10 +58,7 @@ async function setPremium(id, limit, days = null) {
 
 async function resetDailyStats() {
   const now = new Date().toISOString();
-  await query(`
-    UPDATE users SET downloads_today = 0, tracks_today = ''
-  `);
-
+  await query(`UPDATE users SET downloads_today = 0, tracks_today = ''`);
   await query(`
     UPDATE users
     SET premium_limit = 10, premium_until = NULL
@@ -77,6 +74,7 @@ async function getAllUsers() {
 async function addReview(userId, text) {
   const filePath = path.join(__dirname, 'reviews.json');
   let data = [];
+
   if (fs.existsSync(filePath)) {
     try {
       const content = fs.readFileSync(filePath, 'utf8');
@@ -85,6 +83,7 @@ async function addReview(userId, text) {
       console.error('❌ Ошибка чтения reviews.json', e);
     }
   }
+
   data.push({ userId, text, time: new Date().toISOString() });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 
@@ -94,6 +93,18 @@ async function addReview(userId, text) {
 async function hasLeftReview(userId) {
   const res = await query('SELECT has_reviewed FROM users WHERE id = $1', [userId]);
   return res.rows[0]?.has_reviewed;
+}
+
+async function getReviews() {
+  const filePath = path.join(__dirname, 'reviews.json');
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content);
+  } catch (e) {
+    console.error('❌ Ошибка чтения reviews.json', e);
+    return [];
+  }
 }
 
 module.exports = {
@@ -106,5 +117,6 @@ module.exports = {
   resetDailyStats,
   addReview,
   saveTrackForUser,
-  hasLeftReview
+  hasLeftReview,
+  getReviews
 };
