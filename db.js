@@ -87,6 +87,13 @@ async function addReview(userId, text) {
   }
   data.push({ userId, text, time: new Date().toISOString() });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+
+  await query('UPDATE users SET has_reviewed = true WHERE id = $1', [userId]);
+}
+
+async function hasLeftReview(userId) {
+  const res = await query('SELECT has_reviewed FROM users WHERE id = $1', [userId]);
+  return res.rows[0]?.has_reviewed;
 }
 
 module.exports = {
@@ -99,4 +106,5 @@ module.exports = {
   resetDailyStats,
   addReview,
   saveTrackForUser,
+  hasLeftReview
 };
