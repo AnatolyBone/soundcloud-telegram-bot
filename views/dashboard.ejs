@@ -10,7 +10,27 @@
   <p>Total downloads: <%= stats.totalDownloads %></p>
   <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
 
-  <h3>👤 Пользователи (последние 20)</h3>
+<h3>👤 Все пользователи (<%= users.length %>)</h3>
+<table border="1" cellpadding="5">
+  <tr>
+    <th>ID</th>
+    <th>Username</th>
+    <th>Имя</th>
+    <th>Скачано</th>
+    <th>Лимит</th>
+    <th>Сменить тариф</th>
+  </tr>
+  <% users.slice().reverse().forEach(user => { %>
+<table border="1" cellpadding="5">
+  <tr>
+    <th>ID</th>
+    <th>Username</th>
+    <th>Имя</th>
+    <th>Скачано</th>
+    <th>Лимит</th>
+    <th>Сменить тариф</th>
+  </tr>
+  <% users.slice().reverse().forEach(user => { %>)</h3>
   <table border="1" cellpadding="5">
     <tr>
       <th>ID</th>
