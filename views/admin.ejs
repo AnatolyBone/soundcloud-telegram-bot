@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html><head><title>Bot Admin</title></head>
+<body>
+  <h1>Админка бота</h1>
+  <h2>Пользователи</h2>
+  <form method="POST" action="/admin/plan">
+    <table border="1">
+      <tr><th>ID</th><th>Username</th><th>Сегодня (лимит)</th><th>Выбрать план</th></tr>
+      <% users.forEach(u => { %>
+      <tr>
+        <td><%= u.id %></td>
+        <td><%= u.username || '-' %></td>
+        <td><%= u.downloads_today %> / <%= u.premium_limit %></td>
+        <td>
+          <select name="plan">
+            <option value="10" <% if(u.premium_limit===10) { %>selected<% } %>>Free</option>
+            <option value="50" <% if(u.premium_limit===50) { %>selected<% } %>>Plus</option>
+            <option value="100" <% if(u.premium_limit===100) { %>selected<% } %>>Pro</option>
+            <option value="1000" <% if(u.premium_limit>=1000) { %>selected<% } %>>Unlimited</option>
+          </select>
+          <input type="hidden" name="userId" value="<%= u.id %>"/>
+          <button type="submit">Сохранить</button>
+        </td>
+      </tr>
+      <% }) %>
+    </table>
+  </form>
+
+  <h2>Отзывы</h2>
+  <% reviews.forEach(r => { %>
+    <p><strong><%= r.userId %>:</strong> <%= r.text %> <em>(<%= r.time %>)</em></p>
+  <% }) %>
+</body></html>
