@@ -291,6 +291,8 @@ app.post('/admin/login', (req, res) => {
   res.render('login', { error: 'Неверные данные' });
 });
 
+const { getLatestReviews } = require('./db');
+
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
   const stats = {
@@ -299,7 +301,10 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     pro: users.filter(u => u.premium_limit === 100).length,
     unlim: users.filter(u => u.premium_limit >= 1000).length
   };
-res.render('dashboard', { users, stats, reviews: [] });
+
+  const reviews = await getLatestReviews(10);
+
+  res.render('dashboard', { users, stats, reviews });
 });
 
 app.get('/logout', (req, res) => {
