@@ -123,12 +123,12 @@ bot.command('admin', async ctx => {
     pro: users.filter(u => u.premium_limit === 100).length,
     unlimited: users.filter(u => u.premium_limit >= 1000).length
   };
-  const totalDownloads = users.reduce((s, u) => s + u.total_downloads, 0);
+  const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
-  const msg = `📊 Пользователи: ${users.length}\n📥 Загрузок: ${totalDownloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
-  await ctx.reply(msg + texts[lang].adminCommands);
-
+  const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} files, ${(size / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
+  ctx.reply(msg + texts[lang].adminCommands);
+});
   const list = users.slice(-20).reverse();
   for (const user of list) {
     await ctx.reply(
