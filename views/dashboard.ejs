@@ -9,7 +9,38 @@
   <p>Total users: <%= stats.totalUsers %></p>
   <p>Total downloads: <%= stats.totalDownloads %></p>
   <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
-
+<h3>👤 Пользователи (последние 20)</h3>
+<table border="1" cellpadding="5">
+  <tr>
+    <th>ID</th>
+    <th>Username</th>
+    <th>Имя</th>
+    <th>Скачано</th>
+    <th>Лимит</th>
+    <th>Сменить тариф</th>
+  </tr>
+  <% users.slice(-20).reverse().forEach(user => { %>
+    <tr>
+      <td><%= user.id %></td>
+      <td>@<%= user.username %></td>
+      <td><%= user.first_name %></td>
+      <td><%= user.downloads_today %></td>
+      <td><%= user.premium_limit %></td>
+      <td>
+        <form method="POST" action="/set-tariff">
+          <input type="hidden" name="userId" value="<%= user.id %>">
+          <select name="limit">
+            <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>🆓 Free</option>
+            <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>🎯 Plus</option>
+            <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>💪 Pro</option>
+            <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>💎 Unlim</option>
+          </select>
+          <button type="submit">Сохранить</button>
+        </form>
+      </td>
+    </tr>
+  <% }) %>
+</table>
   <h3>📝 Latest Reviews:</h3>
   <ul>
     <% reviews.forEach(r => { %>
