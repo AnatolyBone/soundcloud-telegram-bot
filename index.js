@@ -117,6 +117,7 @@ bot.command('admin', async ctx => {
   const users = await getAllUsers();
   const files = fs.readdirSync(cacheDir);
   const size = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
+
   const stats = {
     free: users.filter(u => u.premium_limit === 10).length,
     plus: users.filter(u => u.premium_limit === 50).length,
@@ -124,9 +125,12 @@ bot.command('admin', async ctx => {
     unlimited: users.filter(u => u.premium_limit >= 1000).length
   };
   const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
+
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
-  const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} files, ${(size / 1024 / 1024).toFixed(1)} MB\n\n🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
+
+  const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
+              `🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
   ctx.reply(msg + texts[lang].adminCommands);
 });
   const list = users.slice(-20).reverse();
