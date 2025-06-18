@@ -239,13 +239,23 @@ bot.on('text', async ctx => {
   await processNext(ctx.from.id);
 });
 
+function sanitizeFilename(str) {
+  return str
+    .toString()
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/[\s_-]+/g, '_')
+    .slice(0, 50);
+}
+
 async function processTrack(ctx, url) {
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
   try {
     await ctx.reply(texts[lang].downloading);
     const info = await ytdl(url, { dumpSingleJson: true });
-    const nameRaw = (info?.title ?? 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
+    const nameRaw = sanitizeFilename(info?.title ?? 'track');
     const name = `${nameRaw}_${Date.now()}`;
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
