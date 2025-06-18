@@ -131,20 +131,7 @@ bot.command('admin', async ctx => {
 
   const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
               `🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
-  ctx.reply(msg + texts[lang].adminCommands);
-});
-  const list = users.slice(-20).reverse();
-  for (const user of list) {
-    await ctx.reply(
-      `👤 @${user.username || '-'} (${user.first_name})\nID: ${user.id}\n📊 ${user.downloads_today}/${user.premium_limit}`,
-      Markup.inlineKeyboard([
-        Markup.button.callback('🆓 Free', `set_10_${user.id}`),
-        Markup.button.callback('🎯 Plus', `set_50_${user.id}`),
-        Markup.button.callback('💪 Pro', `set_100_${user.id}`),
-        Markup.button.callback('💎 Unlim', `set_1000_${user.id}`)
-      ])
-    );
-  }
+  await ctx.reply(msg + texts[lang].adminCommands);
 });
 
 bot.command('testdb', async ctx => {
