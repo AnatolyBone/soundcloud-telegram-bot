@@ -1,3 +1,5 @@
+// -- импорт и инициализация --
+
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const session = require('express-session');
@@ -15,21 +17,32 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
 const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
 
+if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
+  console.error('❌ Ошибка: не заданы обязательные переменные окружения!');
+  process.exit(1);
+}
+
 const app = express();
 const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очистка кеша
+// -- Очистка кеша --
+
 setInterval(() => {
-  const cutoff = Date.now() - 7 * 86400 * 1000;
-  fs.readdirSync(cacheDir).forEach(file => {
-    const fp = path.join(cacheDir, file);
-    if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
-  });
+  try {
+    const cutoff = Date.now() - 7 * 86400 * 1000;
+    fs.readdirSync(cacheDir).forEach(file => {
+      const fp = path.join(cacheDir, file);
+      if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
+    });
+  } catch (err) {
+    console.error('Ошибка очистки кеша:', err);
+  }
 }, 3600 * 1000);
 
-// Сброс суточной статистики
+// -- Сброс статистики --
+
 setInterval(async () => {
   try {
     await resetDailyStats();
@@ -39,8 +52,13 @@ setInterval(async () => {
   }
 }, 24 * 3600 * 1000);
 
+// -- Очереди --
+
 const queues = {};
+const processing = {};
 const reviewMode = new Set();
+
+// -- Тексты, кнопки --
 
 const texts = {
   ru: {
@@ -76,7 +94,29 @@ const kb = lang =>
 
 const getLang = u => u?.lang || 'ru';
 
-// Telegram-логика
+// -- Функции очереди --
+
+async function processNext(userId) {
+  if (!queues[userId]?.length) {
+    processing[userId] = false;
+    return;
+  }
+  if (processing[userId]) return;
+  processing[userId] = true;
+
+  while (queues[userId].length > 0) {
+    const job = queues[userId][0];
+    try {
+      await job();
+    } catch (e) {
+      console.error('Ошибка в job очереди:', e);
+    }
+    queues[userId].shift();
+  }
+  processing[userId] = false;
+}
+
+// -- Telegram логика ---
 
 bot.start(async ctx => {
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
@@ -188,19 +228,11 @@ bot.on('text', async ctx => {
   if (u.downloads_today >= u.premium_limit) return ctx.reply(texts[lang].limitReached);
 
   if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
-  const pos = queues[ctx.from.id].length + 1;
-  ctx.reply(texts[lang].queuePosition(pos));
   queues[ctx.from.id].push(() => processTrack(ctx, url));
-  if (queues[ctx.from.id].length === 1) processNext(ctx.from.id);
-});
+  ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
 
-async function processNext(userId) {
-  if (!queues[userId]?.length) return;
-  const job = queues[userId][0];
-  await job();
-  queues[userId].shift();
-  if (queues[userId].length > 0) processNext(userId);
-}
+  await processNext(ctx.from.id);
+});
 
 async function processTrack(ctx, url) {
   const u = await getUser(ctx.from.id);
@@ -208,7 +240,8 @@ async function processTrack(ctx, url) {
   try {
     await ctx.reply(texts[lang].downloading);
     const info = await ytdl(url, { dumpSingleJson: true });
-    const name = (info.title || 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
+    const nameRaw = (info.title || 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
+    const name = `${nameRaw}_${Date.now()}`;
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
       await ytdl(url, { extractAudio: true, audioFormat: 'mp3', output: fp });
@@ -222,10 +255,12 @@ async function processTrack(ctx, url) {
   }
 }
 
-// Webhook
+// -- Webhook --
+
 app.use(bot.webhookCallback('/telegram'));
 
-// ==== Веб-админка ====
+// -- Веб-админка --
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
