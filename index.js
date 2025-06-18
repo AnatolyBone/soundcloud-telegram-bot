@@ -279,7 +279,7 @@ app.get('/admin', (req, res) => {
   res.render('login', { error: null });
 });
 
-app.post('/admin', (req, res) => {
+app.post('/admin/login', (req, res) => {
   const { username, password } = req.body;
   if (
     username === process.env.ADMIN_LOGIN &&
