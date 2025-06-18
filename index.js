@@ -249,21 +249,34 @@ function sanitizeFilename(str) {
     .slice(0, 50);
 }
 
+const crypto = require('crypto');
+
 async function processTrack(ctx, url) {
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
   try {
     await ctx.reply(texts[lang].downloading);
     const info = await ytdl(url, { dumpSingleJson: true });
-    const nameRaw = sanitizeFilename(info?.title ?? 'track');
-    const name = `${nameRaw}_${Date.now()}`;
+
+    // Чистим название — разрешаем только буквы, цифры, пробелы, дефисы и подчёркивания
+    let nameRaw = (info.title || 'track')
+      .replace(/[^\w\s\-]/g, '') // оставляем буквы, цифры, пробелы, дефисы, подчёркивания
+      .trim()
+      .replace(/\s+/g, '_')      // пробелы заменяем на подчёркивания
+      .slice(0, 50);
+
+    const name = nameRaw; // Убираем добавление чисел/времени
+
     const fp = path.join(cacheDir, `${name}.mp3`);
+
     if (!fs.existsSync(fp)) {
       await ytdl(url, { extractAudio: true, audioFormat: 'mp3', output: fp });
     }
+
     await incrementDownloads(ctx.from.id, name);
     await saveTrackForUser(ctx.from.id, name);
     await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
+
   } catch (e) {
     console.error('❌ Ошибка при обработке трека:', e);
     await ctx.reply(texts[lang].error);
