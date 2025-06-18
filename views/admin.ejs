@@ -1,33 +1,95 @@
 <!DOCTYPE html>
-<html><head><title>Bot Admin</title></head>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 30px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
+    form.inline {
+      display: inline;
+    }
+    input[type="submit"] {
+      padding: 4px 8px;
+      margin-left: 4px;
+    }
+    .review {
+      background: #fff;
+      padding: 10px;
+      margin-top: 20px;
+      border-left: 4px solid #4caf50;
+    }
+  </style>
+</head>
 <body>
-  <h1>Админка бота</h1>
-  <h2>Пользователи</h2>
-  <form method="POST" action="/admin/plan">
-    <table border="1">
-      <tr><th>ID</th><th>Username</th><th>Сегодня (лимит)</th><th>Выбрать план</th></tr>
-      <% users.forEach(u => { %>
-      <tr>
-        <td><%= u.id %></td>
-        <td><%= u.username || '-' %></td>
-        <td><%= u.downloads_today %> / <%= u.premium_limit %></td>
-        <td>
-          <select name="plan">
-            <option value="10" <% if(u.premium_limit===10) { %>selected<% } %>>Free</option>
-            <option value="50" <% if(u.premium_limit===50) { %>selected<% } %>>Plus</option>
-            <option value="100" <% if(u.premium_limit===100) { %>selected<% } %>>Pro</option>
-            <option value="1000" <% if(u.premium_limit>=1000) { %>selected<% } %>>Unlimited</option>
-          </select>
-          <input type="hidden" name="userId" value="<%= u.id %>"/>
-          <button type="submit">Сохранить</button>
-        </td>
-      </tr>
-      <% }) %>
-    </table>
-  </form>
+  <h1>📊 Админ-панель</h1>
 
-  <h2>Отзывы</h2>
-  <% reviews.forEach(r => { %>
-    <p><strong><%= r.userId %>:</strong> <%= r.text %> <em>(<%= r.time %>)</em></p>
+  <p>Всего пользователей: <strong><%= users.length %></strong></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Имя</th>
+        <th>Юзернейм</th>
+        <th>Треков сегодня</th>
+        <th>Лимит</th>
+        <th>Тариф до</th>
+        <th>Изменить тариф</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% users.forEach(u => { %>
+        <tr>
+          <td><%= u.id %></td>
+          <td><%= u.first_name %></td>
+          <td>@<%= u.username || '-' %></td>
+          <td><%= u.downloads_today %></td>
+          <td><%= u.premium_limit %></td>
+          <td><%= u.premium_until ? u.premium_until.split('T')[0] : '-' %></td>
+          <td>
+            <form class="inline" method="post" action="/admin/set-plan">
+              <input type="hidden" name="id" value="<%= u.id %>">
+              <select name="plan">
+                <option value="10" <%= u.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                <option value="50" <%= u.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                <option value="100" <%= u.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                <option value="1000" <%= u.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
+              </select>
+              <input type="number" name="days" placeholder="Дней" min="1" style="width: 60px;">
+              <input type="submit" value="OK">
+            </form>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <h2>📝 Последние отзывы</h2>
+  <% reviews.slice(-20).reverse().forEach(r => { %>
+    <div class="review">
+      <div><strong>ID:</strong> <%= r.userId %></div>
+      <div><strong>⏱</strong> <%= new Date(r.time).toLocaleString() %></div>
+      <p><%= r.text %></p>
+    </div>
   <% }) %>
-</body></html>
+</body>
+</html>
