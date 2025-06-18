@@ -245,7 +245,7 @@ async function processTrack(ctx, url) {
   try {
     await ctx.reply(texts[lang].downloading);
     const info = await ytdl(url, { dumpSingleJson: true });
-    const nameRaw = (info.title || 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
+    const nameRaw = (info?.title ?? 'track').replace(/[^\w\d]/g, '_').slice(0, 50);
     const name = `${nameRaw}_${Date.now()}`;
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
