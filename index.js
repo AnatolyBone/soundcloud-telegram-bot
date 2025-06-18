@@ -313,6 +313,30 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   res.render('dashboard', { users, stats, reviews });
 });
 
+// ====== Добавлен маршрут для установки тарифа пользователю ======
+
+app.post('/set-tariff', requireAuth, async (req, res) => {
+  const { userId, limit } = req.body;
+
+  if (!userId || !limit) {
+    return res.status(400).send('Missing data');
+  }
+
+  const parsedLimit = parseInt(limit, 10);
+  if (![10, 50, 100, 1000].includes(parsedLimit)) {
+    return res.status(400).send('Invalid limit');
+  }
+
+  try {
+    await setPremium(userId, parsedLimit);
+    res.redirect('/dashboard');
+  } catch (e) {
+    console.error('Ошибка установки тарифа:', e);
+    res.status(500).send('Server error');
+  }
+});
+
+// Выход из админки
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
     res.redirect('/admin');
