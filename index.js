@@ -168,7 +168,7 @@ bot.command('admin', async ctx => {
     free: users.filter(u => u.premium_limit === 10).length,
     plus: users.filter(u => u.premium_limit === 50).length,
     pro: users.filter(u => u.premium_limit === 100).length,
-    unlimited: users.filter(u => u.premium_limit >= 1000).length
+    unlim: users.filter(u => u.premium_limit >= 1000).length
   };
   const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
 
