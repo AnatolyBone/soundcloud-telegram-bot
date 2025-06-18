@@ -106,7 +106,19 @@ async function getReviews() {
     return [];
   }
 }
+async function getLatestReviews(limit = 10) {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*')
+    .order('time', { ascending: false })
+    .limit(limit);
 
+  if (error) {
+    console.error('Ошибка при получении отзывов:', error);
+    return [];
+  }
+  return data;
+}
 module.exports = {
   createUser,
   getUser,
