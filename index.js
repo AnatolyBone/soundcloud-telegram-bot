@@ -1,4 +1,4 @@
-// -- импорт и инициализация --
+// index.js
 
 const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
@@ -10,12 +10,12 @@ const ytdl = require('youtube-dl-exec');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview
+  saveTrackForUser, hasLeftReview, getLatestReviews
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
-const WEBHOOK_URL = 'https://soundcloud-telegram-bot.onrender.com/telegram';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://soundcloud-telegram-bot.onrender.com/telegram';
 
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Ошибка: не заданы обязательные переменные окружения!');
@@ -27,8 +27,7 @@ const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// -- Очистка кеша --
-
+// Очистка кеша старше 7 дней, каждый час
 setInterval(() => {
   try {
     const cutoff = Date.now() - 7 * 86400 * 1000;
@@ -41,32 +40,34 @@ setInterval(() => {
   }
 }, 3600 * 1000);
 
-// -- Сброс статистики --
-
+// Сброс ежедневной статистики (лимитов) раз в сутки
 setInterval(async () => {
   try {
     await resetDailyStats();
-    console.log('✅ Daily stats reset');
+    console.log('✅ Ежедневная статистика сброшена');
   } catch (err) {
-    console.error('❌ Failed to reset daily stats:', err);
+    console.error('❌ Ошибка сброса статистики:', err);
   }
 }, 24 * 3600 * 1000);
 
-// -- Очереди --
-
+// Очереди на обработку треков для каждого пользователя
 const queues = {};
 const processing = {};
 const reviewMode = new Set();
 
-// -- Тексты, кнопки --
-
+// Тексты и клавиатуры (русский по умолчанию)
 const texts = {
   ru: {
     start: '👋 Пришли ссылку на трек с SoundCloud.',
-    menu: '📋 Меню', upgrade: '🔓 Расширить лимит',
-    mytracks: '🎵 Мои треки', help: 'ℹ️ Помощь',
-    downloading: '🎧 Загружаю...', cached: '🔁 Из кеша...',
-    error: '❌ Ошибка', timeout: '⏱ Слишком долго...', limitReached: '🚫 Лимит достигнут.',
+    menu: '📋 Меню',
+    upgrade: '🔓 Расширить лимит',
+    mytracks: '🎵 Мои треки',
+    help: 'ℹ️ Помощь',
+    downloading: '🎧 Загружаю...',
+    cached: '🔁 Из кеша...',
+    error: '❌ Ошибка',
+    timeout: '⏱ Слишком долго...',
+    limitReached: '🚫 Лимит достигнут.',
     upgradeInfo:
       '🚀 Хочешь больше треков?\n\n🆓 Free – 10 🟢\nPlus – 50 🎯 (59₽)\nPro – 100 💪 (119₽)\nUnlimited – 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate\n✉️ После оплаты напиши: @anatolybone',
     helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
@@ -94,8 +95,7 @@ const kb = lang =>
 
 const getLang = u => u?.lang || 'ru';
 
-// -- Функции очереди --
-
+// Обработка очереди пользователя
 async function processNext(userId) {
   if (!queues[userId]?.length) {
     processing[userId] = false;
@@ -116,7 +116,7 @@ async function processNext(userId) {
   processing[userId] = false;
 }
 
-// -- Telegram логика ---
+// Telegram бот - старт и команды
 
 bot.start(async ctx => {
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
@@ -135,7 +135,7 @@ bot.hears(texts.ru.menu, async ctx => {
 bot.action(/lang_(\w+)/, async ctx => {
   const lang = ctx.match[1];
   await updateUserField(ctx.from.id, 'lang', lang);
-  ctx.editMessageText(texts[lang].chooseLang + ' ✅');
+  await ctx.editMessageText(texts[lang].chooseLang + ' ✅');
   ctx.reply(texts[lang].start, kb(lang));
 });
 
@@ -150,16 +150,17 @@ bot.hears(texts.ru.help, async ctx => {
 });
 
 bot.hears('✍️ Оставить отзыв', async ctx => {
-  const u = await getUser(ctx.from.id);
   if (await hasLeftReview(ctx.from.id)) {
+    const u = await getUser(ctx.from.id);
     return ctx.reply(texts[getLang(u)].alreadyReviewed);
   }
-  ctx.reply(texts[getLang(u)].reviewAsk);
+  ctx.reply(texts.ru.reviewAsk);
   reviewMode.add(ctx.from.id);
 });
 
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
+
   const users = await getAllUsers();
   const files = fs.readdirSync(cacheDir);
   const size = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
@@ -168,14 +169,14 @@ bot.command('admin', async ctx => {
     free: users.filter(u => u.premium_limit === 10).length,
     plus: users.filter(u => u.premium_limit === 50).length,
     pro: users.filter(u => u.premium_limit === 100).length,
-    unlim: users.filter(u => u.premium_limit >= 1000).length
+    unlimited: users.filter(u => u.premium_limit >= 1000).length
   };
   const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
 
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
 
-  const msg = `📊 Users: ${users.length}\n📥 Downloads: ${downloads}\n📁 Cache: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
+  const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок всего: ${downloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
               `🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
   await ctx.reply(msg + texts[lang].adminCommands);
 });
@@ -188,13 +189,13 @@ bot.command('testdb', async ctx => {
 bot.command('reviews', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   try {
-    const json = fs.readFileSync(path.join(__dirname, 'reviews.json'), 'utf8');
-    const reviews = JSON.parse(json);
-    for (const r of reviews.slice(-20).reverse()) {
+    const reviews = await getLatestReviews(20);
+    if (!reviews.length) return ctx.reply('❌ Нет отзывов.');
+    for (const r of reviews) {
       await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
     }
-  } catch (e) {
-    ctx.reply('❌ Нет отзывов или ошибка');
+  } catch {
+    ctx.reply('❌ Ошибка при получении отзывов');
   }
 });
 
@@ -212,6 +213,7 @@ bot.hears(texts.ru.mytracks, async ctx => {
 });
 
 bot.on('text', async ctx => {
+  // Если в режиме отзыва
   if (reviewMode.has(ctx.from.id)) {
     reviewMode.delete(ctx.from.id);
     await addReview(ctx.from.id, ctx.message.text);
@@ -220,12 +222,15 @@ bot.on('text', async ctx => {
     return ctx.reply(texts[getLang(u)].reviewThanks, kb(getLang(u)));
   }
 
-  const url = ctx.message.text;
+  const url = ctx.message.text.trim();
   if (!url.includes('soundcloud.com')) return;
 
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
-  if (u.downloads_today >= u.premium_limit) return ctx.reply(texts[lang].limitReached);
+
+  if (u.downloads_today >= u.premium_limit) {
+    return ctx.reply(texts[lang].limitReached);
+  }
 
   if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
   queues[ctx.from.id].push(() => processTrack(ctx, url));
@@ -250,16 +255,15 @@ async function processTrack(ctx, url) {
     await saveTrackForUser(ctx.from.id, name);
     await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
   } catch (e) {
-    console.error('❌', e);
-    ctx.reply(texts[lang].error);
+    console.error('❌ Ошибка при обработке трека:', e);
+    await ctx.reply(texts[lang].error);
   }
 }
 
-// -- Webhook --
-
+// Настройка webhook
 app.use(bot.webhookCallback('/telegram'));
 
-// -- Веб-админка --
+// Веб-админка
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -291,12 +295,8 @@ app.post('/admin/login', (req, res) => {
   res.render('login', { error: 'Неверные данные' });
 });
 
-const { getLatestReviews } = require('./db');
-
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
-
-  // Предположим, что у каждого user есть поле downloads_today или downloads_total
   const totalDownloads = users.reduce((sum, u) => sum + (u.downloads_today || 0), 0);
 
   const stats = {
@@ -319,10 +319,13 @@ app.get('/logout', (req, res) => {
   });
 });
 
+// Простая проверка работоспособности
 app.get('/', (_, res) => res.send('✅ OK'));
 
+// Запуск сервера
+const PORT = process.env.PORT || 3000;
 bot.telegram.setWebhook(WEBHOOK_URL)
-  .then(() => console.log('✅ Webhook установлен'))
-  .catch(err => console.error('❌ Webhook error', err));
+  .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
+  .catch(err => console.error('❌ Webhook error:', err));
 
-app.listen(process.env.PORT || 3000, () => console.log('🚀 Server running'));
+app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
