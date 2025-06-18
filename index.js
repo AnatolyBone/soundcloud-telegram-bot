@@ -299,7 +299,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     pro: users.filter(u => u.premium_limit === 100).length,
     unlim: users.filter(u => u.premium_limit >= 1000).length
   };
-  res.render('dashboard', { users, stats });
+res.render('dashboard', { users, stats, reviews: [] });
 });
 
 app.get('/logout', (req, res) => {
