@@ -1,12 +1,21 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
+// Инициализация Supabase
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
+
+// Подключение к PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
+// Утилита для запросов
 async function query(text, params) {
   const start = Date.now();
   const res = await pool.query(text, params);
@@ -15,6 +24,7 @@ async function query(text, params) {
   return res;
 }
 
+// Создание пользователя
 async function createUser(id, username, first_name) {
   await query(`
     INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed)
@@ -71,22 +81,21 @@ async function getAllUsers() {
   return res.rows;
 }
 
-async function addReview(userId, text) {
-  const filePath = path.join(__dirname, 'reviews.json');
-  let data = [];
+// Отзывы
 
-  if (fs.existsSync(filePath)) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf8');
-      data = JSON.parse(content);
-    } catch (e) {
-      console.error('❌ Ошибка чтения reviews.json', e);
-    }
+async function addReview(userId, text) {
+  const time = new Date().toISOString();
+
+  // Сохраняем в Supabase
+  const { error } = await supabase
+    .from('reviews')
+    .insert([{ user_id: userId, text, time }]);
+
+  if (error) {
+    console.error('❌ Ошибка при сохранении отзыва в Supabase:', error);
   }
 
-  data.push({ userId, text, time: new Date().toISOString() });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
+  // Обновляем флаг в users
   await query('UPDATE users SET has_reviewed = true WHERE id = $1', [userId]);
 }
 
@@ -106,6 +115,8 @@ async function getReviews() {
     return [];
   }
 }
+
+// Получение последних отзывов из Supabase
 async function getLatestReviews(limit = 10) {
   const { data, error } = await supabase
     .from('reviews')
@@ -119,6 +130,8 @@ async function getLatestReviews(limit = 10) {
   }
   return data;
 }
+
+// Экспорт
 module.exports = {
   createUser,
   getUser,
@@ -130,5 +143,6 @@ module.exports = {
   addReview,
   saveTrackForUser,
   hasLeftReview,
-  getReviews
+  getReviews,
+  getLatestReviews
 };
