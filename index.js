@@ -236,8 +236,8 @@ bot.on('text', async ctx => {
   await enqueue(ctx.from.id, async () => {
   await ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
   await processTrack(ctx, url);
+  });
 });
-
 function sanitizeFilename(str) {
   return str
     .toString()
