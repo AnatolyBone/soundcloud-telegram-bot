@@ -164,30 +164,6 @@ async function processNext(userId) {
   processing[userId] = false;
 }
 
-// Обработка сообщений — треки или отзывы
-bot.on('text', async ctx => {
-  const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
-  const text = ctx.message.text.trim();
-
-  if (reviewMode.has(ctx.from.id)) {
-    reviewMode.delete(ctx.from.id);
-    await addReview(ctx.from.id, text);
-    await setPremium(ctx.from.id, 50, 30);
-    return ctx.reply(texts[lang].reviewThanks, kb(lang));
-  }
-
-  if (!text.includes('soundcloud.com')) return;
-
-  if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts[lang].limitReached);
-  }
-
-  if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
-  queues[ctx.from.id].push(() => processTrack(ctx, text));
-  ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
-
-  await processNext(ctx.from.id);
 });
 // ===== Express / Webhook =====
 app.use(bot.webhookCallback('/telegram'));
@@ -268,7 +244,30 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/', (_, res) => res.send('✅ OK'));
+// Обработка сообщений — треки или отзывы
+bot.on('text', async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  const text = ctx.message.text.trim();
 
+  if (reviewMode.has(ctx.from.id)) {
+    reviewMode.delete(ctx.from.id);
+    await addReview(ctx.from.id, text);
+    await setPremium(ctx.from.id, 50, 30);
+    return ctx.reply(texts[lang].reviewThanks, kb(lang));
+  }
+
+  if (!text.includes('soundcloud.com')) return;
+
+  if (u.downloads_today >= u.premium_limit) {
+    return ctx.reply(texts[lang].limitReached);
+  }
+
+  if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
+  queues[ctx.from.id].push(() => processTrack(ctx, text));
+  ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
+
+  await processNext(ctx.from.id);
 // Запуск
 const PORT = process.env.PORT || 3000;
 bot.telegram.setWebhook(WEBHOOK_URL)
