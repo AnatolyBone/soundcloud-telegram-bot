@@ -15,7 +15,8 @@
     "youtube-dl-exec": "^2.0.1",
     "better-sqlite3": "^8.4.0",
     "googleapis": "^118.0.0",
-    "pg": "^8.10.0"
+    "pg": "^8.10.0",
+    "json2csv": "^6.0.0"
   },
   "engines": {
     "node": ">=16"
