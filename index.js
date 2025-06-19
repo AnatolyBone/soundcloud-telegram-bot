@@ -29,11 +29,10 @@ const app = express();
 const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-// index.js — Часть 2: Очистка кеша, очередь, Telegram-бот, sanitize
-
 // Лог очистки кеша
 function logCacheCleanup(count) {
   const log = `[${new Date().toISOString()}] 🧹 Удалено из кеша: ${count} файлов\n`;
+  if (!fs.existsSync('logs')) fs.mkdirSync('logs');
   fs.appendFileSync('logs/cache_cleanup.log', log);
 }
 
@@ -57,7 +56,7 @@ function clearOldCache() {
     return 0;
   }
 }
-setInterval(clearOldCache, 3600 * 1000);
+setInterval(clearOldCache, 3600 * 1000); // Каждый час
 
 // Сброс суточных лимитов
 setInterval(async () => {
@@ -97,7 +96,9 @@ const texts = {
     adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резерв\n/reviews — отзывы'
   }
 };
+
 const getLang = u => u?.lang || 'ru';
+
 const kb = lang =>
   Markup.keyboard([
     [texts[lang].menu, texts[lang].upgrade],
@@ -107,9 +108,9 @@ const kb = lang =>
 
 function sanitizeTitle(str) {
   return str
-    .replace(/[\[\]{}()]/g, '')          // удаляем скобки
-    .replace(/[^a-zA-Zа-яА-Я0-9\s-]/g, '') // оставляем буквы/цифры/пробелы/дефисы
-    .replace(/\s+/g, ' ')                // множественные пробелы
+    .replace(/[\[\]{}()]/g, '')              // удаляем скобки
+    .replace(/[^a-zA-Zа-яА-Я0-9\s-]/g, '')  // оставляем буквы/цифры/пробелы/дефисы
+    .replace(/\s+/g, ' ')                    // множественные пробелы
     .trim()
     .slice(0, 50)
     .replace(/\s/g, '_');
@@ -163,13 +164,103 @@ async function processNext(userId) {
   }
   processing[userId] = false;
 }
+bot.start(async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  await ctx.reply(texts[lang].start, kb(lang));
+});
 
+bot.hears(texts.ru.menu, async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  await ctx.reply(texts[lang].chooseLang);
+  // Здесь можно расширить выбор языков
+});
+
+bot.hears(texts.ru.help, async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  await ctx.reply(texts[lang].helpInfo, kb(lang));
+});
+
+bot.hears(texts.ru.upgrade, async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  await ctx.reply(texts[lang].upgradeInfo, kb(lang));
+});
+
+bot.hears(texts.ru.mytracks, async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+
+  const tracks = u.tracks_today || [];
+  if (!tracks.length) {
+    return ctx.reply(texts[lang].noTracks, kb(lang));
+  }
+
+  // Отправка треков пачками (по 10 файлов)
+  const chunkSize = 10;
+  for (let i = 0; i < tracks.length; i += chunkSize) {
+    const chunk = tracks.slice(i, i + chunkSize);
+    const mediaGroup = chunk.map(name => ({
+      type: 'audio',
+      media: { source: fs.createReadStream(path.join(cacheDir, `${name}.mp3`)) },
+      filename: `${name}.mp3`
+    }));
+
+    await ctx.replyWithMediaGroup(mediaGroup);
+  }
+  await ctx.reply(kb(lang));
+});
+
+bot.hears('✍️ Оставить отзыв', async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+
+  if (reviewMode.has(ctx.from.id)) {
+    return ctx.reply(texts[lang].reviewAsk);
+  }
+  if (await hasLeftReview(ctx.from.id)) {
+    return ctx.reply(texts[lang].alreadyReviewed, kb(lang));
+  }
+
+  reviewMode.add(ctx.from.id);
+  await ctx.reply(texts[lang].reviewAsk);
+});
+
+// Обработка сообщений — треки или отзывы
+bot.on('text', async ctx => {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  const text = ctx.message.text.trim();
+
+  if (reviewMode.has(ctx.from.id)) {
+    reviewMode.delete(ctx.from.id);
+    await addReview(ctx.from.id, text);
+    await setPremium(ctx.from.id, 50, 30);
+    return ctx.reply(texts[lang].reviewThanks, kb(lang));
+  }
+
+  if (!text.includes('soundcloud.com')) return;
+
+  if (u.downloads_today >= u.premium_limit) {
+    return ctx.reply(texts[lang].limitReached);
+  }
+
+  if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
+  queues[ctx.from.id].push(() => processTrack(ctx, text));
+  await ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
+
+  await processNext(ctx.from.id);
 });
 // ===== Express / Webhook =====
 app.use(bot.webhookCallback('/telegram'));
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
 app.use(express.urlencoded({ extended: true }));
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
@@ -244,33 +335,10 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/', (_, res) => res.send('✅ OK'));
-// Обработка сообщений — треки или отзывы
-bot.on('text', async ctx => {
-  const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
-  const text = ctx.message.text.trim();
 
-  if (reviewMode.has(ctx.from.id)) {
-    reviewMode.delete(ctx.from.id);
-    await addReview(ctx.from.id, text);
-    await setPremium(ctx.from.id, 50, 30);
-    return ctx.reply(texts[lang].reviewThanks, kb(lang));
-  }
-
-  if (!text.includes('soundcloud.com')) return;
-
-  if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts[lang].limitReached);
-  }
-
-  if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
-  queues[ctx.from.id].push(() => processTrack(ctx, text));
-  ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
-
-  await processNext(ctx.from.id);
-  });
-// Запуск
+// Запуск сервера и webhook
 const PORT = process.env.PORT || 3000;
+
 bot.telegram.setWebhook(WEBHOOK_URL)
   .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
   .catch(err => console.error('❌ Webhook error:', err));
