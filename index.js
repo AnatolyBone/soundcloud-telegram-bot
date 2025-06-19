@@ -268,6 +268,7 @@ bot.on('text', async ctx => {
   ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
 
   await processNext(ctx.from.id);
+  });
 // Запуск
 const PORT = process.env.PORT || 3000;
 bot.telegram.setWebhook(WEBHOOK_URL)
