@@ -1,6 +1,7 @@
 // index.js
 
 const { Telegraf, Markup } = require('telegraf');
+const compression = require('compression');
 const express = require('express');
 const session = require('express-session');
 const ejs = require('ejs');
@@ -232,11 +233,9 @@ bot.on('text', async ctx => {
     return ctx.reply(texts[lang].limitReached);
   }
 
-  if (!queues[ctx.from.id]) queues[ctx.from.id] = [];
-  queues[ctx.from.id].push(() => processTrack(ctx, url));
-  ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
-
-  await processNext(ctx.from.id);
+  await enqueue(ctx.from.id, async () => {
+  await ctx.reply(texts[lang].queuePosition(queues[ctx.from.id].length));
+  await processTrack(ctx, url);
 });
 
 function sanitizeFilename(str) {
@@ -250,7 +249,22 @@ function sanitizeFilename(str) {
 }
 
 const crypto = require('crypto');
-
+async function enqueue(userId, job) {
+  if (!queues[userId]) queues[userId] = [];
+  queues[userId].push(job);
+  if (!processing[userId]) {
+    processing[userId] = true;
+    while (queues[userId].length > 0) {
+      const task = queues[userId].shift();
+      try {
+        await task();
+      } catch (err) {
+        console.error('Ошибка при выполнении задачи в очереди:', err);
+      }
+    }
+    processing[userId] = false;
+  }
+}
 async function processTrack(ctx, url) {
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
@@ -291,6 +305,7 @@ app.use(bot.webhookCallback('/telegram'));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
+app.use(compression());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
