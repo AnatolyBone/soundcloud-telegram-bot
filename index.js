@@ -459,8 +459,9 @@ app.get('/', (_, res) => res.send('✅ OK'));
 app.use(bot.webhookCallback('/telegram'));
 const PORT = process.env.PORT || 3000;
 
-bot.telegram.setWebhook(WEBHOOK_URL)
-  .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
-  .catch(err => console.error('❌ Webhook error:', err));
-
-app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  bot.telegram.setWebhook(WEBHOOK_URL)
+    .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
+    .catch(err => console.error('❌ Webhook error:', err));
+});
