@@ -124,7 +124,6 @@ async function processNext(userId) {
 
   while (queues[userId].length > 0) {
     if ((activeDownloads[userId] || 0) >= MAX_CONCURRENT) {
-      // Ждем пока освободится слот
       await new Promise(resolve => setTimeout(resolve, 1000));
       continue;
     }
@@ -152,13 +151,6 @@ async function fileExists(fp) {
     return false;
   }
 }
-
-bot.start(async ctx => {
-  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
-});
-
 
 // Telegram бот - старт и команды
 
@@ -274,7 +266,6 @@ async function processTrack(ctx, url) {
       .slice(0, 50);
 
     const name = nameRaw;
-
     const fp = path.join(cacheDir, `${name}.mp3`);
 
     if (!(await fileExists(fp))) {
@@ -290,13 +281,6 @@ async function processTrack(ctx, url) {
     await ctx.reply(texts[lang].error);
   }
 }
-
-// express middleware для логирования ошибок
-app.use((err, req, res, next) => {
-  console.error('Express error:', err);
-  res.status(500).send('Internal Server Error');
-});
-
 
 bot.on('text', async ctx => {
   // Если в режиме отзыва
@@ -463,7 +447,11 @@ app.get('/logout', (req, res) => {
     res.redirect('/admin');
   });
 });
-
+// express middleware для логирования ошибок
+app.use((err, req, res, next) => {
+  console.error('Express error:', err);
+  res.status(500).send('Internal Server Error');
+});
 // Простая проверка работоспособности
 app.get('/', (_, res) => res.send('✅ OK'));
 
