@@ -77,13 +77,14 @@ async function setPremium(id, limit, days = null) {
 async function resetDailyLimitIfNeeded(userId) {
   const { rows } = await pool.query('SELECT downloads_today, last_checked FROM users WHERE id = $1', [userId]);
   if (!rows.length) return;
-  const user = rows[0];
 
+  const user = rows[0];
   const now = new Date();
   const lastChecked = new Date(user.last_checked);
-  const diff = (now - lastChecked) / (1000 * 60 * 60); // разница в часах
 
-  if (diff >= 24) {
+  const hoursPassed = (now - lastChecked) / (1000 * 60 * 60);
+
+  if (hoursPassed >= 24) {
     await pool.query(`
       UPDATE users
       SET downloads_today = 0,
@@ -91,7 +92,6 @@ async function resetDailyLimitIfNeeded(userId) {
           last_checked = NOW()
       WHERE id = $2
     `, [JSON.stringify([]), userId]);
-
     console.log(`🕛 Суточный лимит сброшен для пользователя ${userId}`);
   }
 }
@@ -155,5 +155,6 @@ module.exports = {
   addReview,
   saveTrackForUser,
   hasLeftReview,
-  getLatestReviews
+  getLatestReviews,
+  resetDailyLimitIfNeeded
 };
