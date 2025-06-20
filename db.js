@@ -74,15 +74,32 @@ async function setPremium(id, limit, days = null) {
 }
 
 // Сброс лимитов и проверка окончания тарифа
-async function resetDailyStats() {
-  const now = new Date().toISOString();
-  await query(`UPDATE users SET downloads_today = 0, tracks_today = ''`);
-  await query(`
-    UPDATE users
-    SET premium_limit = 10, premium_until = NULL
-    WHERE premium_until IS NOT NULL AND premium_until < $1
-  `, [now]);
+async function resetDailyLimitIfNeeded(userId) {
+  const { rows } = await pool.query('SELECT downloads_today, last_checked FROM users WHERE id = $1', [userId]);
+  if (!rows.length) return;
+  const user = rows[0];
+
+  const now = new Date();
+  const lastChecked = new Date(user.last_checked);
+  const diff = (now - lastChecked) / (1000 * 60 * 60); // разница в часах
+
+  if (diff >= 24) {
+    await pool.query(`
+      UPDATE users
+      SET downloads_today = 0,
+          tracks_today = $1,
+          last_checked = NOW()
+      WHERE id = $2
+    `, [JSON.stringify([]), userId]);
+
+    console.log(`🕛 Суточный лимит сброшен для пользователя ${userId}`);
+  }
 }
+module.exports = {
+  ...,
+  resetDailyLimitIfNeeded,
+  ...
+};
 
 // Получение всех пользователей
 async function getAllUsers() {
