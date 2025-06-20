@@ -11,7 +11,7 @@ const ytdl = require('youtube-dl-exec');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview, getLatestReviews
+  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
