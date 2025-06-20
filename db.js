@@ -1,5 +1,3 @@
-// db.js
-
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
@@ -29,8 +27,8 @@ async function query(text, params) {
 // Создание пользователя
 async function createUser(id, username, first_name) {
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed)
-    VALUES ($1, $2, $3, 0, 10, 0, false)
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date)
+    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE)
     ON CONFLICT (id) DO NOTHING
   `, [id, username, first_name]);
 }
@@ -73,37 +71,40 @@ async function setPremium(id, limit, days = null) {
   }
 }
 
-// Сброс лимитов и проверка окончания тарифа
+// ✅ Сброс лимита на основе календарного дня
 async function resetDailyLimitIfNeeded(userId) {
-  const { rows } = await pool.query('SELECT downloads_today, last_checked FROM users WHERE id = $1', [userId]);
-  if (!rows.length) return;
+  const res = await pool.query(
+    'SELECT last_reset_date FROM users WHERE id = $1',
+    [userId]
+  );
+  if (!res.rows.length) return;
 
-  const user = rows[0];
-  const now = new Date();
-  const lastChecked = new Date(user.last_checked);
+  const lastReset = res.rows[0].last_reset_date;
+  const today = new Date().toISOString().slice(0, 10);
 
-  const hoursPassed = (now - lastChecked) / (1000 * 60 * 60);
-
-  if (hoursPassed >= 24) {
+  if (!lastReset || lastReset.toISOString().slice(0, 10) !== today) {
     await pool.query(`
       UPDATE users
       SET downloads_today = 0,
-          tracks_today = $1,
-          last_checked = NOW()
-      WHERE id = $2
-    `, [JSON.stringify([]), userId]);
+          tracks_today = '',
+          last_reset_date = CURRENT_DATE
+      WHERE id = $1
+    `, [userId]);
     console.log(`🕛 Суточный лимит сброшен для пользователя ${userId}`);
   }
-};
+}
+
+// ✅ Массовый сброс для всех пользователей
 async function resetDailyStats() {
   await query(`
     UPDATE users
     SET downloads_today = 0,
         tracks_today = '',
-        last_checked = NOW()
+        last_reset_date = CURRENT_DATE
   `);
   console.log('🕛 Суточные лимиты сброшены у всех пользователей');
 }
+
 // Получение всех пользователей
 async function getAllUsers() {
   const res = await query('SELECT * FROM users');
