@@ -1,6 +1,7 @@
 // index.js
 
 const { Telegraf, Markup } = require('telegraf');
+const reviewMode = new Set();
 const compression = require('compression');
 const express = require('express');
 const session = require('express-session');
@@ -39,11 +40,11 @@ setInterval(async () => {
   try {
     const cutoff = Date.now() - 7 * 86400 * 1000;
     const files = await fs.readdir(cacheDir);
-    for (const file of files) {
-      const fp = path.join(cacheDir, file);
-      const stat = await fs.stat(fp);
-      if (stat.mtimeMs < cutoff) await fs.unlink(fp);
-    }
+    let size = 0;
+    for (const f of files) {
+      const stat = await fs.stat(path.join(cacheDir, f));
+  size += stat.size;
+}
   } catch (err) {
     console.error('Ошибка очистки кеша:', err);
   }
@@ -381,9 +382,6 @@ async function processTrack(ctx, url) {
     await ctx.reply(texts[lang].error);
   }
 }
-
-// Настройка webhook
-app.use(bot.webhookCallback('/telegram'));
 
 // Веб-админка
 
