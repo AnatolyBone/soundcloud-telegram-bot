@@ -226,10 +226,11 @@ bot.on('text', async ctx => {
   const url = ctx.message.text.trim();
   if (!url.includes('soundcloud.com')) return;
 
-  const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
+  await resetDailyLimitIfNeeded(ctx.from.id);
+const u = await getUser(ctx.from.id);
+const lang = getLang(u);
 
-  if (u.downloads_today >= u.premium_limit) {
+if (u.downloads_today >= u.premium_limit) {
     return ctx.reply(texts[lang].limitReached);
   }
 
