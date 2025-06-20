@@ -5,7 +5,7 @@ const compression = require('compression');
 const express = require('express');
 const session = require('express-session');
 const ejs = require('ejs');
-const fs = require('fs');
+const fs = require('fs').promises; // теперь промисы
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const {
@@ -26,21 +26,28 @@ if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PA
 const app = express();
 const bot = new Telegraf(BOT_TOKEN);
 const cacheDir = path.join(__dirname, 'cache');
-if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
+(async () => {
+  try {
+    await fs.access(cacheDir);
+  } catch {
+    await fs.mkdir(cacheDir);
+  }
+})();
 
-// Очистка кеша старше 7 дней, каждый час
-setInterval(() => {
+// Асинхронная очистка кеша старше 7 дней, каждый час
+setInterval(async () => {
   try {
     const cutoff = Date.now() - 7 * 86400 * 1000;
-    fs.readdirSync(cacheDir).forEach(file => {
+    const files = await fs.readdir(cacheDir);
+    for (const file of files) {
       const fp = path.join(cacheDir, file);
-      if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
-    });
+      const stat = await fs.stat(fp);
+      if (stat.mtimeMs < cutoff) await fs.unlink(fp);
+    }
   } catch (err) {
     console.error('Ошибка очистки кеша:', err);
   }
 }, 3600 * 1000);
-
 // Сброс ежедневной статистики (лимитов) раз в сутки
 setInterval(async () => {
   try {
@@ -51,10 +58,12 @@ setInterval(async () => {
   }
 }, 24 * 3600 * 1000);
 
-// Очереди на обработку треков для каждого пользователя
+
+// Очередь задач с ограничением одновременных загрузок (например, 2)
 const queues = {};
 const processing = {};
-const reviewMode = new Set();
+const MAX_CONCURRENT = 2;
+const activeDownloads = {};
 
 // Тексты и клавиатуры (русский по умолчанию)
 const texts = {
@@ -96,7 +105,14 @@ const kb = lang =>
 
 const getLang = u => u?.lang || 'ru';
 
-// Обработка очереди пользователя
+
+// Добавим общий лимит по одновременным скачиваниям
+async function enqueue(userId, job) {
+  if (!queues[userId]) queues[userId] = [];
+  queues[userId].push(job);
+  processNext(userId);
+}
+
 async function processNext(userId) {
   if (!queues[userId]?.length) {
     processing[userId] = false;
@@ -106,16 +122,42 @@ async function processNext(userId) {
   processing[userId] = true;
 
   while (queues[userId].length > 0) {
-    const job = queues[userId][0];
+    if ((activeDownloads[userId] || 0) >= MAX_CONCURRENT) {
+      // Ждем пока освободится слот
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      continue;
+    }
+
+    activeDownloads[userId] = (activeDownloads[userId] || 0) + 1;
+    const job = queues[userId].shift();
+
     try {
       await job();
     } catch (e) {
       console.error('Ошибка в job очереди:', e);
     }
-    queues[userId].shift();
+    activeDownloads[userId]--;
   }
+
   processing[userId] = false;
 }
+
+// Асинхронная проверка файла
+async function fileExists(fp) {
+  try {
+    await fs.access(fp);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+bot.start(async ctx => {
+  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
+});
+
 
 // Telegram бот - старт и команды
 
@@ -204,14 +246,56 @@ bot.hears(texts.ru.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
   if (!list.length) return ctx.reply(texts[getLang(u)].noTracks);
-  const media = list.map(name => {
+
+  const media = [];
+  for (const name of list) {
     const fp = path.join(cacheDir, `${name}.mp3`);
-    return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
-  }).filter(Boolean);
+    if (await fileExists(fp)) {
+      media.push({ type: 'audio', media: { source: fp } });
+    }
+  }
   for (let i = 0; i < media.length; i += 10) {
     await ctx.replyWithMediaGroup(media.slice(i, i + 10));
   }
 });
+
+async function processTrack(ctx, url) {
+  const u = await getUser(ctx.from.id);
+  const lang = getLang(u);
+  try {
+    await ctx.reply(texts[lang].downloading);
+    const info = await ytdl(url, { dumpSingleJson: true });
+
+    let nameRaw = (info.title || 'track')
+      .replace(/[^\w\s\-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, 50);
+
+    const name = nameRaw;
+
+    const fp = path.join(cacheDir, `${name}.mp3`);
+
+    if (!(await fileExists(fp))) {
+      await ytdl(url, { extractAudio: true, audioFormat: 'mp3', output: fp });
+    }
+
+    await incrementDownloads(ctx.from.id, name);
+    await saveTrackForUser(ctx.from.id, name);
+    await ctx.replyWithAudio({ source: fs.createReadStream(fp), filename: `${name}.mp3` });
+
+  } catch (e) {
+    console.error('❌ Ошибка при обработке трека:', e);
+    await ctx.reply(texts[lang].error);
+  }
+}
+
+// express middleware для логирования ошибок
+app.use((err, req, res, next) => {
+  console.error('Express error:', err);
+  res.status(500).send('Internal Server Error');
+});
+
 
 bot.on('text', async ctx => {
   // Если в режиме отзыва
@@ -385,8 +469,10 @@ app.get('/logout', (req, res) => {
 // Простая проверка работоспособности
 app.get('/', (_, res) => res.send('✅ OK'));
 
-// Запуск сервера
+// Настройка webhook и запуск сервера
+app.use(bot.webhookCallback('/telegram'));
 const PORT = process.env.PORT || 3000;
+
 bot.telegram.setWebhook(WEBHOOK_URL)
   .then(() => console.log('✅ Webhook установлен:', WEBHOOK_URL))
   .catch(err => console.error('❌ Webhook error:', err));
