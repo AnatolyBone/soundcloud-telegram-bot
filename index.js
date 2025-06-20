@@ -18,7 +18,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://soundcloud-telegram-bot.onrender.com/telegram';
 
-if (!BOT_TOKEN  !ADMIN_ID  !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
+if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Ошибка: не заданы обязательные переменные окружения!');
   process.exit(1);
 }
