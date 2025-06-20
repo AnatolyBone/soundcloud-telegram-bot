@@ -95,7 +95,15 @@ async function resetDailyLimitIfNeeded(userId) {
     console.log(`🕛 Суточный лимит сброшен для пользователя ${userId}`);
   }
 };
-
+async function resetDailyStats() {
+  await query(`
+    UPDATE users
+    SET downloads_today = 0,
+        tracks_today = '',
+        last_checked = NOW()
+  `);
+  console.log('🕛 Суточные лимиты сброшены у всех пользователей');
+}
 // Получение всех пользователей
 async function getAllUsers() {
   const res = await query('SELECT * FROM users');
