@@ -177,7 +177,8 @@ bot.command('admin', async ctx => {
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
 
-  const msg = 📊 Пользователей: ${users.length}\n📥 Загрузок всего: ${downloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n +
+const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок всего: ${downloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
+            `Тарифы:\n🔓 Plus: ${plusCount} / 🔥 Pro: ${proCount} / 🪄 Unlimited: ${unlimitedCount}`;
               🆓 Free: ${stats.free}\n🎯 Plus: ${stats.plus}\n💪 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited};
   await ctx.reply(msg + texts[lang].adminCommands);
 });
