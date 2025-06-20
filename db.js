@@ -94,11 +94,6 @@ async function resetDailyLimitIfNeeded(userId) {
     `, [JSON.stringify([]), userId]);
     console.log(`🕛 Суточный лимит сброшен для пользователя ${userId}`);
   }
-}
-module.exports = {
-  ...,
-  resetDailyLimitIfNeeded,
-  ...
 };
 
 // Получение всех пользователей
