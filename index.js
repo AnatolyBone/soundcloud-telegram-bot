@@ -39,11 +39,11 @@ const cacheDir = path.join(__dirname, 'cache');
 setInterval(async () => {
   try {
     const cutoff = Date.now() - 7 * 86400 * 1000;
-    const files = await fs.readdir(cacheDir);
-    let size = 0;
-    for (const f of files) {
-      const stat = await fs.stat(path.join(cacheDir, f));
-  size += stat.size;
+const files = await fs.readdir(cacheDir);
+for (const file of files) {
+  const fp = path.join(cacheDir, file);
+  const stat = await fs.stat(fp);
+  if (stat.mtimeMs < cutoff) await fs.unlink(fp);
 }
   } catch (err) {
     console.error('Ошибка очистки кеша:', err);
