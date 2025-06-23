@@ -321,7 +321,27 @@ app.post('/set-tariff', requireAuth, async (req, res) => {
     res.status(500).send('Server error');
   }
 });
-
+app.post('/broadcast', requireAuth, async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).send('Пустое сообщение');
+  try {
+    const users = await getAllUsers();
+    let count = 0;
+    for (const user of users) {
+      try {
+        await bot.telegram.sendMessage(user.id, `📢 ${message}`);
+        count++;
+      } catch (err) {
+        console.error(`Не удалось отправить сообщение ${user.id}`, err.message);
+      }
+    }
+    console.log(`✅ Рассылка отправлена ${count} пользователям`);
+    res.redirect('/dashboard');
+  } catch (e) {
+    console.error('❌ Ошибка рассылки:', e);
+    res.status(500).send('Ошибка рассылки');
+  }
+});
 app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin'));
 });
