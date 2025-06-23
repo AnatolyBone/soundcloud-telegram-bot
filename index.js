@@ -257,7 +257,14 @@ bot.hears(texts.ru.mytracks, async ctx => {
   }
 });
 
-app.use(bot.webhookCallback(WEBHOOK_PATH));
+app.post(WEBHOOK_PATH, express.json(), (req, res) => {
+  bot.handleUpdate(req.body)
+    .then(() => res.sendStatus(200))
+    .catch(err => {
+      console.error('Ошибка в handleUpdate:', err);
+      res.sendStatus(500);
+    });
+});
 
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
