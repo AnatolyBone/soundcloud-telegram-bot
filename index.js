@@ -289,8 +289,9 @@ app.use(bot.webhookCallback(WEBHOOK_PATH));
 app.listen(PORT, async () => {
   console.log(`🚀 Сервер на порту ${PORT}`);
   try {
-    await bot.telegram.setWebhook(WEBHOOK_URL + WEBHOOK_PATH);
-    console.log(`✅ Webhook установлен: ${WEBHOOK_URL + WEBHOOK_PATH}`);
+    const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
+    await bot.telegram.setWebhook(cleanWebhookUrl);
+    console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`);
   } catch (err) {
     console.error('❌ Ошибка установки webhook:', err);
   }
