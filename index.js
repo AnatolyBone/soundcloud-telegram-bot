@@ -258,16 +258,10 @@ bot.hears(texts.ru.mytracks, async ctx => {
 });
 
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
-  console.log('🟢 Получен update от Telegram:', req.body.update_id);
-  bot.handleUpdate(req.body)
-    .then(() => {
-      console.log('✅ Update обработан:', req.body.update_id);
-      res.sendStatus(200);
-    })
-    .catch(err => {
-      console.error('❌ Ошибка в handleUpdate:', err);
-      res.sendStatus(500);
-    });
+  res.sendStatus(200);
+  bot.handleUpdate(req.body).catch(err => {
+    console.error('Ошибка в handleUpdate:', err);
+  });
 });
 
 app.use(express.urlencoded({ extended: true }));
