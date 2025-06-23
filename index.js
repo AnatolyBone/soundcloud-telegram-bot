@@ -242,6 +242,8 @@ bot.hears(texts.ru.mytracks, async ctx => {
     await ctx.replyWithMediaGroup(media.slice(i, i + 10));
   }
 });
+// Подключаем webhook Telegram бота
+app.use(bot.webhookCallback(WEBHOOK_PATH));
 
 // Express middleware и роуты
 
@@ -299,8 +301,6 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin'));
 });
 
-// Подключаем webhook Telegram бота
-app.use(bot.webhookCallback(WEBHOOK_PATH));
 
 // Запуск сервера и установка webhook
 app.listen(PORT, () => {
