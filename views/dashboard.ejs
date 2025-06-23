@@ -3,23 +3,52 @@
 <head>
   <title>Admin Panel</title>
   <meta charset="UTF-8" />
+  
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  
+  <!-- jQuery и DataTables JS -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  
+  <!-- Chart.js для графиков -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1, h3 {
+      margin-bottom: 10px;
+    }
+    table.dataTable thead th {
+      background-color: #f2f2f2;
+    }
+    .chart-container {
+      width: 100%;
+      max-width: 900px;
+      margin-bottom: 40px;
+    }
+  </style>
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
-
-  <p>Total users: <%= stats.totalUsers %></p>
-  <p>Total downloads: <%= stats.totalDownloads %></p>
-  <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
-
-  <h2>📈 Регистрация пользователей (по дням)</h2>
-  <canvas id="registrationsChart" width="600" height="250"></canvas>
-
-  <h2>📥 Скачивания треков (по дням)</h2>
-  <canvas id="downloadsChart" width="600" height="250"></canvas>
+  
+  <p><strong>Пользователей:</strong> <%= stats.totalUsers %></p>
+  <p><strong>Всего загрузок:</strong> <%= stats.totalDownloads %></p>
+  <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
+  
+  <div class="chart-container">
+    <canvas id="registrationsChart" height="150"></canvas>
+  </div>
+  
+  <div class="chart-container">
+    <canvas id="downloadsChart" height="150"></canvas>
+  </div>
 
   <h3>👤 Все пользователи (<%= users.length %>)</h3>
-  <table border="1" cellpadding="5">
+  <table id="usersTable" class="display" style="width:100%">
     <thead>
       <tr>
         <th>ID</th>
@@ -33,15 +62,15 @@
       </tr>
     </thead>
     <tbody>
-      <% users.slice().reverse().forEach(user => { %>
+      <% users.forEach(user => { %>
         <tr>
           <td><%= user.id %></td>
-          <td>@<%= user.username %></td>
+          <td><%= user.username ? '@' + user.username : '' %></td>
           <td><%= user.first_name %></td>
-          <td><%= user.downloads_today %></td>
+          <td><%= user.total_downloads %></td>
           <td><%= user.premium_limit %></td>
-          <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '—' %></td>
-          <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '—' %></td>
+          <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '' %></td>
+          <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '' %></td>
           <td>
             <form method="POST" action="/set-tariff">
               <input type="hidden" name="userId" value="<%= user.id %>">
@@ -77,40 +106,85 @@
   </ul>
 
   <script>
-    const labels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
-
-    const registrationsData = {
-      labels,
-      datasets: [{
-        label: 'Регистрации',
-        data: <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>,
-        borderColor: 'blue',
-        backgroundColor: 'lightblue',
-        tension: 0.3
-      }]
-    };
-
-    const downloadsData = {
-      labels,
-      datasets: [{
-        label: 'Скачивания',
-        data: <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>,
-        borderColor: 'green',
-        backgroundColor: 'lightgreen',
-        tension: 0.3
-      }]
-    };
-
-    new Chart(document.getElementById('registrationsChart'), {
-      type: 'line',
-      data: registrationsData,
-      options: { responsive: true }
+    // Инициализация DataTables с сортировкой по дате регистрации (6-й столбец)
+    $(document).ready(function () {
+      $('#usersTable').DataTable({
+        order: [[5, 'desc']],
+        language: {
+          search: "Поиск:",
+          lengthMenu: "Показать _MENU_ записей",
+          info: "Показано _START_ - _END_ из _TOTAL_",
+          paginate: {
+            first: "Первая",
+            last: "Последняя",
+            next: "Следующая",
+            previous: "Предыдущая"
+          },
+          zeroRecords: "Ничего не найдено"
+        }
+      });
     });
 
-    new Chart(document.getElementById('downloadsChart'), {
+    // Данные для графика регистраций
+    const registrationsLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
+    const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
+
+    // Данные для графика загрузок (если есть)
+    const downloadsLabels = <%- JSON.stringify(Object.keys(stats.downloadsByDate)) %>;
+    const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
+
+    const ctxReg = document.getElementById('registrationsChart').getContext('2d');
+    const registrationsChart = new Chart(ctxReg, {
       type: 'line',
-      data: downloadsData,
-      options: { responsive: true }
+      data: {
+        labels: registrationsLabels,
+        datasets: [{
+          label: 'Регистрации пользователей',
+          data: registrationsData,
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 6
+        }]
+      },
+      options: {
+        scales: {
+          x: { title: { display: true, text: 'Дата' } },
+          y: { title: { display: true, text: 'Количество' }, beginAtZero: true }
+        },
+        plugins: { legend: { display: true } },
+        responsive: true,
+        maintainAspectRatio: false
+      }
+    });
+
+    const ctxDown = document.getElementById('downloadsChart').getContext('2d');
+    const downloadsChart = new Chart(ctxDown, {
+      type: 'line',
+      data: {
+        labels: downloadsLabels,
+        datasets: [{
+          label: 'Загрузки треков',
+          data: downloadsData,
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 6
+        }]
+      },
+      options: {
+        scales: {
+          x: { title: { display: true, text: 'Дата' } },
+          y: { title: { display: true, text: 'Количество' }, beginAtZero: true }
+        },
+        plugins: { legend: { display: true } },
+        responsive: true,
+        maintainAspectRatio: false
+      }
     });
   </script>
 </body>
