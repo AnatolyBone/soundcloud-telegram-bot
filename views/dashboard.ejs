@@ -43,6 +43,12 @@
     <% }) %>
   </table>
 
+<h3>📢 Массовая рассылка</h3>
+<form method="POST" action="/broadcast">
+  <textarea name="message" rows="4" cols="60" placeholder="Введите текст сообщения" required></textarea><br>
+  <button type="submit">Отправить всем</button>
+</form>
+
   <h3>📝 Последние отзывы:</h3>
   <ul>
     <% if (reviews && reviews.length > 0) { %>
