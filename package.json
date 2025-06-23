@@ -7,19 +7,19 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.6",
-    "compression": "^1.7.4",
-    "connect-pg-simple": "^8.0.0"
-    "ejs": "^3.1.9",
-    "express": "^4.19.2",
-    "express-session": "^1.17.3",
-    "pg": "^8.10.0",
-    "telegraf": "^4.16.3",
-    "youtube-dl-exec": "^2.0.1",
-    "json2csv": "^5.0.0",
-    "better-sqlite3": "^8.4.0",
-    "googleapis": "^118.0.0"
-  },
+  "@supabase/supabase-js": "^2.39.6",
+  "better-sqlite3": "^8.4.0",
+  "compression": "^1.7.4",
+  "connect-pg-simple": "^8.0.0",
+  "ejs": "^3.1.9",
+  "express": "^4.19.2",
+  "express-session": "^1.17.3",
+  "googleapis": "^118.0.0",
+  "json2csv": "^5.0.0",
+  "pg": "^8.10.0",
+  "telegraf": "^4.16.3",
+  "youtube-dl-exec": "^2.0.1"
+},
   "engines": {
     "node": ">=16"
   },
