@@ -42,6 +42,7 @@ const pool = new Pool({
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
+// Очистка кеша старше 7 дней
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
@@ -50,25 +51,26 @@ setInterval(() => {
   });
 }, 3600 * 1000);
 
+// Сброс статистики раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
 const queues = {};
 const processing = {};
 const reviewMode = new Set();
 
+// Только русский язык — убрал мульти-язык
 const texts = {
-  ru: {
-    start: '👋 Пришли ссылку на трек с SoundCloud.',
-    menu: '📋 Меню',
-    upgrade: '🔓 Расширить лимит',
-    mytracks: '🎵 Мои треки',
-    help: 'ℹ️ Помощь',
-    downloading: '🎧 Загружаю...',
-    cached: '🔁 Из кеша...',
-    error: '❌ Ошибка',
-    timeout: '⏱ Слишком долго...',
-    limitReached: '🚫 Лимит достигнут.',
-    upgradeInfo: `🚀 Хочешь больше треков?
+  start: '👋 Пришли ссылку на трек с SoundCloud.',
+  menu: '📋 Меню',
+  upgrade: '🔓 Расширить лимит',
+  mytracks: '🎵 Мои треки',
+  help: 'ℹ️ Помощь',
+  downloading: '🎧 Загружаю...',
+  cached: '🔁 Из кеша...',
+  error: '❌ Ошибка',
+  timeout: '⏱ Слишком долго...',
+  limitReached: '🚫 Лимит достигнут.',
+  upgradeInfo: `🚀 Хочешь больше треков?
 
 🆓 Free — 10 🟢
 Plus — 50 🎯 (59₽)
@@ -79,24 +81,22 @@ Unlimited — 💎 (199₽)
 ✉️ После оплаты напиши: @anatolybone
 
 👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
-    helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
-    reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
-    reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
-    alreadyReviewed: 'Ты уже оставил отзыв 😊',
-    noTracks: 'Сегодня нет треков.',
-    queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
-    adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
-  }
+  helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
+  reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
+  reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
+  alreadyReviewed: 'Ты уже оставил отзыв 😊',
+  noTracks: 'Сегодня нет треков.',
+  queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
+  adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
 };
 
-const kb = lang =>
+// Клавиатура всегда русская, фиксированная
+const kb = () =>
   Markup.keyboard([
-    [texts[lang].menu, texts[lang].upgrade],
-    [texts[lang].mytracks, texts[lang].help],
+    [texts.menu, texts.upgrade],
+    [texts.mytracks, texts.help],
     ['✍️ Оставить отзыв']
   ]).resize();
-
-const getLang = u => u?.lang || 'ru';
 
 async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
@@ -107,25 +107,22 @@ async function enqueue(userId, url) {
   while (queues[userId].length > 0) {
     const trackUrl = queues[userId].shift();
     try {
-      await bot.telegram.sendMessage(userId, texts.ru.queuePosition(queues[userId].length + 1));
-      // Ограничение времени на обработку трека (например, 3 мин) не помешает
+      await bot.telegram.sendMessage(userId, texts.queuePosition(queues[userId].length + 1));
       await Promise.race([
         processTrackByUrl(userId, trackUrl),
         new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
       ]);
     } catch (err) {
       console.error(`Ошибка в очереди пользователя ${userId}:`, err);
-      await bot.telegram.sendMessage(userId, texts.ru.error);
+      await bot.telegram.sendMessage(userId, texts.error);
     }
   }
   processing[userId] = false;
 }
 
 async function processTrackByUrl(userId, url) {
-  const u = await getUser(userId);
-  const lang = getLang(u);
   console.log(`Начинаем загрузку трека для ${userId}: ${url}`);
-  await bot.telegram.sendMessage(userId, texts[lang].downloading);
+  await bot.telegram.sendMessage(userId, texts.downloading);
 
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
@@ -147,20 +144,18 @@ async function processTrackByUrl(userId, url) {
     console.log(`Трек успешно отправлен пользователю ${userId}: ${name}`);
   } catch (e) {
     console.error('Ошибка при загрузке трека:', e);
-    await bot.telegram.sendMessage(userId, texts[lang].error);
+    await bot.telegram.sendMessage(userId, texts.error);
   }
 }
 
 bot.start(async ctx => {
   console.log('/start от', ctx.from.id);
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
+  ctx.reply(texts.start, kb());
 });
 
-bot.hears(texts.ru.menu, async ctx => {
+bot.hears(texts.menu, async ctx => {
   const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
 
   const now = new Date();
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
@@ -175,47 +170,23 @@ bot.hears(texts.ru.menu, async ctx => {
               `👫 Приглашено: ${u.referred_count || 0}\n🎁 Дней Plus: ${u.referred_count || 0}\n\n` +
               `🔗 Твоя ссылка:\n${refLink}`;
 
-  ctx.reply(msg, kb(lang));
+  ctx.reply(msg, kb());
 });
 
-bot.hears(texts.ru.upgrade, async ctx => {
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].upgradeInfo);
+bot.hears(texts.upgrade, async ctx => {
+  ctx.reply(texts.upgradeInfo);
 });
 
-bot.hears(texts.ru.help, async ctx => {
-  const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].helpInfo);
+bot.hears(texts.help, async ctx => {
+  ctx.reply(texts.helpInfo);
 });
 
 bot.hears('✍️ Оставить отзыв', async ctx => {
   if (await hasLeftReview(ctx.from.id)) {
-    return ctx.reply(texts.ru.alreadyReviewed);
+    return ctx.reply(texts.alreadyReviewed);
   }
-  ctx.reply(texts.ru.reviewAsk);
+  ctx.reply(texts.reviewAsk);
   reviewMode.add(ctx.from.id);
-});
-
-bot.on('text', async ctx => {
-  if (reviewMode.has(ctx.from.id)) {
-    reviewMode.delete(ctx.from.id);
-    await addReview(ctx.from.id, ctx.message.text);
-    await setPremium(ctx.from.id, 50, 30);
-    return ctx.reply(texts.ru.reviewThanks, kb('ru'));
-  }
-
-  const url = ctx.message.text.trim();
-  if (!url.includes('soundcloud.com')) {
-    return;
-  }
-
-  await resetDailyLimitIfNeeded(ctx.from.id);
-  const u = await getUser(ctx.from.id);
-  if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts[getLang(u)].limitReached);
-  }
-
-  await enqueue(ctx.from.id, url);
 });
 
 bot.command('admin', async ctx => {
@@ -223,7 +194,7 @@ bot.command('admin', async ctx => {
   const users = await getAllUsers();
   const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
   const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}`;
-  ctx.reply(msg + texts.ru.adminCommands);
+  ctx.reply(msg + texts.adminCommands);
 });
 
 bot.command('reviews', async ctx => {
@@ -234,10 +205,10 @@ bot.command('reviews', async ctx => {
   }
 });
 
-bot.hears(texts.ru.mytracks, async ctx => {
+bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
-  if (!list.length) return ctx.reply(texts.ru.noTracks);
+  if (!list.length) return ctx.reply(texts.noTracks);
   const media = list.map(name => {
     const fp = path.join(cacheDir, `${name}.mp3`);
     return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
@@ -247,7 +218,30 @@ bot.hears(texts.ru.mytracks, async ctx => {
   }
 });
 
-// Webhook — сразу отправляем 200, потом обрабатываем update
+// Обрабатываем текст — игнорируем команды (начинающиеся с '/')
+bot.on('text', async ctx => {
+  if (ctx.message.text.startsWith('/')) return;
+
+  if (reviewMode.has(ctx.from.id)) {
+    reviewMode.delete(ctx.from.id);
+    await addReview(ctx.from.id, ctx.message.text);
+    await setPremium(ctx.from.id, 50, 30);
+    return ctx.reply(texts.reviewThanks, kb());
+  }
+
+  const url = ctx.message.text.trim();
+  if (!url.includes('soundcloud.com')) return;
+
+  await resetDailyLimitIfNeeded(ctx.from.id);
+  const u = await getUser(ctx.from.id);
+  if (u.downloads_today >= u.premium_limit) {
+    return ctx.reply(texts.limitReached);
+  }
+
+  await enqueue(ctx.from.id, url);
+});
+
+// Вебхук — сразу 200, потом обработка update
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(err => {
