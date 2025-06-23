@@ -10,53 +10,45 @@ const ytdl = require('youtube-dl-exec');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded
+  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded,
+  getTrackMetadata, saveTrackMetadata
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://soundcloud-telegram-bot.onrender.com';
-const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PATH = '/telegram';
+const PORT = process.env.PORT || 3000;
 
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
-  console.error('❌ Ошибка: не заданы обязательные переменные окружения!');
+  console.error('❌ Отсутствуют необходимые переменные окружения!');
   process.exit(1);
 }
 if (isNaN(ADMIN_ID)) {
-  console.error('❌ ADMIN_ID не задан или некорректен');
+  console.error('❌ ADMIN_ID должен быть числом');
   process.exit(1);
 }
 
-const app = express();
 const bot = new Telegraf(BOT_TOKEN);
+const app = express();
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очистка кеша старше 7 дней каждый час
+// Очистка кеша раз в час
 setInterval(() => {
-  try {
-    const cutoff = Date.now() - 7 * 86400 * 1000;
-    fs.readdirSync(cacheDir).forEach(file => {
-      const fp = path.join(cacheDir, file);
-      if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
-    });
-  } catch (err) {
-    console.error('Ошибка очистки кеша:', err);
-  }
+  const cutoff = Date.now() - 7 * 86400 * 1000;
+  fs.readdirSync(cacheDir).forEach(file => {
+    const filePath = path.join(cacheDir, file);
+    if (fs.statSync(filePath).mtimeMs < cutoff) {
+      fs.unlinkSync(filePath);
+    }
+  });
 }, 3600 * 1000);
 
-// Сброс статистики раз в сутки
-setInterval(async () => {
-  try {
-    await resetDailyStats();
-    console.log('✅ Ежедневная статистика сброшена');
-  } catch (err) {
-    console.error('❌ Ошибка сброса статистики:', err);
-  }
-}, 24 * 3600 * 1000);
+// Сброс лимитов раз в сутки
+setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
-// Очереди и обработка треков — отдельно для каждого пользователя
+// Очереди
 const queues = {};
 const processing = {};
 const reviewMode = new Set();
@@ -75,22 +67,19 @@ const texts = {
     limitReached: '🚫 Лимит достигнут.',
     upgradeInfo: `🚀 Хочешь больше треков?
 
-Если вы хотите скачивать больше треков в день, можете воспользоваться одним из тарифов ниже:
-
-🆓 Free – 10 🟢
-Plus – 50 🎯 (59₽)
-Pro – 100 💪 (119₽)
-Unlimited – 💎 (199₽)
+🆓 Free — 10 🟢
+Plus — 50 🎯 (59₽)
+Pro — 100 💪 (119₽)
+Unlimited — 💎 (199₽)
 
 👉 Донат: https://boosty.to/anatoly_bone/donate
 ✉️ После оплаты напиши: @anatolybone
 
-👫 Пригласите друзей в наш сервис и получите 1 день тарифа “Plus” на баланс за каждого друга.`,
+👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
     helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
-    chooseLang: '🌐 Выберите язык:',
-    reviewAsk: '✍️ Напиши свой отзыв о боте. После этого ты получишь тариф Plus на 30 дней.',
-    reviewThanks: '✅ Спасибо за отзыв! Тебе выдан тариф Plus (50 треков/день) на 30 дней.',
-    alreadyReviewed: 'Ты уже оставил отзыв 😊 Спасибо!',
+    reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
+    reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
+    alreadyReviewed: 'Ты уже оставил отзыв 😊',
     noTracks: 'Сегодня нет треков.',
     queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
     adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
@@ -106,15 +95,12 @@ const kb = lang =>
 
 const getLang = u => u?.lang || 'ru';
 
-// Основная функция добавления задачи в очередь
 async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
   queues[userId].push(url);
-
   if (processing[userId]) return;
 
   processing[userId] = true;
-
   while (queues[userId].length > 0) {
     const trackUrl = queues[userId].shift();
     try {
@@ -125,17 +111,15 @@ async function enqueue(userId, url) {
       await bot.telegram.sendMessage(userId, texts.ru.error);
     }
   }
-
   processing[userId] = false;
 }
 
 async function processTrackByUrl(userId, url) {
   const u = await getUser(userId);
   const lang = getLang(u);
+  await bot.telegram.sendMessage(userId, texts[lang].downloading);
 
   try {
-    await bot.telegram.sendMessage(userId, texts[lang].downloading);
-
     const info = await ytdl(url, { dumpSingleJson: true });
     let name = (info.title || 'track')
       .replace(/[^\w\s\-]/g, '')
@@ -153,75 +137,61 @@ async function processTrackByUrl(userId, url) {
 
     await bot.telegram.sendAudio(userId, { source: fs.createReadStream(fp), filename: `${name}.mp3` });
   } catch (e) {
-    console.error('Ошибка обработки трека:', e);
+    console.error('Ошибка при загрузке трека:', e);
     await bot.telegram.sendMessage(userId, texts[lang].error);
   }
 }
 
-// Старт и создание пользователя
 bot.start(async ctx => {
-  const parts = ctx.message.text.split(' ');
-  const referrerId = parts.length > 1 ? parseInt(parts[1], 10) : null;
-  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name, referrerId);
+  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
 });
 
-// Обработка нажатия «Меню»
 bot.hears(texts.ru.menu, async ctx => {
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
 
   const now = new Date();
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
-  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / (1000 * 60 * 60 * 24)) : 0;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
 
-  const msg = `👋 Рады видеть вас снова, ${u.first_name}!\n\n` +
-              `💼 Ваш тариф: ${u.premium_limit === 10 ? 'Free' :
-                            u.premium_limit === 50 ? 'Plus' :
-                            u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
-              `⏳ Дней до окончания тарифа: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
-              `👫 Приглашено друзей: ${u.referred_count || 0}\n` +
-              `🎁 Начислено дней Plus: ${u.referred_count || 0}\n\n` +
-              `🔗 Ваша реферальная ссылка:\n${refLink}`;
+  const msg = `👋 Добро пожаловать, ${u.first_name}!\n\n` +
+              `💼 Тариф: ${u.premium_limit === 10 ? 'Free' :
+                        u.premium_limit === 50 ? 'Plus' :
+                        u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
+              `⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
+              `👫 Приглашено: ${u.referred_count || 0}\n🎁 Дней Plus: ${u.referred_count || 0}\n\n` +
+              `🔗 Твоя ссылка:\n${refLink}`;
 
-  ctx.reply(msg, Markup.keyboard([
-    [texts[lang].mytracks, texts[lang].upgrade],
-    ['📋 Меню', '✍️ Оставить отзыв']
-  ]).resize());
+  ctx.reply(msg, kb(lang));
 });
 
-// Кнопка расширения лимита
 bot.hears(texts.ru.upgrade, async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].upgradeInfo);
 });
 
-// Помощь
 bot.hears(texts.ru.help, async ctx => {
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].helpInfo);
 });
 
-// Оставить отзыв
 bot.hears('✍️ Оставить отзыв', async ctx => {
   if (await hasLeftReview(ctx.from.id)) {
-    const u = await getUser(ctx.from.id);
-    return ctx.reply(texts[getLang(u)].alreadyReviewed);
+    return ctx.reply(texts.ru.alreadyReviewed);
   }
   ctx.reply(texts.ru.reviewAsk);
   reviewMode.add(ctx.from.id);
 });
 
-// Обработка отзывов
 bot.on('text', async ctx => {
   if (reviewMode.has(ctx.from.id)) {
     reviewMode.delete(ctx.from.id);
     await addReview(ctx.from.id, ctx.message.text);
     await setPremium(ctx.from.id, 50, 30);
-    const u = await getUser(ctx.from.id);
-    return ctx.reply(texts[getLang(u)].reviewThanks, kb(getLang(u)));
+    return ctx.reply(texts.ru.reviewThanks, kb('ru'));
   }
 
   const url = ctx.message.text.trim();
@@ -229,62 +199,34 @@ bot.on('text', async ctx => {
 
   await resetDailyLimitIfNeeded(ctx.from.id);
   const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
-
   if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts[lang].limitReached);
+    return ctx.reply(texts[getLang(u)].limitReached);
   }
 
   await enqueue(ctx.from.id, url);
 });
 
-// Админские команды — доступны только ADMIN_ID
+// Админка
 bot.command('admin', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
+  if (ctx.from.id !== ADMIN_ID) return;
   const users = await getAllUsers();
-  const files = fs.readdirSync(cacheDir);
-  const size = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
-  const downloads = users.reduce((s, u) => s + u.total_downloads, 0);
-  const stats = {
-    free: users.filter(u => u.premium_limit === 10).length,
-    plus: users.filter(u => u.premium_limit === 50).length,
-    pro: users.filter(u => u.premium_limit === 100).length,
-    unlimited: users.filter(u => u.premium_limit >= 1000).length
-  };
-
-  const u = await getUser(ctx.from.id);
-  const lang = getLang(u);
-
-  const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок всего: ${downloads}\n📁 Кеш: ${files.length} файлов, ${(size / 1024 / 1024).toFixed(1)} MB\n\n` +
-              `Тарифы:\n🆓 Free: ${stats.free}\n🔓 Plus: ${stats.plus}\n🔥 Pro: ${stats.pro}\n💎 Unlimited: ${stats.unlimited}`;
-
-  await ctx.reply(msg + texts[lang].adminCommands);
-});
-
-bot.command('testdb', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
-  const u = await getUser(ctx.from.id);
-  ctx.reply(`ID: ${u.id}\nСегодня: ${u.downloads_today}/${u.premium_limit}`);
+  const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+  const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}`;
+  ctx.reply(msg + texts.ru.adminCommands);
 });
 
 bot.command('reviews', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
-  try {
-    const reviews = await getLatestReviews(20);
-    if (!reviews.length) return ctx.reply('❌ Нет отзывов.');
-    for (const r of reviews) {
-      await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
-    }
-  } catch {
-    ctx.reply('❌ Ошибка при получении отзывов');
+  if (ctx.from.id !== ADMIN_ID) return;
+  const reviews = await getLatestReviews(10);
+  for (const r of reviews) {
+    await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
   }
 });
 
-// Мои треки
 bot.hears(texts.ru.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
-  if (!list.length) return ctx.reply(texts[getLang(u)].noTracks);
+  if (!list.length) return ctx.reply(texts.ru.noTracks);
   const media = list.map(name => {
     const fp = path.join(cacheDir, `${name}.mp3`);
     return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
@@ -294,9 +236,7 @@ bot.hears(texts.ru.mytracks, async ctx => {
   }
 });
 
-// --- Express + Webhook интеграция ---
-
-// Парсинг форм для админки
+// --- Express + webhook ---
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
 app.use(session({
@@ -305,7 +245,6 @@ app.use(session({
   saveUninitialized: false
 }));
 
-// EJS
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
@@ -314,10 +253,10 @@ function requireAuth(req, res, next) {
   res.redirect('/admin');
 }
 
-// Вход в админку
 app.get('/admin', (req, res) => {
   res.render('login', { error: null });
 });
+
 app.post('/admin/login', (req, res) => {
   const { username, password } = req.body;
   if (
@@ -330,71 +269,29 @@ app.post('/admin/login', (req, res) => {
   res.render('login', { error: 'Неверные данные' });
 });
 
-// Дашборд админки
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  
+  const reviews = await getLatestReviews(10);
   const stats = {
     totalUsers: users.length,
-    totalDownloads,
-    free: users.filter(u => u.premium_limit === 10).length,
-    plus: users.filter(u => u.premium_limit === 50).length,
-    pro: users.filter(u => u.premium_limit === 100).length,
-    unlimited: users.filter(u => u.premium_limit >= 1000).length,
+    totalDownloads
   };
-
-  // Получаем последние отзывы для вывода в админке
-  const reviews = await getLatestReviews(20);
-
   res.render('dashboard', { stats, users, reviews });
 });
 
-// Логаут
 app.get('/logout', (req, res) => {
-  req.session.destroy(() => {
-    res.redirect('/admin');
-  });
+  req.session.destroy(() => res.redirect('/admin'));
 });
 
-// Смена тарифа пользователя
-app.post('/set-tariff', requireAuth, async (req, res) => {
-  const { userId, limit } = req.body;
-  if (!userId || !limit) return res.redirect('/dashboard');
-  try {
-    await setPremium(parseInt(userId, 10), parseInt(limit, 10), 30); // 30 дней
-  } catch (e) {
-    console.error('Ошибка установки тарифа:', e);
-  }
-  res.redirect('/dashboard');
-});
-
-// Массовая рассылка из админки
-app.post('/broadcast', requireAuth, async (req, res) => {
-  const { message } = req.body;
-  const users = await getAllUsers();
-  for (const u of users) {
-    try {
-      await bot.telegram.sendMessage(u.id, message);
-    } catch (e) {
-      console.error('Ошибка при рассылке:', e);
-    }
-  }
-  res.redirect('/dashboard');
-});
-
-// Подключаем webhook
 app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  (async () => {
-    try {
-      await bot.telegram.setWebhook(WEBHOOK_URL + WEBHOOK_PATH);
-      console.log(`✅ Webhook установлен: ${WEBHOOK_URL + WEBHOOK_PATH}`);
-    } catch (e) {
-      console.error('❌ Ошибка установки webhook:', e);
-      process.exit(1);
-    }
-  })();
+app.listen(PORT, async () => {
+  console.log(`🚀 Сервер на порту ${PORT}`);
+  try {
+    await bot.telegram.setWebhook(WEBHOOK_URL + WEBHOOK_PATH);
+    console.log(`✅ Webhook установлен: ${WEBHOOK_URL + WEBHOOK_PATH}`);
+  } catch (err) {
+    console.error('❌ Ошибка установки webhook:', err);
+  }
 });
