@@ -1,6 +1,4 @@
 const { Pool } = require('pg');
-const fs = require('fs');
-const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 // Supabase
@@ -71,7 +69,7 @@ async function setPremium(id, limit, days = null) {
   }
 }
 
-// ✅ Сброс лимита на основе календарного дня
+// Сброс лимита на основе календарного дня
 async function resetDailyLimitIfNeeded(userId) {
   const res = await pool.query(
     'SELECT last_reset_date FROM users WHERE id = $1',
@@ -94,7 +92,7 @@ async function resetDailyLimitIfNeeded(userId) {
   }
 }
 
-// ✅ Массовый сброс для всех пользователей
+// Массовый сброс для всех пользователей
 async function resetDailyStats() {
   await query(`
     UPDATE users
@@ -148,6 +146,30 @@ async function getLatestReviews(limit = 10) {
   return data;
 }
 
+/** === Новое: кеш метаданных треков === **/
+
+// Получить метаданные трека из кеша
+async function getTrackMetadata(url) {
+  const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
+  if (res.rows.length === 0) return null;
+
+  const row = res.rows[0];
+  // Считаем кеш актуальным 7 дней
+  const ageMs = Date.now() - new Date(row.updated_at).getTime();
+  if (ageMs > 7 * 24 * 60 * 60 * 1000) return null;
+
+  return row.metadata;
+}
+
+// Сохранить метаданные трека в кеш
+async function saveTrackMetadata(url, metadata) {
+  await query(`
+    INSERT INTO track_metadata (url, metadata, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (url) DO UPDATE SET metadata = EXCLUDED.metadata, updated_at = NOW()
+  `, [url, metadata]);
+}
+
 module.exports = {
   createUser,
   getUser,
@@ -160,5 +182,7 @@ module.exports = {
   saveTrackForUser,
   hasLeftReview,
   getLatestReviews,
-  resetDailyLimitIfNeeded
+  resetDailyLimitIfNeeded,
+  getTrackMetadata,
+  saveTrackMetadata
 };
