@@ -305,8 +305,16 @@ app.use(bot.webhookCallback(WEBHOOK_PATH));
 // Запуск сервера и установка webhook
 app.listen(PORT, () => {
   console.log(`🚀 Сервер на порту ${PORT}`);
+
   const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
+
   bot.telegram.setWebhook(cleanWebhookUrl)
-    .then(() => console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`))
+    .then(() => {
+      console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`);
+      return bot.telegram.getWebhookInfo();
+    })
+    .then(info => {
+      console.log('📡 Webhook info:', info);
+    })
     .catch(err => console.error('❌ Ошибка установки webhook:', err));
 });
