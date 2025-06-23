@@ -3,30 +3,80 @@
 <head>
   <title>Admin Panel</title>
   <meta charset="UTF-8" />
+  
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
+  
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  
+  <!-- DataTables JS -->
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    table.dataTable thead th {
+      background-color: #f3f3f3;
+    }
+    canvas {
+      max-width: 800px;
+      margin-bottom: 40px;
+    }
+  </style>
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
+  
   <p>Total users: <%= stats.totalUsers %></p>
   <p>Total downloads: <%= stats.totalDownloads %></p>
-  <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
+  <p>
+    Free: <%= stats.free %>, 
+    Plus: <%= stats.plus %>, 
+    Pro: <%= stats.pro %>, 
+    Unlim: <%= stats.unlimited %>
+  </p>
+
+  <!-- Графики -->
+  <h2>📈 Статистика по датам</h2>
+
+  <h3>Регистрации пользователей</h3>
+  <canvas id="registrationsChart"></canvas>
+
+  <h3>Скачивания (активность)</h3>
+  <canvas id="downloadsChart"></canvas>
 
   <h3>👤 Все пользователи (<%= users.length %>)</h3>
-  <table border="1" cellpadding="5">
-    <tr>
-      <th>ID</th>
-      <th>Username</th>
-      <th>Имя</th>
-      <th>Скачано</th>
-      <th>Лимит</th>
-      <th>Сменить тариф</th>
-    </tr>
-    <% users.slice().reverse().forEach(user => { %>
+  <table id="usersTable" class="display" style="width:100%" border="1" cellpadding="5">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Username</th>
+        <th>Имя</th>
+        <th>Скачано сегодня</th>
+        <th>Общее скачано</th>
+        <th>Лимит</th>
+        <th>Дата регистрации</th>
+        <th>Последняя активность</th>
+        <th>Сменить тариф</th>
+      </tr>
+    </thead>
+    <tbody>
+    <% users.forEach(user => { %>
       <tr>
         <td><%= user.id %></td>
         <td>@<%= user.username %></td>
         <td><%= user.first_name %></td>
         <td><%= user.downloads_today %></td>
+        <td><%= user.total_downloads || 0 %></td>
         <td><%= user.premium_limit %></td>
+        <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
+        <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
         <td>
           <form method="POST" action="/set-tariff">
             <input type="hidden" name="userId" value="<%= user.id %>">
@@ -41,13 +91,14 @@
         </td>
       </tr>
     <% }) %>
+    </tbody>
   </table>
 
-<h3>📢 Массовая рассылка</h3>
-<form method="POST" action="/broadcast">
-  <textarea name="message" rows="4" cols="60" placeholder="Введите текст сообщения" required></textarea><br>
-  <button type="submit">Отправить всем</button>
-</form>
+  <h3>📢 Массовая рассылка</h3>
+  <form method="POST" action="/broadcast">
+    <textarea name="message" rows="4" cols="60" placeholder="Введите текст сообщения" required></textarea><br>
+    <button type="submit">Отправить всем</button>
+  </form>
 
   <h3>📝 Последние отзывы:</h3>
   <ul>
@@ -59,5 +110,69 @@
       <li>Отзывы отсутствуют</li>
     <% } %>
   </ul>
+
+  <script>
+    // Подготовка данных для графиков
+    const registrationsByDate = <%- JSON.stringify(stats.registrationsByDate) %>;
+    const downloadsByDate = <%- JSON.stringify(stats.downloadsByDate) %>;
+
+    // Функция сортировки по ключу даты
+    function sortDateKeys(obj) {
+      return Object.keys(obj).sort().reduce((res, key) => {
+        res[key] = obj[key];
+        return res;
+      }, {});
+    }
+
+    const sortedRegistrations = sortDateKeys(registrationsByDate);
+    const sortedDownloads = sortDateKeys(downloadsByDate);
+
+    // График Регистраций
+    const ctxReg = document.getElementById('registrationsChart').getContext('2d');
+    new Chart(ctxReg, {
+      type: 'line',
+      data: {
+        labels: Object.keys(sortedRegistrations),
+        datasets: [{
+          label: 'Регистрации',
+          data: Object.values(sortedRegistrations),
+          borderColor: 'blue',
+          backgroundColor: 'rgba(0, 0, 255, 0.2)',
+          fill: true,
+          tension: 0.2,
+        }]
+      },
+      options: {
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // График Скачиваний
+    const ctxDown = document.getElementById('downloadsChart').getContext('2d');
+    new Chart(ctxDown, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(sortedDownloads),
+        datasets: [{
+          label: 'Скачивания',
+          data: Object.values(sortedDownloads),
+          backgroundColor: 'green'
+        }]
+      },
+      options: {
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Инициализация DataTables
+    $(document).ready(function() {
+      $('#usersTable').DataTable({
+        order: [[0, 'desc']], // сортируем по ID по убыванию по умолчанию
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100]
+      });
+    });
+  </script>
+
 </body>
 </html>
