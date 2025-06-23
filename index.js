@@ -23,6 +23,10 @@ if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PA
   console.error('❌ Ошибка: не заданы обязательные переменные окружения!');
   process.exit(1);
 }
+if (isNaN(ADMIN_ID)) {
+  console.error('❌ ADMIN_ID не задан или некорректен');
+  process.exit(1);
+}
 
 const app = express();
 const bot = new Telegraf(BOT_TOKEN);
@@ -234,7 +238,7 @@ bot.on('text', async ctx => {
 
 // Админские команды — доступны только ADMIN_ID
 bot.command('admin', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
   const users = await getAllUsers();
   const files = fs.readdirSync(cacheDir);
   const size = files.reduce((s, f) => s + fs.statSync(path.join(cacheDir, f)).size, 0);
@@ -256,13 +260,13 @@ bot.command('admin', async ctx => {
 });
 
 bot.command('testdb', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
   const u = await getUser(ctx.from.id);
   ctx.reply(`ID: ${u.id}\nСегодня: ${u.downloads_today}/${u.premium_limit}`);
 });
 
 bot.command('reviews', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('🚫 Нет доступа к этой команде.');
   try {
     const reviews = await getLatestReviews(20);
     if (!reviews.length) return ctx.reply('❌ Нет отзывов.');
@@ -338,7 +342,10 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     unlimited: users.filter(u => u.premium_limit >= 1000).length,
   };
 
-  res.render('dashboard', { stats, users });
+  // Получаем последние отзывы для вывода в админке
+  const reviews = await getLatestReviews(20);
+
+  res.render('dashboard', { stats, users, reviews });
 });
 
 // Логаут
@@ -348,7 +355,19 @@ app.get('/logout', (req, res) => {
   });
 });
 
-// Массовая рассылка из админки (пример)
+// Смена тарифа пользователя
+app.post('/set-tariff', requireAuth, async (req, res) => {
+  const { userId, limit } = req.body;
+  if (!userId || !limit) return res.redirect('/dashboard');
+  try {
+    await setPremium(parseInt(userId, 10), parseInt(limit, 10), 30); // 30 дней
+  } catch (e) {
+    console.error('Ошибка установки тарифа:', e);
+  }
+  res.redirect('/dashboard');
+});
+
+// Массовая рассылка из админки
 app.post('/broadcast', requireAuth, async (req, res) => {
   const { message } = req.body;
   const users = await getAllUsers();
@@ -367,8 +386,13 @@ app.use(bot.webhookCallback(WEBHOOK_PATH));
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  // Запуск webhook
-  bot.telegram.setWebhook(WEBHOOK_URL + WEBHOOK_PATH).then(() => {
-    console.log(`✅ Webhook установлен: ${WEBHOOK_URL + WEBHOOK_PATH}`);
-  }).catch(console.error);
+  (async () => {
+    try {
+      await bot.telegram.setWebhook(WEBHOOK_URL + WEBHOOK_PATH);
+      console.log(`✅ Webhook установлен: ${WEBHOOK_URL + WEBHOOK_PATH}`);
+    } catch (e) {
+      console.error('❌ Ошибка установки webhook:', e);
+      process.exit(1);
+    }
+  })();
 });
