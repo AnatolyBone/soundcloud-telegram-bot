@@ -291,11 +291,41 @@ app.post('/admin/login', (req, res) => {
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  const reviews = await getLatestReviews(10);
+
+  // Считаем количество по тарифам
+  const counts = {
+    free: users.filter(u => u.premium_limit === 10).length,
+    plus: users.filter(u => u.premium_limit === 50).length,
+    pro: users.filter(u => u.premium_limit === 100).length,
+    unlimited: users.filter(u => u.premium_limit >= 1000).length
+  };
+
+  // Формируем статистику по датам регистраций
+  const registrationsByDate = {};
+  const downloadsByDate = {};
+
+  users.forEach(u => {
+    if (u.created_at) {
+      const dateKey = u.created_at.toISOString().slice(0,10);
+      registrationsByDate[dateKey] = (registrationsByDate[dateKey] || 0) + 1;
+    }
+    if (u.last_active) {
+      const dateKey = u.last_active.toISOString().slice(0,10);
+      downloadsByDate[dateKey] = (downloadsByDate[dateKey] || 0) + (u.downloads_today || 0);
+    }
+  });
+
   const stats = {
     totalUsers: users.length,
-    totalDownloads
+    totalDownloads,
+    ...counts,
+    registrationsByDate,
+    downloadsByDate,
+    tariffDistribution: counts
   };
+
+  const reviews = await getLatestReviews(10);
+
   res.render('dashboard', { stats, users, reviews });
 });
 
