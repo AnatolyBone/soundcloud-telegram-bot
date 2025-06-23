@@ -290,38 +290,42 @@ app.post('/admin/login', (req, res) => {
 
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
+
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
-  // Считаем количество по тарифам
-  const counts = {
-    free: users.filter(u => u.premium_limit === 10).length,
-    plus: users.filter(u => u.premium_limit === 50).length,
-    pro: users.filter(u => u.premium_limit === 100).length,
-    unlimited: users.filter(u => u.premium_limit >= 1000).length
-  };
+  // Запрос регистрации по датам:
+  const registrationsResult = await pool.query(`
+    SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
+    FROM users
+    GROUP BY date
+    ORDER BY date
+  `);
 
-  // Формируем статистику по датам регистраций
+  // Преобразуем результат в объект для шаблона
   const registrationsByDate = {};
-  const downloadsByDate = {};
-
-  users.forEach(u => {
-    if (u.created_at) {
-      const dateKey = u.created_at.toISOString().slice(0,10);
-      registrationsByDate[dateKey] = (registrationsByDate[dateKey] || 0) + 1;
-    }
-    if (u.last_active) {
-      const dateKey = u.last_active.toISOString().slice(0,10);
-      downloadsByDate[dateKey] = (downloadsByDate[dateKey] || 0) + (u.downloads_today || 0);
-    }
+  registrationsResult.rows.forEach(row => {
+    registrationsByDate[row.date] = parseInt(row.count, 10);
   });
+
+  // Для скачиваний — если у тебя нет подробной таблицы, пока оставим пустым
+  // Или сделай аналогичный запрос, если есть данные по датам скачиваний
+  const downloadsByDate = {}; 
+
+  // Считаем тарифы для статистики
+  const freeCount = users.filter(u => u.premium_limit === 10).length;
+  const plusCount = users.filter(u => u.premium_limit === 50).length;
+  const proCount = users.filter(u => u.premium_limit === 100).length;
+  const unlimitedCount = users.filter(u => u.premium_limit >= 1000).length;
 
   const stats = {
     totalUsers: users.length,
     totalDownloads,
-    ...counts,
+    free: freeCount,
+    plus: plusCount,
+    pro: proCount,
+    unlimited: unlimitedCount,
     registrationsByDate,
-    downloadsByDate,
-    tariffDistribution: counts
+    downloadsByDate
   };
 
   const reviews = await getLatestReviews(10);
