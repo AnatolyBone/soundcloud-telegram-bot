@@ -7,6 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
 
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
+
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
@@ -31,24 +34,27 @@ if (isNaN(ADMIN_ID)) {
 
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // важно для Supabase
+});
+
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очистка кеша раз в час
+// Очистка кеша (файлы старше 7 дней) — раз в час
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
     const filePath = path.join(cacheDir, file);
-    if (fs.statSync(filePath).mtimeMs < cutoff) {
-      fs.unlinkSync(filePath);
-    }
+    if (fs.statSync(filePath).mtimeMs < cutoff) fs.unlinkSync(filePath);
   });
 }, 3600 * 1000);
 
-// Сброс лимитов раз в сутки
+// Сброс лимитов пользователей — раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
-// Очереди
 const queues = {};
 const processing = {};
 const reviewMode = new Set();
@@ -142,6 +148,8 @@ async function processTrackByUrl(userId, url) {
   }
 }
 
+// Telegram Bot Handlers
+
 bot.start(async ctx => {
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
   const u = await getUser(ctx.from.id);
@@ -206,7 +214,6 @@ bot.on('text', async ctx => {
   await enqueue(ctx.from.id, url);
 });
 
-// Админка
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const users = await getAllUsers();
@@ -236,26 +243,21 @@ bot.hears(texts.ru.mytracks, async ctx => {
   }
 });
 
-// --- Express + webhook ---
-const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
+// Express middleware и роуты
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // важно для подключения к Supabase
-});
+app.use(express.urlencoded({ extended: true }));
+app.use(compression());
 
 app.use(session({
   store: new pgSession({
     pool: pool,
     tableName: 'session',
-    createTableIfMissing: true // таблица создастся автоматически, если её нет
+    createTableIfMissing: true
   }),
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // сессия 30 дней
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 дней
 }));
 
 app.set('view engine', 'ejs');
@@ -297,8 +299,10 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin'));
 });
 
+// Подключаем webhook Telegram бота
 app.use(bot.webhookCallback(WEBHOOK_PATH));
 
+// Запуск сервера и установка webhook
 app.listen(PORT, () => {
   console.log(`🚀 Сервер на порту ${PORT}`);
   const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
