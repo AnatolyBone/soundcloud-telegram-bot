@@ -293,7 +293,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
-  // Запрос регистрации по датам:
+  // 📅 Считаем регистрации по датам
   const registrationsResult = await pool.query(`
     SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
     FROM users
@@ -301,17 +301,25 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     ORDER BY date
   `);
 
-  // Преобразуем результат в объект для шаблона
   const registrationsByDate = {};
   registrationsResult.rows.forEach(row => {
     registrationsByDate[row.date] = parseInt(row.count, 10);
   });
 
-  // Для скачиваний — если у тебя нет подробной таблицы, пока оставим пустым
-  // Или сделай аналогичный запрос, если есть данные по датам скачиваний
-  const downloadsByDate = {}; 
+  // 📥 Считаем скачивания по датам
+  const downloadsResult = await pool.query(`
+    SELECT TO_CHAR(last_active::date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
+    FROM users
+    GROUP BY date
+    ORDER BY date
+  `);
 
-  // Считаем тарифы для статистики
+  const downloadsByDate = {};
+  downloadsResult.rows.forEach(row => {
+    downloadsByDate[row.date] = parseInt(row.count, 10);
+  });
+
+  // 📊 Тарифы
   const freeCount = users.filter(u => u.premium_limit === 10).length;
   const plusCount = users.filter(u => u.premium_limit === 50).length;
   const proCount = users.filter(u => u.premium_limit === 100).length;
