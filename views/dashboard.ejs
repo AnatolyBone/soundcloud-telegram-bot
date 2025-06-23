@@ -3,64 +3,30 @@
 <head>
   <title>Admin Panel</title>
   <meta charset="UTF-8" />
-  
-  <!-- DataTables CSS -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
-  
-  <!-- jQuery -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  
-  <!-- DataTables JS -->
-  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-  
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-    table.dataTable thead th {
-      background-color: #f3f3f3;
-    }
-    canvas {
-      max-width: 800px;
-      margin-bottom: 40px;
-    }
-  </style>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
-  
   <p>Total users: <%= stats.totalUsers %></p>
   <p>Total downloads: <%= stats.totalDownloads %></p>
-  <p>
-    Free: <%= stats.free %>, 
-    Plus: <%= stats.plus %>, 
-    Pro: <%= stats.pro %>, 
-    Unlim: <%= stats.unlimited %>
-  </p>
+  <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
 
-  <!-- Графики -->
-  <h2>📈 Статистика по датам</h2>
-
-  <h3>Регистрации пользователей</h3>
-  <canvas id="registrationsChart"></canvas>
-
-  <h3>Скачивания (активность)</h3>
-  <canvas id="downloadsChart"></canvas>
+  <h3>📈 Регистрации по дням</h3>
+  <canvas id="regChart" width="800" height="300"></canvas>
 
   <h3>👤 Все пользователи (<%= users.length %>)</h3>
-  <table id="usersTable" class="display" style="width:100%" border="1" cellpadding="5">
+  <table id="usersTable" border="1" cellpadding="5">
     <thead>
       <tr>
         <th>ID</th>
         <th>Username</th>
         <th>Имя</th>
-        <th>Скачано сегодня</th>
-        <th>Общее скачано</th>
+        <th>Скачано</th>
         <th>Лимит</th>
+        <th>Тариф</th>
         <th>Дата регистрации</th>
         <th>Последняя активность</th>
         <th>Сменить тариф</th>
@@ -72,11 +38,15 @@
         <td><%= user.id %></td>
         <td>@<%= user.username %></td>
         <td><%= user.first_name %></td>
-        <td><%= user.downloads_today %></td>
         <td><%= user.total_downloads || 0 %></td>
         <td><%= user.premium_limit %></td>
-        <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
-        <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
+        <td>
+          <%= user.premium_limit === 10 ? 'Free' :
+              user.premium_limit === 50 ? 'Plus' :
+              user.premium_limit === 100 ? 'Pro' : 'Unlim' %>
+        </td>
+        <td><%= new Date(user.created_at).toLocaleDateString() %></td>
+        <td><%= user.last_active ? new Date(user.last_active).toLocaleString() : '–' %></td>
         <td>
           <form method="POST" action="/set-tariff">
             <input type="hidden" name="userId" value="<%= user.id %>">
@@ -112,67 +82,42 @@
   </ul>
 
   <script>
-    // Подготовка данных для графиков
-    const registrationsByDate = <%- JSON.stringify(stats.registrationsByDate) %>;
-    const downloadsByDate = <%- JSON.stringify(stats.downloadsByDate) %>;
+    // Chart.js график регистраций
+    const regData = <%- JSON.stringify(stats.registrationsByDate) %>;
+    const regLabels = Object.keys(regData);
+    const regCounts = Object.values(regData);
 
-    // Функция сортировки по ключу даты
-    function sortDateKeys(obj) {
-      return Object.keys(obj).sort().reduce((res, key) => {
-        res[key] = obj[key];
-        return res;
-      }, {});
-    }
-
-    const sortedRegistrations = sortDateKeys(registrationsByDate);
-    const sortedDownloads = sortDateKeys(downloadsByDate);
-
-    // График Регистраций
-    const ctxReg = document.getElementById('registrationsChart').getContext('2d');
-    new Chart(ctxReg, {
+    const ctx = document.getElementById('regChart').getContext('2d');
+    new Chart(ctx, {
       type: 'line',
       data: {
-        labels: Object.keys(sortedRegistrations),
+        labels: regLabels,
         datasets: [{
           label: 'Регистрации',
-          data: Object.values(sortedRegistrations),
+          data: regCounts,
           borderColor: 'blue',
-          backgroundColor: 'rgba(0, 0, 255, 0.2)',
-          fill: true,
-          tension: 0.2,
+          backgroundColor: 'rgba(0, 0, 255, 0.1)',
+          tension: 0.3,
+          fill: true
         }]
       },
       options: {
-        scales: { y: { beginAtZero: true } }
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            precision: 0
+          }
+        }
       }
     });
 
-    // График Скачиваний
-    const ctxDown = document.getElementById('downloadsChart').getContext('2d');
-    new Chart(ctxDown, {
-      type: 'bar',
-      data: {
-        labels: Object.keys(sortedDownloads),
-        datasets: [{
-          label: 'Скачивания',
-          data: Object.values(sortedDownloads),
-          backgroundColor: 'green'
-        }]
-      },
-      options: {
-        scales: { y: { beginAtZero: true } }
-      }
-    });
-
-    // Инициализация DataTables
-    $(document).ready(function() {
+    // DataTables
+    $(document).ready(() => {
       $('#usersTable').DataTable({
-        order: [[0, 'desc']], // сортируем по ID по убыванию по умолчанию
-        pageLength: 25,
-        lengthMenu: [10, 25, 50, 100]
+        order: [[6, 'desc']] // Сортировка по дате регистрации
       });
     });
   </script>
-
 </body>
 </html>
