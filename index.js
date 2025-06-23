@@ -160,7 +160,9 @@ async function processTrackByUrl(userId, url) {
 
 // Старт и создание пользователя
 bot.start(async ctx => {
-  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
+  const parts = ctx.message.text.split(' ');
+  const referrerId = parts.length > 1 ? parseInt(parts[1], 10) : null;
+  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name, referrerId);
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].start, kb(getLang(u)));
 });
