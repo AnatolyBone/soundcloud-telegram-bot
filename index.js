@@ -328,7 +328,17 @@ app.post('/admin/login', (req, res) => {
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  res.render('dashboard', { users, totalDownloads });
+  
+  const stats = {
+    totalUsers: users.length,
+    totalDownloads,
+    free: users.filter(u => u.premium_limit === 10).length,
+    plus: users.filter(u => u.premium_limit === 50).length,
+    pro: users.filter(u => u.premium_limit === 100).length,
+    unlimited: users.filter(u => u.premium_limit >= 1000).length,
+  };
+
+  res.render('dashboard', { stats, users });
 });
 
 // Логаут
