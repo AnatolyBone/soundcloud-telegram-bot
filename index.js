@@ -69,7 +69,19 @@ const texts = {
     error: '❌ Ошибка',
     timeout: '⏱ Слишком долго...',
     limitReached: '🚫 Лимит достигнут.',
-    upgradeInfo: '🚀 Хочешь больше треков?\n\n🆓 Free – 10 🟢\nPlus – 50 🎯 (59₽)\nPro – 100 💪 (119₽)\nUnlimited – 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate\n✉️ После оплаты напиши: @anatolybone',
+upgradeInfo: `🚀 Хочешь больше треков?
+
+Если вы хотите скачивать больше треков в день то можете воспользоваться одним из тарифов ниже:
+
+🆓 Free – 10 🟢
+Plus – 50 🎯 (59₽)
+Pro – 100 💪 (119₽)
+Unlimited – 💎 (199₽)
+
+👉 Донат: https://boosty.to/anatoly_bone/donate
+✉️ После оплаты напиши: @anatolybone
+
+👫 Пригласите друзей в наш сервис и получите 1 день тарифа “Plus” на баланс за каждого друга.`
     helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
     chooseLang: '🌐 Выберите язык:',
     reviewAsk: '✍️ Напиши свой отзыв о боте. После этого ты получишь тариф Plus на 30 дней.',
@@ -143,10 +155,26 @@ bot.start(async ctx => {
 
 bot.hears(texts.ru.menu, async ctx => {
   const u = await getUser(ctx.from.id);
-  ctx.reply(texts[getLang(u)].chooseLang, Markup.inlineKeyboard([
-    Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
-    Markup.button.callback('🇬🇧 English', 'lang_en')
-  ]));
+  const lang = getLang(u);
+
+  const now = new Date();
+  const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / (1000 * 60 * 60 * 24)) : 0;
+  const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
+
+  const msg = `👋 Рады видеть вас снова, ${u.first_name}!\n\n` +
+              `💼 Ваш тариф: ${u.premium_limit === 10 ? 'Free' :
+                            u.premium_limit === 50 ? 'Plus' :
+                            u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
+              `⏳ Дней до окончания тарифа: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
+              `👫 Приглашено друзей: ${u.referred_count || 0}\n` +
+              `🎁 Начислено дней Plus: ${u.referred_count || 0}\n\n` +
+              `🔗 Ваша реферальная ссылка:\n${refLink}`;
+
+  ctx.reply(msg, Markup.keyboard([
+    [texts[lang].mytracks, texts[lang].upgrade],
+    ['🌐 Язык / Language', '✍️ Оставить отзыв']
+  ]).resize());
 });
 
 bot.action(/lang_(\w+)/, async ctx => {
@@ -174,7 +202,13 @@ bot.hears('✍️ Оставить отзыв', async ctx => {
   ctx.reply(texts.ru.reviewAsk);
   reviewMode.add(ctx.from.id);
 });
-
+bot.hears('🌐 Язык / Language', async ctx => {
+  const u = await getUser(ctx.from.id);
+  ctx.reply(texts[getLang(u)].chooseLang, Markup.inlineKeyboard([
+    Markup.button.callback('🇷🇺 Русский', 'lang_ru'),
+    Markup.button.callback('🇬🇧 English', 'lang_en')
+  ]));
+});
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
 
