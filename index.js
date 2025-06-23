@@ -237,12 +237,25 @@ bot.hears(texts.ru.mytracks, async ctx => {
 });
 
 // --- Express + webhook ---
-app.use(express.urlencoded({ extended: true }));
-app.use(compression());
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // важно для подключения к Supabase
+});
+
 app.use(session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session',
+    createTableIfMissing: true // таблица создастся автоматически, если её нет
+  }),
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // сессия 30 дней
 }));
 
 app.set('view engine', 'ejs');
