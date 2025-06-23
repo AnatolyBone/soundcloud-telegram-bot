@@ -286,13 +286,10 @@ app.get('/logout', (req, res) => {
 
 app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`🚀 Сервер на порту ${PORT}`);
-  try {
-    const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
-    await bot.telegram.setWebhook(cleanWebhookUrl);
-    console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`);
-  } catch (err) {
-    console.error('❌ Ошибка установки webhook:', err);
-  }
+  const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
+  bot.telegram.setWebhook(cleanWebhookUrl)
+    .then(() => console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`))
+    .catch(err => console.error('❌ Ошибка установки webhook:', err));
 });
