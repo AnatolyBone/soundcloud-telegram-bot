@@ -13,8 +13,7 @@ const { Pool } = require('pg');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded,
-  getTrackMetadata, saveTrackMetadata
+  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -108,9 +107,12 @@ async function enqueue(userId, url) {
   while (queues[userId].length > 0) {
     const trackUrl = queues[userId].shift();
     try {
-      // Логируем позицию в очереди
       await bot.telegram.sendMessage(userId, texts.ru.queuePosition(queues[userId].length + 1));
-      await processTrackByUrl(userId, trackUrl);
+      // Ограничение времени на обработку трека (например, 3 мин) не помешает
+      await Promise.race([
+        processTrackByUrl(userId, trackUrl),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
+      ]);
     } catch (err) {
       console.error(`Ошибка в очереди пользователя ${userId}:`, err);
       await bot.telegram.sendMessage(userId, texts.ru.error);
@@ -149,8 +151,6 @@ async function processTrackByUrl(userId, url) {
   }
 }
 
-// Обработчики Telegram
-
 bot.start(async ctx => {
   console.log('/start от', ctx.from.id);
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
@@ -159,7 +159,6 @@ bot.start(async ctx => {
 });
 
 bot.hears(texts.ru.menu, async ctx => {
-  console.log('Меню от', ctx.from.id);
   const u = await getUser(ctx.from.id);
   const lang = getLang(u);
 
@@ -180,19 +179,16 @@ bot.hears(texts.ru.menu, async ctx => {
 });
 
 bot.hears(texts.ru.upgrade, async ctx => {
-  console.log('Запрос расширения лимита от', ctx.from.id);
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].upgradeInfo);
 });
 
 bot.hears(texts.ru.help, async ctx => {
-  console.log('Запрос помощи от', ctx.from.id);
   const u = await getUser(ctx.from.id);
   ctx.reply(texts[getLang(u)].helpInfo);
 });
 
 bot.hears('✍️ Оставить отзыв', async ctx => {
-  console.log('Запрос оставить отзыв от', ctx.from.id);
   if (await hasLeftReview(ctx.from.id)) {
     return ctx.reply(texts.ru.alreadyReviewed);
   }
@@ -201,8 +197,6 @@ bot.hears('✍️ Оставить отзыв', async ctx => {
 });
 
 bot.on('text', async ctx => {
-  console.log('Текст от', ctx.from.id, ':', ctx.message.text);
-
   if (reviewMode.has(ctx.from.id)) {
     reviewMode.delete(ctx.from.id);
     await addReview(ctx.from.id, ctx.message.text);
@@ -212,7 +206,6 @@ bot.on('text', async ctx => {
 
   const url = ctx.message.text.trim();
   if (!url.includes('soundcloud.com')) {
-    console.log('Не SoundCloud ссылка, игнорируем');
     return;
   }
 
@@ -227,7 +220,6 @@ bot.on('text', async ctx => {
 
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
-  console.log('Админ запрос статистики от', ctx.from.id);
   const users = await getAllUsers();
   const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
   const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}`;
@@ -236,7 +228,6 @@ bot.command('admin', async ctx => {
 
 bot.command('reviews', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
-  console.log('Админ запрос отзывов от', ctx.from.id);
   const reviews = await getLatestReviews(10);
   for (const r of reviews) {
     await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
@@ -244,7 +235,6 @@ bot.command('reviews', async ctx => {
 });
 
 bot.hears(texts.ru.mytracks, async ctx => {
-  console.log('Запрос моих треков от', ctx.from.id);
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
   if (!list.length) return ctx.reply(texts.ru.noTracks);
@@ -257,6 +247,7 @@ bot.hears(texts.ru.mytracks, async ctx => {
   }
 });
 
+// Webhook — сразу отправляем 200, потом обрабатываем update
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(err => {
