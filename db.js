@@ -1,48 +1,47 @@
 const { Pool } = require('pg');
 const { createClient } = require('@supabase/supabase-js');
 
-// Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// PostgreSQL pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// Утилита для SQL-запросов
 async function query(text, params) {
-  const start = Date.now();
   const res = await pool.query(text, params);
-  const duration = Date.now() - start;
-  console.log('executed query', { text, duration, rows: res.rowCount });
   return res;
 }
 
-// Создание пользователя
-async function createUser(id, username, first_name) {
+async function createUser(id, username, first_name, referrer_id = null) {
+  const existing = await getUser(id);
+  if (existing) return;
+
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date)
-    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE)
-    ON CONFLICT (id) DO NOTHING
-  `, [id, username, first_name]);
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referrer_id)
+    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, $4)
+  `, [id, username, first_name, referrer_id]);
+
+  if (referrer_id) {
+    await query(`
+      UPDATE users
+      SET referred_count = COALESCE(referred_count, 0) + 1
+      WHERE id = $1
+    `, [referrer_id]);
+
+    await setPremium(referrer_id, 50, 1); // 1 день тарифа Plus
+  }
 }
 
-// Получение пользователя
 async function getUser(id) {
   const res = await query('SELECT * FROM users WHERE id = $1', [id]);
   return res.rows[0];
 }
 
-// Обновление произвольного поля
 async function updateUserField(id, field, value) {
   return (await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id])).rowCount;
 }
 
-// Инкремент загрузок и общего счётчика
 async function incrementDownloads(id, trackTitle) {
   await query(`
     UPDATE users SET 
@@ -52,7 +51,6 @@ async function incrementDownloads(id, trackTitle) {
   `, [id]);
 }
 
-// Сохранение трека в поле tracks_today
 async function saveTrackForUser(id, title) {
   const user = await getUser(id);
   let updated = user.tracks_today || '';
@@ -60,7 +58,6 @@ async function saveTrackForUser(id, title) {
   await query('UPDATE users SET tracks_today = $1 WHERE id = $2', [updated, id]);
 }
 
-// Назначение тарифа с опциональным сроком
 async function setPremium(id, limit, days = null) {
   await query('UPDATE users SET premium_limit = $1 WHERE id = $2', [limit, id]);
   if (days) {
@@ -69,19 +66,15 @@ async function setPremium(id, limit, days = null) {
   }
 }
 
-// Сброс лимита на основе календарного дня
 async function resetDailyLimitIfNeeded(userId) {
-  const res = await pool.query(
-    'SELECT last_reset_date FROM users WHERE id = $1',
-    [userId]
-  );
+  const res = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
   if (!res.rows.length) return;
 
   const lastReset = res.rows[0].last_reset_date;
   const today = new Date().toISOString().slice(0, 10);
 
   if (!lastReset || lastReset.toISOString().slice(0, 10) !== today) {
-    await pool.query(`
+    await query(`
       UPDATE users
       SET downloads_today = 0,
           tracks_today = '',
@@ -92,7 +85,6 @@ async function resetDailyLimitIfNeeded(userId) {
   }
 }
 
-// Массовый сброс для всех пользователей
 async function resetDailyStats() {
   await query(`
     UPDATE users
@@ -103,34 +95,27 @@ async function resetDailyStats() {
   console.log('🕛 Суточные лимиты сброшены у всех пользователей');
 }
 
-// Получение всех пользователей
 async function getAllUsers() {
   const res = await query('SELECT * FROM users');
   return res.rows;
 }
 
-// Добавление отзыва
 async function addReview(userId, text) {
   const time = new Date().toISOString();
-
   const { error } = await supabase
     .from('reviews')
     .insert([{ user_id: userId, text, time }]);
 
-  if (error) {
-    console.error('❌ Ошибка при сохранении отзыва в Supabase:', error);
-  }
+  if (error) console.error('❌ Ошибка при сохранении отзыва в Supabase:', error);
 
   await query('UPDATE users SET has_reviewed = true WHERE id = $1', [userId]);
 }
 
-// Проверка: оставлял ли отзыв
 async function hasLeftReview(userId) {
   const res = await query('SELECT has_reviewed FROM users WHERE id = $1', [userId]);
   return res.rows[0]?.has_reviewed;
 }
 
-// Получение отзывов из Supabase
 async function getLatestReviews(limit = 10) {
   const { data, error } = await supabase
     .from('reviews')
@@ -146,22 +131,17 @@ async function getLatestReviews(limit = 10) {
   return data;
 }
 
-/** === Новое: кеш метаданных треков === **/
-
-// Получить метаданные трека из кеша
 async function getTrackMetadata(url) {
   const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
-  if (res.rows.length === 0) return null;
+  if (!res.rows.length) return null;
 
   const row = res.rows[0];
-  // Считаем кеш актуальным 7 дней
   const ageMs = Date.now() - new Date(row.updated_at).getTime();
-  if (ageMs > 7 * 24 * 60 * 60 * 1000) return null;
+  if (ageMs > 7 * 86400000) return null;
 
   return row.metadata;
 }
 
-// Сохранить метаданные трека в кеш
 async function saveTrackMetadata(url, metadata) {
   await query(`
     INSERT INTO track_metadata (url, metadata, updated_at)
