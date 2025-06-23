@@ -314,7 +314,10 @@ app.listen(PORT, () => {
       return bot.telegram.getWebhookInfo();
     })
     .then(info => {
-      console.log('📡 Webhook info:', info);
-    })
+  console.log('📡 Webhook info:');
+  console.log(`   URL: ${info.url}`);
+  console.log(`   Pending updates: ${info.pending_update_count}`);
+  console.log(`   Last error: ${info.last_error_message || 'Нет'}`);
+})
     .catch(err => console.error('❌ Ошибка установки webhook:', err));
 });
