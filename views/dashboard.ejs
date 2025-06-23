@@ -4,21 +4,22 @@
   <title>Admin Panel</title>
   <meta charset="UTF-8" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
-  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
+
   <p>Total users: <%= stats.totalUsers %></p>
   <p>Total downloads: <%= stats.totalDownloads %></p>
   <p>Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
 
-  <h3>📈 Регистрации по дням</h3>
-  <canvas id="regChart" width="800" height="300"></canvas>
+  <h2>📈 Регистрация пользователей (по дням)</h2>
+  <canvas id="registrationsChart" width="600" height="250"></canvas>
+
+  <h2>📥 Скачивания треков (по дням)</h2>
+  <canvas id="downloadsChart" width="600" height="250"></canvas>
 
   <h3>👤 Все пользователи (<%= users.length %>)</h3>
-  <table id="usersTable" border="1" cellpadding="5">
+  <table border="1" cellpadding="5">
     <thead>
       <tr>
         <th>ID</th>
@@ -26,41 +27,35 @@
         <th>Имя</th>
         <th>Скачано</th>
         <th>Лимит</th>
-        <th>Тариф</th>
         <th>Дата регистрации</th>
         <th>Последняя активность</th>
         <th>Сменить тариф</th>
       </tr>
     </thead>
     <tbody>
-    <% users.forEach(user => { %>
-      <tr>
-        <td><%= user.id %></td>
-        <td>@<%= user.username %></td>
-        <td><%= user.first_name %></td>
-        <td><%= user.total_downloads || 0 %></td>
-        <td><%= user.premium_limit %></td>
-        <td>
-          <%= user.premium_limit === 10 ? 'Free' :
-              user.premium_limit === 50 ? 'Plus' :
-              user.premium_limit === 100 ? 'Pro' : 'Unlim' %>
-        </td>
-        <td><%= new Date(user.created_at).toLocaleDateString() %></td>
-        <td><%= user.last_active ? new Date(user.last_active).toLocaleString() : '–' %></td>
-        <td>
-          <form method="POST" action="/set-tariff">
-            <input type="hidden" name="userId" value="<%= user.id %>">
-            <select name="limit">
-              <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>🆓 Free</option>
-              <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>🎯 Plus</option>
-              <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>💪 Pro</option>
-              <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>💎 Unlim</option>
-            </select>
-            <button type="submit">Сохранить</button>
-          </form>
-        </td>
-      </tr>
-    <% }) %>
+      <% users.slice().reverse().forEach(user => { %>
+        <tr>
+          <td><%= user.id %></td>
+          <td>@<%= user.username %></td>
+          <td><%= user.first_name %></td>
+          <td><%= user.downloads_today %></td>
+          <td><%= user.premium_limit %></td>
+          <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '—' %></td>
+          <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '—' %></td>
+          <td>
+            <form method="POST" action="/set-tariff">
+              <input type="hidden" name="userId" value="<%= user.id %>">
+              <select name="limit">
+                <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>🆓 Free</option>
+                <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>🎯 Plus</option>
+                <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>💪 Pro</option>
+                <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>💎 Unlim</option>
+              </select>
+              <button type="submit">Сохранить</button>
+            </form>
+          </td>
+        </tr>
+      <% }) %>
     </tbody>
   </table>
 
@@ -82,41 +77,40 @@
   </ul>
 
   <script>
-    // Chart.js график регистраций
-    const regData = <%- JSON.stringify(stats.registrationsByDate) %>;
-    const regLabels = Object.keys(regData);
-    const regCounts = Object.values(regData);
+    const labels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
 
-    const ctx = document.getElementById('regChart').getContext('2d');
-    new Chart(ctx, {
+    const registrationsData = {
+      labels,
+      datasets: [{
+        label: 'Регистрации',
+        data: <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>,
+        borderColor: 'blue',
+        backgroundColor: 'lightblue',
+        tension: 0.3
+      }]
+    };
+
+    const downloadsData = {
+      labels,
+      datasets: [{
+        label: 'Скачивания',
+        data: <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>,
+        borderColor: 'green',
+        backgroundColor: 'lightgreen',
+        tension: 0.3
+      }]
+    };
+
+    new Chart(document.getElementById('registrationsChart'), {
       type: 'line',
-      data: {
-        labels: regLabels,
-        datasets: [{
-          label: 'Регистрации',
-          data: regCounts,
-          borderColor: 'blue',
-          backgroundColor: 'rgba(0, 0, 255, 0.1)',
-          tension: 0.3,
-          fill: true
-        }]
-      },
-      options: {
-        responsive: true,
-        scales: {
-          y: {
-            beginAtZero: true,
-            precision: 0
-          }
-        }
-      }
+      data: registrationsData,
+      options: { responsive: true }
     });
 
-    // DataTables
-    $(document).ready(() => {
-      $('#usersTable').DataTable({
-        order: [[6, 'desc']] // Сортировка по дате регистрации
-      });
+    new Chart(document.getElementById('downloadsChart'), {
+      type: 'line',
+      data: downloadsData,
+      options: { responsive: true }
     });
   </script>
 </body>
