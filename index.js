@@ -69,9 +69,9 @@ const texts = {
   downloading: '🎧 Загружаю...',
   error: '❌ Ошибка',
   noTracks: 'Сегодня нет треков.',
-  reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
-  reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
-  alreadyReviewed: 'Ты уже оставил отзыв 😊',
+  // reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
+// reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
+// alreadyReviewed: 'Ты уже оставил отзыв 😊',
   limitReached: `🚫 Лимит достигнут ❌
 
 🔔 Получи 7 дней Plus!
@@ -92,13 +92,13 @@ Unlimited — 💎 (199₽)
   adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
 };
 
-const kb = () =>
-  Markup.keyboard([
-    [texts.menu, texts.upgrade],
-    [texts.mytracks, texts.help],
-    ['✍️ Оставить отзыв']
-  ]).resize();
-
+//const kb = () =>
+  //Markup.keyboard([
+   // [texts.menu, texts.upgrade],
+  //  [texts.mytracks, texts.help],
+// ['✍️ Оставить отзыв']
+  //]).resize();
+//
 const isSubscribed = async userId => {
   try {
     const res = await bot.telegram.getChatMember('@BAZAproject', userId);
@@ -179,11 +179,11 @@ bot.hears(texts.menu, async ctx => {
 bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
 bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
 
-bot.hears('✍️ Оставить отзыв', async ctx => {
-  if (await hasLeftReview(ctx.from.id)) return ctx.reply(texts.alreadyReviewed);
-  ctx.reply(texts.reviewAsk);
-  reviewMode.add(ctx.from.id);
-});
+// bot.hears('✍️ Оставить отзыв', async ctx => {
+//   if (await hasLeftReview(ctx.from.id)) return ctx.reply(texts.alreadyReviewed);
+//   ctx.reply(texts.reviewAsk);
+//   reviewMode.add(ctx.from.id);
+// });
 
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
@@ -232,12 +232,12 @@ bot.hears(texts.mytracks, async ctx => {
 bot.on('text', async ctx => {
   if (ctx.message.text.startsWith('/')) return;
 
-  if (reviewMode.has(ctx.from.id)) {
-    reviewMode.delete(ctx.from.id);
-    await addReview(ctx.from.id, ctx.message.text);
-    await setPremium(ctx.from.id, 50, 30);
-    return ctx.reply(texts.reviewThanks, kb());
-  }
+  // if (reviewMode.has(ctx.from.id)) {
+  //   reviewMode.delete(ctx.from.id);
+  //   await addReview(ctx.from.id, ctx.message.text);
+  //   await setPremium(ctx.from.id, 50, 30);
+  //   return ctx.reply(texts.reviewThanks, kb());
+  // }
 
   const url = ctx.message.text.trim();
   if (!url.includes('soundcloud.com')) return;
@@ -250,6 +250,9 @@ bot.on('text', async ctx => {
       Markup.button.callback('✅ Я подписался', 'check_subscription')
     ]));
   }
+
+  await enqueue(ctx.from.id, url);
+});
 
   await enqueue(ctx.from.id, url);
 });
