@@ -380,36 +380,27 @@ app.post('/broadcast', requireAuth, async (req, res) => {
 });
 app.get('/dashboard', requireAuth, async (req, res) => {
   const showInactive = req.query.showInactive === 'true';
+
   const users = showInactive
     ? await pool.query('SELECT * FROM users ORDER BY created_at DESC')
     : await pool.query('SELECT * FROM users WHERE active = true ORDER BY created_at DESC');
-  res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
+
   const totalDownloads = users.rows.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  const registrations = await pool.query(`
-    SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
-    FROM users GROUP BY date ORDER BY date
-  `);
-  const downloads = await pool.query(`
-    SELECT TO_CHAR(last_active::date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
-    FROM users GROUP BY date ORDER BY date
-  `);
-
-  const registrationsByDate = Object.fromEntries(registrations.rows.map(r => [r.date, parseInt(r.count)]));
-  const downloadsByDate = Object.fromEntries(downloads.rows.map(r => [r.date, parseInt(r.count)]));
-
+  
   const stats = {
-    totalUsers: users.length,
+    totalUsers: users.rows.length,
     totalDownloads,
-    free: users.filter(u => u.premium_limit === 10).length,
-    plus: users.filter(u => u.premium_limit === 50).length,
-    pro: users.filter(u => u.premium_limit === 100).length,
-    unlimited: users.filter(u => u.premium_limit >= 1000).length,
-    registrationsByDate,
-    downloadsByDate
+    free: users.rows.filter(u => u.premium_limit === 10).length,
+    plus: users.rows.filter(u => u.premium_limit === 50).length,
+    pro: users.rows.filter(u => u.premium_limit === 100).length,
+    unlimited: users.rows.filter(u => u.premium_limit >= 1000).length,
+    registrationsByDate: await getRegistrationsByDate(),
+    downloadsByDate: await getDownloadsByDate()
   };
 
-  const reviews = await getLatestReviews(10);
-  res.render('dashboard', { stats, users, reviews });
+  const reviews = await getLatestReviews();
+
+  res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
 });
 
 app.get('/logout', (req, res) => {
