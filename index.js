@@ -1,3 +1,5 @@
+// index.js
+
 const { Telegraf, Markup } = require('telegraf');
 const compression = require('compression');
 const express = require('express');
@@ -58,7 +60,6 @@ const queues = {};
 const processing = {};
 const reviewMode = new Set();
 
-// Только русский язык — убрал мульти-язык
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
   menu: '📋 Меню',
@@ -66,10 +67,15 @@ const texts = {
   mytracks: '🎵 Мои треки',
   help: 'ℹ️ Помощь',
   downloading: '🎧 Загружаю...',
-  cached: '🔁 Из кеша...',
   error: '❌ Ошибка',
-  timeout: '⏱ Слишком долго...',
-  limitReached: '🚫 Лимит достигнут.',
+  noTracks: 'Сегодня нет треков.',
+  reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
+  reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
+  alreadyReviewed: 'Ты уже оставил отзыв 😊',
+  limitReached: `🚫 Лимит достигнут ❌
+
+🔔 Получи 7 дней Plus!
+Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
 🆓 Free — 10 🟢
@@ -82,28 +88,25 @@ Unlimited — 💎 (199₽)
 
 👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
   helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
-  reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
-  reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
-  alreadyReviewed: 'Ты уже оставил отзыв 😊',
-  noTracks: 'Сегодня нет треков.',
   queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
   adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
 };
-const isSubscribed = async (userId) => {
-  try {
-    const res = await bot.telegram.getChatMember('@BAZAproject', userId);
-    return ['member', 'creator', 'administrator'].includes(res.status);
-  } catch (e) {
-    return false;
-  }
-};
-// Клавиатура всегда русская, фиксированная
+
 const kb = () =>
   Markup.keyboard([
     [texts.menu, texts.upgrade],
     [texts.mytracks, texts.help],
     ['✍️ Оставить отзыв']
   ]).resize();
+
+const isSubscribed = async userId => {
+  try {
+    const res = await bot.telegram.getChatMember('@BAZAproject', userId);
+    return ['member', 'creator', 'administrator'].includes(res.status);
+  } catch {
+    return false;
+  }
+};
 
 async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
@@ -128,9 +131,7 @@ async function enqueue(userId, url) {
 }
 
 async function processTrackByUrl(userId, url) {
-  console.log(`Начинаем загрузку трека для ${userId}: ${url}`);
   await bot.telegram.sendMessage(userId, texts.downloading);
-
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
     let name = (info.title || 'track')
@@ -146,9 +147,7 @@ async function processTrackByUrl(userId, url) {
 
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
-
     await bot.telegram.sendAudio(userId, { source: fs.createReadStream(fp), filename: `${name}.mp3` });
-    console.log(`Трек успешно отправлен пользователю ${userId}: ${name}`);
   } catch (e) {
     console.error('Ошибка при загрузке трека:', e);
     await bot.telegram.sendMessage(userId, texts.error);
@@ -156,42 +155,32 @@ async function processTrackByUrl(userId, url) {
 }
 
 bot.start(async ctx => {
-  console.log('/start от', ctx.from.id);
   await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
   ctx.reply(texts.start, kb());
 });
 
 bot.hears(texts.menu, async ctx => {
   const u = await getUser(ctx.from.id);
-
   const now = new Date();
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
 
-  const msg = `👋 Добро пожаловать, ${u.first_name}!\n\n` +
-              `💼 Тариф: ${u.premium_limit === 10 ? 'Free' :
-                        u.premium_limit === 50 ? 'Plus' :
-                        u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
-              `⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
-              `👫 Приглашено: ${u.referred_count || 0}\n🎁 Дней Plus: ${u.referred_count || 0}\n\n` +
-              `🔗 Твоя ссылка:\n${refLink}`;
-
-  ctx.reply(msg, kb());
+  ctx.reply(
+    `👋 Добро пожаловать, ${u.first_name}!\n\n` +
+    `💼 Тариф: ${u.premium_limit === 10 ? 'Free' : u.premium_limit === 50 ? 'Plus' : u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
+    `⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
+    `👫 Приглашено: ${u.referred_count || 0}\n🎁 Дней Plus: ${u.referred_count || 0}\n\n` +
+    `🔗 Твоя ссылка:\n${refLink}`,
+    kb()
+  );
 });
 
-bot.hears(texts.upgrade, async ctx => {
-  ctx.reply(texts.upgradeInfo);
-});
-
-bot.hears(texts.help, async ctx => {
-  ctx.reply(texts.helpInfo);
-});
+bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
+bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
 
 bot.hears('✍️ Оставить отзыв', async ctx => {
-  if (await hasLeftReview(ctx.from.id)) {
-    return ctx.reply(texts.alreadyReviewed);
-  }
+  if (await hasLeftReview(ctx.from.id)) return ctx.reply(texts.alreadyReviewed);
   ctx.reply(texts.reviewAsk);
   reviewMode.add(ctx.from.id);
 });
@@ -200,8 +189,7 @@ bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const users = await getAllUsers();
   const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  const msg = `📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}`;
-  ctx.reply(msg + texts.adminCommands);
+  ctx.reply(`📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}${texts.adminCommands}`);
 });
 
 bot.command('reviews', async ctx => {
@@ -211,15 +199,17 @@ bot.command('reviews', async ctx => {
     await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
   }
 });
+
 bot.action('check_subscription', async ctx => {
-  const userId = ctx.from.id;
-  if (await isSubscribed(userId)) {
-    await setPremium(userId, 50, 7); // Plus на 7 дней
+  if (await isSubscribed(ctx.from.id)) {
+    await setPremium(ctx.from.id, 50, 7);
+    await ctx.editMessageReplyMarkup(); // удаляет кнопку
     return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
   } else {
-    return ctx.reply('❌ Подписка не найдена. Убедись, что подписан на канал @BAZAproject и попробуй снова.');
+    return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
   }
 });
+
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
@@ -232,23 +222,7 @@ bot.hears(texts.mytracks, async ctx => {
     await ctx.replyWithMediaGroup(media.slice(i, i + 10));
   }
 });
-const bonusCheckMode = new Set();
 
-bot.action('check_bonus', async ctx => {
-  try {
-    const member = await ctx.telegram.getChatMember('@BAZAproject', ctx.from.id);
-    if (['member', 'creator', 'administrator'].includes(member.status)) {
-      await setPremium(ctx.from.id, 50, 7);
-      return ctx.editMessageText('🎉 Бонус активирован! Тариф Plus на 7 дней выдан.');
-    } else {
-      return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
-    }
-  } catch (e) {
-    console.error('Ошибка при проверке подписки:', e);
-    return ctx.answerCbQuery('❌ Не удалось проверить подписку', { show_alert: true });
-  }
-});
-// Обрабатываем текст — игнорируем команды (начинающиеся с '/')
 bot.on('text', async ctx => {
   if (ctx.message.text.startsWith('/')) return;
 
@@ -264,36 +238,27 @@ bot.on('text', async ctx => {
 
   await resetDailyLimitIfNeeded(ctx.from.id);
   const u = await getUser(ctx.from.id);
+
   if (u.downloads_today >= u.premium_limit) {
-  return ctx.reply(
-    `🚫 Лимит достигнут ❌\n\n` +
-    `🔔 Получи 7 дней Plus!\n` +
-    `Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
-    Markup.inlineKeyboard([
+    return ctx.reply(texts.limitReached, Markup.inlineKeyboard([
       Markup.button.callback('✅ Я подписался', 'check_subscription')
-    ])
-  );
-}
+    ]));
+  }
+
   await enqueue(ctx.from.id, url);
 });
 
-// Вебхук — сразу 200, потом обработка update
+// Webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
-  bot.handleUpdate(req.body).catch(err => {
-    console.error('Ошибка в handleUpdate:', err);
-  });
+  bot.handleUpdate(req.body).catch(err => console.error('Ошибка в handleUpdate:', err));
 });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
 
 app.use(session({
-  store: new pgSession({
-    pool: pool,
-    tableName: 'session',
-    createTableIfMissing: true
-  }),
+  store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
   saveUninitialized: false,
@@ -308,16 +273,10 @@ function requireAuth(req, res, next) {
   res.redirect('/admin');
 }
 
-app.get('/admin', (req, res) => {
-  res.render('login', { error: null });
-});
+app.get('/admin', (req, res) => res.render('login', { error: null }));
 
 app.post('/admin/login', (req, res) => {
-  const { username, password } = req.body;
-  if (
-    username === process.env.ADMIN_LOGIN &&
-    password === process.env.ADMIN_PASSWORD
-  ) {
+  if (req.body.username === process.env.ADMIN_LOGIN && req.body.password === process.env.ADMIN_PASSWORD) {
     req.session.authenticated = true;
     return res.redirect('/dashboard');
   }
@@ -326,54 +285,32 @@ app.post('/admin/login', (req, res) => {
 
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
-
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
-  // 📅 Считаем регистрации по датам
-  const registrationsResult = await pool.query(`
+  const registrations = await pool.query(`
     SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
-    FROM users
-    GROUP BY date
-    ORDER BY date
+    FROM users GROUP BY date ORDER BY date
   `);
-
-  const registrationsByDate = {};
-  registrationsResult.rows.forEach(row => {
-    registrationsByDate[row.date] = parseInt(row.count, 10);
-  });
-
-  // 📥 Считаем скачивания по датам
-  const downloadsResult = await pool.query(`
+  const downloads = await pool.query(`
     SELECT TO_CHAR(last_active::date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
-    FROM users
-    GROUP BY date
-    ORDER BY date
+    FROM users GROUP BY date ORDER BY date
   `);
 
-  const downloadsByDate = {};
-  downloadsResult.rows.forEach(row => {
-    downloadsByDate[row.date] = parseInt(row.count, 10);
-  });
-
-  // 📊 Тарифы
-  const freeCount = users.filter(u => u.premium_limit === 10).length;
-  const plusCount = users.filter(u => u.premium_limit === 50).length;
-  const proCount = users.filter(u => u.premium_limit === 100).length;
-  const unlimitedCount = users.filter(u => u.premium_limit >= 1000).length;
+  const registrationsByDate = Object.fromEntries(registrations.rows.map(r => [r.date, parseInt(r.count)]));
+  const downloadsByDate = Object.fromEntries(downloads.rows.map(r => [r.date, parseInt(r.count)]));
 
   const stats = {
     totalUsers: users.length,
     totalDownloads,
-    free: freeCount,
-    plus: plusCount,
-    pro: proCount,
-    unlimited: unlimitedCount,
+    free: users.filter(u => u.premium_limit === 10).length,
+    plus: users.filter(u => u.premium_limit === 50).length,
+    pro: users.filter(u => u.premium_limit === 100).length,
+    unlimited: users.filter(u => u.premium_limit >= 1000).length,
     registrationsByDate,
     downloadsByDate
   };
 
   const reviews = await getLatestReviews(10);
-
   res.render('dashboard', { stats, users, reviews });
 });
 
@@ -383,19 +320,11 @@ app.get('/logout', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер на порту ${PORT}`);
-
   const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
-
   bot.telegram.setWebhook(cleanWebhookUrl)
-    .then(() => {
-      console.log(`✅ Webhook установлен: ${cleanWebhookUrl}`);
-      return bot.telegram.getWebhookInfo();
-    })
+    .then(() => bot.telegram.getWebhookInfo())
     .then(info => {
-      console.log('📡 Webhook info:');
-      console.log(`   URL: ${info.url}`);
-      console.log(`   Pending updates: ${info.pending_update_count}`);
-      console.log(`   Last error: ${info.last_error_message || 'Нет'}`);
+      console.log(`✅ Webhook: ${info.url} | Pending: ${info.pending_update_count}`);
     })
-    .catch(err => console.error('❌ Ошибка установки webhook:', err));
+    .catch(err => console.error('❌ Ошибка webhook:', err));
 });
