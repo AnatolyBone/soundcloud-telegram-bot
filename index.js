@@ -95,10 +95,6 @@ Unlimited — 💎 (199₽)
 const kb = () =>
   Markup.keyboard([
     [texts.menu, texts.upgrade],
-    [texts.mytracks, texts.help],
-const kb = () =>
-  Markup.keyboard([
-    [texts.menu, texts.upgrade],
     [texts.mytracks, texts.help]
     // ['✍️ Оставить отзыв']  <-- убрать эту строку
   ]).resize();
