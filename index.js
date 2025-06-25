@@ -364,9 +364,6 @@ bot.on('text', async ctx => {
   });
 });
 
-  await enqueue(ctx, ctx.from.id, url);
-});
-
 // Webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
