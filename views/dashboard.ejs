@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -34,7 +35,13 @@
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
-  
+  <form method="GET" action="/dashboard" style="margin-bottom: 20px;">
+  <label>
+    <input type="checkbox" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
+    Показать неактивных пользователей
+  </label>
+  <button type="submit">Обновить</button>
+</form>
   <p><strong>Пользователей:</strong> <%= stats.totalUsers %></p>
   <p><strong>Всего загрузок:</strong> <%= stats.totalDownloads %></p>
   <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
