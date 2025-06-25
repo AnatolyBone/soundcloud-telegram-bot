@@ -461,7 +461,6 @@ bot.launch({
   webhook: {
     domain: WEBHOOK_URL,
     hookPath: WEBHOOK_PATH,
-    server: server,
   }
 }).then(() => console.log('🤖 Бот запущен через webhook'));
 
