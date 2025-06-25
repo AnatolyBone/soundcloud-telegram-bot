@@ -218,9 +218,15 @@ bot.hears(texts.mytracks, async ctx => {
     const fp = path.join(cacheDir, `${name}.mp3`);
     return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
   }).filter(Boolean);
-  for (let i = 0; i < media.length; i += 10) {
-    await ctx.replyWithMediaGroup(media.slice(i, i + 10));
+  for (let i = 0; i < media.length; i += 5) {
+  const chunk = media.slice(i, i + 5);
+  try {
+    await ctx.replyWithMediaGroup(chunk);
+  } catch (error) {
+    console.error('Ошибка при отправке части треков:', error);
+    await ctx.reply('❌ Не удалось отправить часть треков. Возможно, один из файлов повреждён.');
   }
+}
 });
 
 bot.on('text', async ctx => {
