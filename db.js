@@ -170,6 +170,36 @@ async function saveTrackMetadata(url, metadata) {
   `, [url, metadata]);
 }
 
+// ✅ Получение количества регистраций по датам
+async function getRegistrationsByDate() {
+  const res = await query(`
+    SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count
+    FROM users
+    GROUP BY date
+    ORDER BY date
+  `);
+  const result = {};
+  res.rows.forEach(row => {
+    result[row.date] = parseInt(row.count, 10);
+  });
+  return result;
+}
+
+// ✅ Получение количества загрузок по датам
+async function getDownloadsByDate() {
+  const res = await query(`
+    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, SUM(downloads_today) as count
+    FROM users
+    GROUP BY date
+    ORDER BY date
+  `);
+  const result = {};
+  res.rows.forEach(row => {
+    result[row.date] = parseInt(row.count, 10);
+  });
+  return result;
+}
+
 module.exports = {
   createUser,
   getUser,
@@ -184,5 +214,7 @@ module.exports = {
   hasLeftReview,
   getLatestReviews,
   getTrackMetadata,
-  saveTrackMetadata
+  saveTrackMetadata,
+  getRegistrationsByDate,
+  getDownloadsByDate
 };
