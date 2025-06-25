@@ -338,7 +338,33 @@ app.post('/admin/login', (req, res) => {
   }
   res.render('login', { error: 'Неверные данные' });
 });
+app.post('/broadcast', requireAuth, async (req, res) => {
+  const message = req.body.message;
+  if (!message) {
+    return res.status(400).send('Сообщение не может быть пустым');
+  }
 
+  try {
+    const users = await getAllUsers(); // Получаем всех пользователей из базы
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const user of users) {
+      try {
+        await bot.telegram.sendMessage(user.id, message);
+        successCount++;
+      } catch (e) {
+        console.error(`Ошибка при отправке пользователю ${user.id}:`, e);
+        failCount++;
+      }
+    }
+
+    res.send(`Рассылка завершена. Отправлено: ${successCount}, ошибок: ${failCount}`);
+  } catch (e) {
+    console.error('Ошибка рассылки:', e);
+    res.status(500).send('Внутренняя ошибка сервера');
+  }
+});
 app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await getAllUsers();
   const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
