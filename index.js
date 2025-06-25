@@ -167,7 +167,7 @@ async function enqueue(userId, url) {
       try {
         await Promise.race([
           processTrackByUrl(userId, trackUrl),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000))
         ]);
       } catch (e) {
         console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
