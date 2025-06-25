@@ -7,7 +7,6 @@ const session = require('express-session');
 const ejs = require('ejs');
 const fs = require('fs');
 const path = require('path');
-const cleanUrl = url.trim().split('\n').pop(); // Возьмёт только ссылку
 const ytdl = require('youtube-dl-exec');
 
 const pgSession = require('connect-pg-simple')(session);
