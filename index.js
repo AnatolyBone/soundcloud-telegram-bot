@@ -442,13 +442,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`)
-    .then(() => console.log('Webhook установлен'))
-    .catch(err => console.error('Ошибка установки webhook:', err));
 });
 
-bot.launch().then(() => console.log('🤖 Бот запущен'));
-
+bot.launch({
+  webhook: {
+    domain: WEBHOOK_URL,
+    port: PORT,
+    hookPath: WEBHOOK_PATH,
+  }
+}).then(() => console.log('🤖 Бот запущен через webhook'))
+  .catch(err => console.error('Ошибка запуска бота через webhook:', err));
 // graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
