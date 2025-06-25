@@ -49,9 +49,14 @@
     </form>
   <% } %>
 
-  <p><strong>Пользователей:</strong> <%= stats.totalUsers %></p>
-  <p><strong>Всего загрузок:</strong> <%= stats.totalDownloads %></p>
-  <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
+  <p><strong>Пользователей:</strong> <%= stats && stats.totalUsers != null ? stats.totalUsers : '0' %></p>
+  <p><strong>Всего загрузок:</strong> <%= stats && stats.totalDownloads != null ? stats.totalDownloads : '0' %></p>
+  <p><strong>Тарифы:</strong> 
+    Free: <%= stats && stats.free != null ? stats.free : '0' %>, 
+    Plus: <%= stats && stats.plus != null ? stats.plus : '0' %>, 
+    Pro: <%= stats && stats.pro != null ? stats.pro : '0' %>, 
+    Unlim: <%= stats && stats.unlimited != null ? stats.unlimited : '0' %>
+  </p>
   
   <div class="chart-container">
     <canvas id="registrationsChart"></canvas>
@@ -61,7 +66,7 @@
     <canvas id="downloadsChart"></canvas>
   </div>
 
-  <h3>👤 Все пользователи (<%= users.length %>)</h3>
+  <h3>👤 Все пользователи (<%= users ? users.length : 0 %>)</h3>
   <table id="usersTable" class="display" style="width:100%">
     <thead>
       <tr>
@@ -76,7 +81,7 @@
       </tr>
     </thead>
     <tbody>
-      <% users.forEach(user => { %>
+      <% if (users) { users.forEach(user => { %>
         <tr>
           <td><%= user.id %></td>
           <td><%= user.username ? '@' + user.username : '' %></td>
@@ -98,7 +103,7 @@
             </form>
           </td>
         </tr>
-      <% }) %>
+      <% }) } %>
     </tbody>
   </table>
 
@@ -139,11 +144,11 @@
     });
 
     // Безопасное получение данных графиков
-    const registrationsLabels = <%- JSON.stringify(stats.registrationsByDate ? Object.keys(stats.registrationsByDate) : []) %>;
-    const registrationsData = <%- JSON.stringify(stats.registrationsByDate ? Object.values(stats.registrationsByDate) : []) %>;
+    const registrationsLabels = <%- JSON.stringify(stats && stats.registrationsByDate ? Object.keys(stats.registrationsByDate) : []) %>;
+    const registrationsData = <%- JSON.stringify(stats && stats.registrationsByDate ? Object.values(stats.registrationsByDate) : []) %>;
 
-    const downloadsLabels = <%- JSON.stringify(stats.downloadsByDate ? Object.keys(stats.downloadsByDate) : []) %>;
-    const downloadsData = <%- JSON.stringify(stats.downloadsByDate ? Object.values(stats.downloadsByDate) : []) %>;
+    const downloadsLabels = <%- JSON.stringify(stats && stats.downloadsByDate ? Object.keys(stats.downloadsByDate) : []) %>;
+    const downloadsData = <%- JSON.stringify(stats && stats.downloadsByDate ? Object.values(stats.downloadsByDate) : []) %>;
 
     const ctxReg = document.getElementById('registrationsChart').getContext('2d');
     const registrationsChart = new Chart(ctxReg, {
