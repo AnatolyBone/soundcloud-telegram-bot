@@ -42,6 +42,11 @@
   </label>
   <button type="submit">Обновить</button>
 </form>
+<% if (showInactive) { %>
+  <form method="POST" action="/delete-inactive" style="margin-top: 10px;">
+    <button type="submit" onclick="return confirm('Удалить всех неактивных пользователей?')">🗑 Удалить неактивных</button>
+  </form>
+<% } %>
   <p><strong>Пользователей:</strong> <%= stats.totalUsers %></p>
   <p><strong>Всего загрузок:</strong> <%= stats.totalDownloads %></p>
   <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
