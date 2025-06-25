@@ -440,18 +440,20 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+// Вместо app.listen(...)
+const server = app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
 
+// Запуск бота с использованием уже созданного express сервера
 bot.launch({
   webhook: {
     domain: WEBHOOK_URL,
-    port: PORT,
     hookPath: WEBHOOK_PATH,
+    server: server,
   }
-}).then(() => console.log('🤖 Бот запущен через webhook'))
-  .catch(err => console.error('Ошибка запуска бота через webhook:', err));
+}).then(() => console.log('🤖 Бот запущен через webhook'));
+
 // graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
