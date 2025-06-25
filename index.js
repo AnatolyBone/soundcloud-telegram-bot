@@ -191,6 +191,8 @@ async function enqueue(ctx, userId, url) {
 
 async function processTrackByUrl(ctx, userId, url) {
   await ctx.telegram.sendMessage(userId, texts.downloading);
+  const start = Date.now(); // ← вот это добавляем
+
   try {
     const info = await ytdl(url, {
       dumpSingleJson: true,
@@ -198,15 +200,8 @@ async function processTrackByUrl(ctx, userId, url) {
       noCheckCertificates: true
     });
 
-    // Оставляем кириллицу, латиницу, цифры, _, -, пробелы
-    let name = (info.title || 'track')
-      .slice(0, 100)
-      .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
-      .trim()
-      .replace(/\s+/g, '_')
-      .slice(0, 50);
+    // ... (обработка названия и пути к файлу)
 
-    const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
       await ytdl(url, {
         extractAudio: true,
@@ -220,6 +215,9 @@ async function processTrackByUrl(ctx, userId, url) {
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
     await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+
+    const duration = ((Date.now() - start) / 1000).toFixed(1); // ← и это
+    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, texts.error);
@@ -345,13 +343,6 @@ bot.hears(texts.mytracks, async ctx => {
 bot.on('text', async ctx => {
   if (ctx.message.text.startsWith('/')) return;
 
-  // if (reviewMode.has(ctx.from.id)) {
-  //   reviewMode.delete(ctx.from.id);
-  //   await addReview(ctx.from.id, ctx.message.text);
-  //   await setPremium(ctx.from.id, 50, 30);
-  //   return ctx.reply(texts.reviewThanks, kb());
-  // }
-
   const url = ctx.message.text.trim();
   if (!url.includes('soundcloud.com')) return;
 
@@ -364,6 +355,14 @@ bot.on('text', async ctx => {
       Markup.button.callback('✅ Я подписался', 'check_subscription')
     ]));
   }
+
+  // Ответ сразу, обработка в фоне
+  ctx.reply('⏳ Загрузка началась. Это может занять до 5 минут...');
+  enqueue(ctx, ctx.from.id, url).catch(e => {
+    console.error('Ошибка в enqueue:', e);
+    ctx.telegram.sendMessage(ctx.from.id, '❌ Произошла ошибка при загрузке.');
+  });
+});
 
   await enqueue(ctx, ctx.from.id, url);
 });
