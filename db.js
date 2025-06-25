@@ -106,16 +106,13 @@ async function resetDailyStats() {
 
 // ✅ Все пользователи
 // db.js
-async function getAllUsers(filter = 'all') {
+async function getAllUsers(includeInactive = false) {
   let sql = 'SELECT * FROM users';
   const params = [];
 
-  if (filter === 'active') {
+  if (!includeInactive) {
     sql += ' WHERE active = TRUE';
-  } else if (filter === 'inactive') {
-    sql += ' WHERE active = FALSE';
   }
-
   sql += ' ORDER BY created_at DESC';
 
   const res = await query(sql, params);
