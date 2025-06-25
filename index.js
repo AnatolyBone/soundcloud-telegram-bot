@@ -128,37 +128,6 @@ async function processTrackByUrl(ctx, userId, url) {
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
 
-    // Обработка названия
-    let name = info.title || 'track';
-    name = name.replace(/[\\/:*?"<>|]+/g, '');
-    name = name.trim().replace(/\s+/g, '_');
-    name = name.replace(/__+/g, '_');
-    if (name.length > 64) name = name.slice(0, 64);
-
-    const fp = path.join(cacheDir, `${name}.mp3`);
-
-    if (!fs.existsSync(fp)) {
-      await ytdl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: fp,
-        preferFreeFormats: true,
-        noCheckCertificates: true
-      });
-    }
-
-    await incrementDownloads(userId, name);
-    await saveTrackForUser(userId, name);
-    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
-
-    const duration = ((Date.now() - start) / 1000).toFixed(1);
-    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
-  } catch (e) {
-    console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
-  }
-}
-
 async function enqueue(ctx, userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
