@@ -67,7 +67,7 @@ setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 const queues = {};
 const processing = {};
 const userStates = {}; // Хранит состояние загрузки (например, флаг остановки)
-const reviewMode = new Set();
+// const reviewMode = new Set(); // пока не используется
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -78,9 +78,6 @@ const texts = {
   downloading: '🎧 Загружаю...',
   error: '❌ Ошибка',
   noTracks: 'Сегодня нет треков.',
-  // reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
-  // reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
-  // alreadyReviewed: 'Ты уже оставил отзыв 😊',
   limitReached: `🚫 Лимит достигнут ❌
 
 🔔 Получи 7 дней Plus!
@@ -105,7 +102,6 @@ const kb = () =>
   Markup.keyboard([
     [texts.menu, texts.upgrade],
     [texts.mytracks, texts.help]
-    // ['✍️ Оставить отзыв']  <-- убрать эту строку
   ]).resize();
 
 const isSubscribed = async userId => {
@@ -127,10 +123,13 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
   }
 }
 
-async function enqueue(userId, url) {
+async function enqueue(ctx, userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
   try {
+    // Создаём пользователя при необходимости (если нет в базе)
+    await createUser(userId, ctx.from.first_name, ctx.from.username);
+
     const u = await getUser(userId);
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
@@ -139,13 +138,13 @@ async function enqueue(userId, url) {
 
     const remainingLimit = u.premium_limit - u.downloads_today;
     if (remainingLimit <= 0) {
-      return bot.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
+      return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ]));
     }
 
     if (entries.length > remainingLimit) {
-      await bot.telegram.sendMessage(userId,
+      await ctx.telegram.sendMessage(userId,
         `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено только первые ${remainingLimit}.`);
     }
 
@@ -157,21 +156,24 @@ async function enqueue(userId, url) {
     processing[userId] = true;
 
     for (let i = 0; i < queues[userId].length; i++) {
-      if (userStates?.[userId]?.abort) break;
+      if (userStates?.[userId]?.abort) {
+        queues[userId] = [];
+        break;
+      }
 
       const trackUrl = queues[userId][i];
-      await bot.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
+      await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
         Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
       ]));
 
       try {
         await Promise.race([
-          processTrackByUrl(userId, trackUrl),
+          processTrackByUrl(ctx, userId, trackUrl),
           new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000))
         ]);
       } catch (e) {
         console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
-        await bot.telegram.sendMessage(userId, texts.error);
+        await ctx.telegram.sendMessage(userId, texts.error);
       }
     }
 
@@ -179,16 +181,16 @@ async function enqueue(userId, url) {
     processing[userId] = false;
     delete userStates[userId];
 
-    await bot.telegram.sendMessage(userId, '✅ Загрузка завершена.');
+    await ctx.telegram.sendMessage(userId, '✅ Загрузка завершена.');
 
   } catch (err) {
     console.error('Ошибка в enqueue:', err);
-    await bot.telegram.sendMessage(userId, texts.error);
+    await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
 
-async function processTrackByUrl(userId, url) {
-  await bot.telegram.sendMessage(userId, texts.downloading);
+async function processTrackByUrl(ctx, userId, url) {
+  await ctx.telegram.sendMessage(userId, texts.downloading);
   try {
     const info = await ytdl(url, {
       dumpSingleJson: true,
@@ -198,11 +200,11 @@ async function processTrackByUrl(userId, url) {
 
     // Оставляем кириллицу, латиницу, цифры, _, -, пробелы
     let name = (info.title || 'track')
-      .slice(0, 100) // сначала обрезаем длину
-      .replace(/[^\p{L}\p{N}_\s\-]/gu, '') // потом фильтруем (поддержка кириллицы)
+      .slice(0, 100)
+      .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
       .trim()
       .replace(/\s+/g, '_')
-      .slice(0, 50); // обрезаем для гарантии
+      .slice(0, 50);
 
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
@@ -217,10 +219,10 @@ async function processTrackByUrl(userId, url) {
 
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
-    await sendAudioSafe(bot, userId, fp, `${name}.mp3`);
+    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
-    await bot.telegram.sendMessage(userId, texts.error);
+    await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
 
@@ -253,14 +255,19 @@ async function broadcastMessage(bot, pool, message) {
 // Хендлеры бота
 
 bot.hears(texts.menu, async ctx => {
+  // Создаём/обновляем пользователя на всякий случай
+  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
+
   const u = await getUser(ctx.from.id);
   const now = new Date();
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
-console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
-  // Начисляем дни Plus за рефералов, если тариф не активен
-  if (u.referred_count > 0 && daysLeft <= 0) {
+  
+  console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
+
+  // Не занижаем тариф — выдаём Plus только если текущий тариф ниже
+  if (u.referred_count > 0 && daysLeft <= 0 && u.premium_limit < 50) {
     await setPremium(ctx.from.id, 50, u.referred_count);
   }
 
@@ -349,6 +356,7 @@ bot.on('text', async ctx => {
   if (!url.includes('soundcloud.com')) return;
 
   await resetDailyLimitIfNeeded(ctx.from.id);
+  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
   const u = await getUser(ctx.from.id);
 
   if (u.downloads_today >= u.premium_limit) {
@@ -357,7 +365,7 @@ bot.on('text', async ctx => {
     ]));
   }
 
-  await enqueue(ctx.from.id, url);
+  await enqueue(ctx, ctx.from.id, url);
 });
 
 // Webhook
@@ -420,45 +428,27 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   const users = await pool.query(usersQuery);
 
   const totalDownloads = users.rows.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+  const registrations = await getRegistrationsByDate();
+  const downloadsByDate = await getDownloadsByDate();
 
-  const stats = {
-    totalUsers: users.rows.length,
+  res.render('dashboard', {
+    users: users.rows,
     totalDownloads,
-    free: users.rows.filter(u => u.premium_limit === 10).length,
-    plus: users.rows.filter(u => u.premium_limit === 50).length,
-    pro: users.rows.filter(u => u.premium_limit === 100).length,
-    unlimited: users.rows.filter(u => u.premium_limit >= 1000).length,
-    registrationsByDate: await getRegistrationsByDate(),
-    downloadsByDate: await getDownloadsByDate()
-  };
-
-  const reviews = await getLatestReviews();
-
-  res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
-});
-
-app.post('/delete-inactive', requireAuth, async (req, res) => {
-  try {
-    const result = await pool.query('DELETE FROM users WHERE active = false');
-    console.log(`Удалено неактивных: ${result.rowCount}`);
-    res.redirect('/dashboard');
-  } catch (e) {
-    console.error('Ошибка удаления:', e);
-    res.status(500).send('Ошибка удаления неактивных');
-  }
-});
-
-app.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/admin'));
+    registrations,
+    downloadsByDate,
+    showInactive
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Сервер на порту ${PORT}`);
-  const cleanWebhookUrl = WEBHOOK_URL.replace(/\/$/, '') + WEBHOOK_PATH;
-  bot.telegram.setWebhook(cleanWebhookUrl)
-    .then(() => bot.telegram.getWebhookInfo())
-    .then(info => {
-      console.log(`✅ Webhook: ${info.url} | Pending: ${info.pending_update_count}`);
-    })
-    .catch(err => console.error('❌ Ошибка webhook:', err));
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`)
+    .then(() => console.log('Webhook установлен'))
+    .catch(err => console.error('Ошибка установки webhook:', err));
 });
+
+bot.launch().then(() => console.log('🤖 Бот запущен'));
+
+// graceful shutdown
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
