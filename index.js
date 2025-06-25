@@ -127,13 +127,10 @@ async function enqueue(ctx, userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
   try {
-    // Создаём пользователя при необходимости (если нет в базе)
     await createUser(userId, ctx.from.first_name, ctx.from.username);
-
     const u = await getUser(userId);
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
-
     const entries = isPlaylist ? info.entries.map(e => e.webpage_url) : [url];
 
     const remainingLimit = u.premium_limit - u.downloads_today;
@@ -162,9 +159,15 @@ async function enqueue(ctx, userId, url) {
       }
 
       const trackUrl = queues[userId][i];
-      await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
-        Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
-      ]));
+
+      // Сообщение «Загружаю X из Y» — только если больше 1 трека
+      if (queues[userId].length > 1) {
+  await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
+    Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
+  ]));
+} else {
+  await ctx.telegram.sendMessage(userId, texts.downloading);
+}
 
       try {
         await Promise.race([
@@ -181,25 +184,16 @@ async function enqueue(ctx, userId, url) {
     processing[userId] = false;
     delete userStates[userId];
 
-    await ctx.telegram.sendMessage(userId, '✅ Загрузка завершена.');
+    // Заключительное сообщение — только если было несколько треков
+    if (limitedEntries.length > 1) {
+      await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
+    }
 
   } catch (err) {
     console.error('Ошибка в enqueue:', err);
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-
-async function processTrackByUrl(ctx, userId, url) {
-  await ctx.telegram.sendMessage(userId, texts.downloading);
-  const start = Date.now();
-
-  try {
-    const info = await ytdl(url, {
-      dumpSingleJson: true,
-      preferFreeFormats: true,
-      noCheckCertificates: true
-    });
-
     // Обработка названия
     let name = info.title || 'track';
     name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
