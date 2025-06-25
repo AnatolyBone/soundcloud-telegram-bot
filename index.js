@@ -48,16 +48,26 @@ if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 // Очистка кеша старше 7 дней
 setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
-  fs.readdirSync(cacheDir).forEach(file => {
-    const filePath = path.join(cacheDir, file);
-    if (fs.statSync(filePath).mtimeMs < cutoff) {
-      try {
-        fs.unlinkSync(filePath);
-        console.log(`🗑 Удалён кеш: ${file}`);
-      } catch (e) {
-        console.error('Ошибка при удалении файла кеша:', e);
-      }
+  fs.readdir(cacheDir, (err, files) => {
+    if (err) {
+      console.error('Ошибка чтения кеша:', err);
+      return;
     }
+    files.forEach(file => {
+      const filePath = path.join(cacheDir, file);
+      fs.stat(filePath, (err, stats) => {
+        if (err) {
+          console.error('Ошибка stat файла:', err);
+          return;
+        }
+        if (stats.mtimeMs < cutoff) {
+          fs.unlink(filePath, err => {
+            if (err) console.error('Ошибка удаления файла кеша:', err);
+            else console.log(`🗑 Удалён кеш: ${file}`);
+          });
+        }
+      });
+    });
   });
 }, 3600 * 1000);
 
@@ -121,18 +131,57 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
   }
 }
 
-// === Новая функция: processTrackByUrl ===
+// --- Функция для скачивания и отправки одного трека ---
 async function processTrackByUrl(ctx, userId, url) {
   const start = Date.now();
 
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
 
+    // Обработка названия трека
+    let name = info.title || 'track';
+    name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
+    name = name.trim().replace(/\s+/g, '_');   // пробелы в _
+    name = name.replace(/__+/g, '_');          // двойные подчёркивания в одиночные
+    if (name.length > 64) name = name.slice(0, 64);
+
+    // Путь к кешу
+    const fp = path.join(cacheDir, `${name}.mp3`);
+
+    if (!fs.existsSync(fp)) {
+      // Скачиваем аудио
+      await ytdl(url, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: fp,
+        preferFreeFormats: true,
+        noCheckCertificates: true
+      });
+    }
+
+    // Обновляем статистику
+    await incrementDownloads(userId, name);
+    await saveTrackForUser(userId, name);
+
+    // Отправляем аудио пользователю
+    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+
+    const duration = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
+
+  } catch (e) {
+    console.error(`Ошибка при загрузке ${url}:`, e);
+    await ctx.telegram.sendMessage(userId, texts.error);
+  }
+}
+
+// --- Функция управления очередью загрузок ---
 async function enqueue(ctx, userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
   try {
-    await createUser(userId, ctx.from.first_name, ctx.from.username);
+    // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
+
     const u = await getUser(userId);
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
@@ -151,10 +200,16 @@ async function enqueue(ctx, userId, url) {
     }
 
     const limitedEntries = entries.slice(0, remainingLimit);
+
+    // Если очередь уже обрабатывается, добавляем в конец и выходим
+    if (processing[userId]) {
+      queues[userId].push(...limitedEntries);
+      await ctx.telegram.sendMessage(userId, `⏳ Трек(и) добавлены в очередь. Текущая позиция: ${queues[userId].length}`);
+      return;
+    }
+
     queues[userId].push(...limitedEntries);
     userStates[userId] = { abort: false };
-
-    if (processing[userId]) return;
     processing[userId] = true;
 
     for (let i = 0; i < queues[userId].length; i++) {
@@ -176,11 +231,15 @@ async function enqueue(ctx, userId, url) {
       try {
         await Promise.race([
           processTrackByUrl(ctx, userId, trackUrl),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000)) // 5 минут
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000)) // 5 минут таймаут
         ]);
       } catch (e) {
         console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
-        await ctx.telegram.sendMessage(userId, texts.error);
+        if (e.message === 'Timeout') {
+          await ctx.telegram.sendMessage(userId, '❌ Превышено время ожидания загрузки трека.');
+        } else {
+          await ctx.telegram.sendMessage(userId, texts.error);
+        }
       }
     }
 
@@ -198,37 +257,6 @@ async function enqueue(ctx, userId, url) {
   }
 }
 
-    // Обработка названия
-    let name = info.title || 'track';
-    name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
-    name = name.trim().replace(/\s+/g, '_');   // замена пробелов
-    name = name.replace(/__+/g, '_');          // удаление лишних подчёркиваний
-    if (name.length > 64) name = name.slice(0, 64);
-
-    // Путь к кешу
-    const fp = path.join(cacheDir, `${name}.mp3`);
-
-    if (!fs.existsSync(fp)) {
-      await ytdl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: fp,
-        preferFreeFormats: true,
-        noCheckCertificates: true
-      });
-    }
-
-    await incrementDownloads(userId, name);
-    await saveTrackForUser(userId, name);
-    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
-
-    const duration = ((Date.now() - start) / 1000).toFixed(1);
-    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
-  } catch (e) {
-    console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
-  }
-}
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
@@ -258,7 +286,6 @@ async function broadcastMessage(bot, pool, message) {
 // Хендлеры бота
 
 bot.hears(texts.menu, async ctx => {
-  // Создаём/обновляем пользователя на всякий случай
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
 
   const u = await getUser(ctx.from.id);
@@ -269,7 +296,7 @@ bot.hears(texts.menu, async ctx => {
   
   console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
 
-  // Не занижаем тариф — выдаём Plus только если текущий тариф ниже
+  // Обновляем тариф, если пользователь привёл рефералов
   if (u.referred_count > 0 && daysLeft <= 0 && u.premium_limit < 50) {
     await setPremium(ctx.from.id, 50, u.referred_count);
   }
@@ -286,12 +313,6 @@ bot.hears(texts.menu, async ctx => {
 
 bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
 bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
-
-// bot.hears('✍️ Оставить отзыв', async ctx => {
-//   if (await hasLeftReview(ctx.from.id)) return ctx.reply(texts.alreadyReviewed);
-//   ctx.reply(texts.reviewAsk);
-//   reviewMode.add(ctx.from.id);
-// });
 
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
@@ -420,48 +441,19 @@ app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), asyn
 });
 
 app.get('/dashboard', requireAuth, async (req, res) => {
-  const showInactive = req.query.showInactive === 'true';
-
-  const usersQuery = showInactive
-    ? 'SELECT * FROM users ORDER BY created_at DESC'
-    : 'SELECT * FROM users WHERE active = true ORDER BY created_at DESC';
-
-  const users = await pool.query(usersQuery);
-
-  const totalDownloads = users.rows.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  const registrations = await getRegistrationsByDate();
-  const downloadsByDate = await getDownloadsByDate();
-
-  res.render('dashboard', {
-    users: users.rows,
-    showInactive,
-    reviews: await getLatestReviews(5), // если надо, или убери
-    stats: {
-      totalUsers: users.rows.length,
-      totalDownloads,
-      free: users.rows.filter(u => u.premium_limit === 10).length,
-      plus: users.rows.filter(u => u.premium_limit === 50).length,
-      pro: users.rows.filter(u => u.premium_limit === 100).length,
-      unlimited: users.rows.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: registrations,
-      downloadsByDate: downloadsByDate,
-    }
-  });
+  const users = await getAllUsers();
+  res.render('dashboard', { users });
 });
 
-// Вместо app.listen(...)
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-});
+// Запуск сервера и бота
 
-// Запуск бота с использованием уже созданного express сервера
-bot.launch({
-  webhook: {
-    domain: WEBHOOK_URL,
-    hookPath: WEBHOOK_PATH,
+(async () => {
+  try {
+    await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+    app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+    console.log('🤖 Бот ожидает обновления...');
+  } catch (e) {
+    console.error('Ошибка при старте:', e);
+    process.exit(1);
   }
-}).then(() => console.log('🤖 Бот запущен через webhook'));
-
-// graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+})();
