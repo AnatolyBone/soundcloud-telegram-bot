@@ -15,7 +15,8 @@ const { Pool } = require('pg');
 const {
   createUser, getUser, updateUserField, incrementDownloads,
   setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded
+  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded,
+  getRegistrationsByDate, getDownloadsByDate
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -49,7 +50,14 @@ setInterval(() => {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   fs.readdirSync(cacheDir).forEach(file => {
     const filePath = path.join(cacheDir, file);
-    if (fs.statSync(filePath).mtimeMs < cutoff) fs.unlinkSync(filePath);
+    if (fs.statSync(filePath).mtimeMs < cutoff) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`🗑 Удалён кеш: ${file}`);
+      } catch (e) {
+        console.error('Ошибка при удалении файла кеша:', e);
+      }
+    }
   });
 }, 3600 * 1000);
 
@@ -71,8 +79,8 @@ const texts = {
   error: '❌ Ошибка',
   noTracks: 'Сегодня нет треков.',
   // reviewAsk: '✍️ Напиши отзыв о боте. За это — тариф Plus на 30 дней!',
-// reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
-// alreadyReviewed: 'Ты уже оставил отзыв 😊',
+  // reviewThanks: '✅ Спасибо! Тариф Plus выдан на 30 дней.',
+  // alreadyReviewed: 'Ты уже оставил отзыв 😊',
   limitReached: `🚫 Лимит достигнут ❌
 
 🔔 Получи 7 дней Plus!
@@ -109,6 +117,16 @@ const isSubscribed = async userId => {
   }
 };
 
+// Вспомогательная функция: безопасная отправка аудио с логированием ошибок
+async function sendAudioSafe(ctx, userId, filePath, filename) {
+  try {
+    await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(filePath), filename });
+  } catch (e) {
+    console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
+    await ctx.telegram.sendMessage(userId, texts.error);
+  }
+}
+
 async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
@@ -139,7 +157,7 @@ async function enqueue(userId, url) {
     processing[userId] = true;
 
     for (let i = 0; i < queues[userId].length; i++) {
-      if (userStates[userId].abort) break;
+      if (userStates?.[userId]?.abort) break;
 
       const trackUrl = queues[userId][i];
       await bot.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
@@ -152,7 +170,7 @@ async function enqueue(userId, url) {
           new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
         ]);
       } catch (e) {
-        console.error('Ошибка при загрузке трека:', e);
+        console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
         await bot.telegram.sendMessage(userId, texts.error);
       }
     }
@@ -168,6 +186,7 @@ async function enqueue(userId, url) {
     await bot.telegram.sendMessage(userId, texts.error);
   }
 }
+
 async function processTrackByUrl(userId, url) {
   await bot.telegram.sendMessage(userId, texts.downloading);
   try {
@@ -177,11 +196,13 @@ async function processTrackByUrl(userId, url) {
       noCheckCertificates: true
     });
 
+    // Оставляем кириллицу, латиницу, цифры, _, -, пробелы
     let name = (info.title || 'track')
-      .replace(/[^\w\s\-]/g, '')
+      .slice(0, 100) // сначала обрезаем длину
+      .replace(/[^\p{L}\p{N}_\s\-]/gu, '') // потом фильтруем (поддержка кириллицы)
       .trim()
       .replace(/\s+/g, '_')
-      .slice(0, 50);
+      .slice(0, 50); // обрезаем для гарантии
 
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
@@ -196,9 +217,9 @@ async function processTrackByUrl(userId, url) {
 
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
-    await bot.telegram.sendAudio(userId, { source: fs.createReadStream(fp), filename: `${name}.mp3` });
+    await sendAudioSafe(bot, userId, fp, `${name}.mp3`);
   } catch (e) {
-    console.error('Ошибка при загрузке трека:', e);
+    console.error(`Ошибка при загрузке ${url}:`, e);
     await bot.telegram.sendMessage(userId, texts.error);
   }
 }
@@ -209,25 +230,27 @@ async function broadcastMessage(bot, pool, message) {
   let errorCount = 0;
 
   for (const user of users) {
-  if (!user.active) continue;
+    if (!user.active) continue;
 
-  try {
-    await bot.telegram.sendMessage(user.id, message);
-    successCount++;
-    await new Promise(r => setTimeout(r, 150));
-  } catch (e) {
-    console.log(`Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
-    errorCount++;
     try {
-      await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
-    } catch (err) {
-      console.error('Ошибка при обновлении статуса пользователя:', err);
+      await bot.telegram.sendMessage(user.id, message);
+      successCount++;
+      await new Promise(r => setTimeout(r, 150));
+    } catch (e) {
+      console.log(`Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
+      errorCount++;
+      try {
+        await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
+      } catch (err) {
+        console.error('Ошибка при обновлении статуса пользователя:', err);
+      }
     }
   }
-}
 
   return { successCount, errorCount };
 }
+
+// Хендлеры бота
 
 bot.hears(texts.menu, async ctx => {
   const u = await getUser(ctx.from.id);
@@ -235,6 +258,11 @@ bot.hears(texts.menu, async ctx => {
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
+
+  // Начисляем дни Plus за рефералов, если тариф не активен
+  if (u.referred_count > 0 && daysLeft <= 0) {
+    await setPremium(ctx.from.id, 50, u.referred_count);
+  }
 
   ctx.reply(
     `👋 Добро пожаловать, ${u.first_name}!\n\n` +
@@ -279,13 +307,15 @@ bot.action('check_subscription', async ctx => {
     return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
   }
 });
+
 bot.action(/^stop_(\d+)$/, async ctx => {
   const targetId = parseInt(ctx.match[1]);
   if (ctx.from.id !== targetId) return ctx.answerCbQuery('⛔️ Это не ваша загрузка');
-  if (userStates[targetId]) userStates[targetId].abort = true;
+  if (userStates?.[targetId]) userStates[targetId].abort = true;
   await ctx.editMessageReplyMarkup();
   await ctx.reply('⏹️ Загрузка остановлена.');
 });
+
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
@@ -295,14 +325,14 @@ bot.hears(texts.mytracks, async ctx => {
     return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
   }).filter(Boolean);
   for (let i = 0; i < media.length; i += 5) {
-  const chunk = media.slice(i, i + 5);
-  try {
-    await ctx.replyWithMediaGroup(chunk);
-  } catch (error) {
-    console.error('Ошибка при отправке части треков:', error);
-    await ctx.reply('❌ Не удалось отправить часть треков. Возможно, один из файлов повреждён.');
+    const chunk = media.slice(i, i + 5);
+    try {
+      await ctx.replyWithMediaGroup(chunk);
+    } catch (error) {
+      console.error('Ошибка при отправке части треков:', error);
+      await ctx.reply('❌ Не удалось отправить часть треков. Возможно, один из файлов повреждён.');
+    }
   }
-}
 });
 
 bot.on('text', async ctx => {
@@ -357,14 +387,15 @@ function requireAuth(req, res, next) {
 
 app.get('/admin', (req, res) => res.render('login', { error: null }));
 
-app.post('/admin/login', (req, res) => {
+app.post('/admin/login', express.urlencoded({ extended: true }), (req, res) => {
   if (req.body.username === process.env.ADMIN_LOGIN && req.body.password === process.env.ADMIN_PASSWORD) {
     req.session.authenticated = true;
     return res.redirect('/dashboard');
   }
   res.render('login', { error: 'Неверные данные' });
 });
-app.post('/broadcast', requireAuth, async (req, res) => {
+
+app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
   const message = req.body.message;
   if (!message) {
     return res.status(400).send('Сообщение не может быть пустым');
@@ -378,15 +409,18 @@ app.post('/broadcast', requireAuth, async (req, res) => {
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
+
 app.get('/dashboard', requireAuth, async (req, res) => {
   const showInactive = req.query.showInactive === 'true';
 
-  const users = showInactive
-    ? await pool.query('SELECT * FROM users ORDER BY created_at DESC')
-    : await pool.query('SELECT * FROM users WHERE active = true ORDER BY created_at DESC');
+  const usersQuery = showInactive
+    ? 'SELECT * FROM users ORDER BY created_at DESC'
+    : 'SELECT * FROM users WHERE active = true ORDER BY created_at DESC';
+
+  const users = await pool.query(usersQuery);
 
   const totalDownloads = users.rows.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  
+
   const stats = {
     totalUsers: users.rows.length,
     totalDownloads,
@@ -402,6 +436,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
   res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
 });
+
 app.post('/delete-inactive', requireAuth, async (req, res) => {
   try {
     const result = await pool.query('DELETE FROM users WHERE active = false');
@@ -412,6 +447,7 @@ app.post('/delete-inactive', requireAuth, async (req, res) => {
     res.status(500).send('Ошибка удаления неактивных');
   }
 });
+
 app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin'));
 });
