@@ -431,12 +431,19 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   const downloadsByDate = await getDownloadsByDate();
 
   res.render('dashboard', {
-    users: users.rows,
+  users: users.rows,
+  showInactive,
+  reviews: await getLatestReviews(5), // если надо, или убери
+  stats: {
+    totalUsers: users.rows.length,
     totalDownloads,
-    registrations,
-    downloadsByDate,
-    showInactive
-  });
+    free: users.rows.filter(u => u.premium_limit === 10).length,
+    plus: users.rows.filter(u => u.premium_limit === 50).length,
+    pro: users.rows.filter(u => u.premium_limit === 100).length,
+    unlimited: users.rows.filter(u => u.premium_limit >= 1000).length,
+    registrationsByDate: registrations,
+    downloadsByDate: downloadsByDate,
+  }
 });
 
 // Вместо app.listen(...)
