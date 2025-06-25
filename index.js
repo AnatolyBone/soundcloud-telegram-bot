@@ -66,8 +66,7 @@ setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
 const queues = {};
 const processing = {};
-const userStates = {}; // Хранит состояние загрузки (например, флаг остановки)
-// const reviewMode = new Set(); // пока не используется
+const userStates = {}; // для флага остановки загрузки
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -113,12 +112,49 @@ const isSubscribed = async userId => {
   }
 };
 
-// Вспомогательная функция: безопасная отправка аудио с логированием ошибок
 async function sendAudioSafe(ctx, userId, filePath, filename) {
   try {
     await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(filePath), filename });
   } catch (e) {
     console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
+    await ctx.telegram.sendMessage(userId, texts.error);
+  }
+}
+
+// === Новая функция: processTrackByUrl ===
+async function processTrackByUrl(ctx, userId, url) {
+  const start = Date.now();
+
+  try {
+    const info = await ytdl(url, { dumpSingleJson: true });
+
+    // Обработка названия
+    let name = info.title || 'track';
+    name = name.replace(/[\\/:*?"<>|]+/g, '');
+    name = name.trim().replace(/\s+/g, '_');
+    name = name.replace(/__+/g, '_');
+    if (name.length > 64) name = name.slice(0, 64);
+
+    const fp = path.join(cacheDir, `${name}.mp3`);
+
+    if (!fs.existsSync(fp)) {
+      await ytdl(url, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: fp,
+        preferFreeFormats: true,
+        noCheckCertificates: true
+      });
+    }
+
+    await incrementDownloads(userId, name);
+    await saveTrackForUser(userId, name);
+    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+
+    const duration = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
+  } catch (e) {
+    console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
@@ -160,19 +196,18 @@ async function enqueue(ctx, userId, url) {
 
       const trackUrl = queues[userId][i];
 
-      // Сообщение «Загружаю X из Y» — только если больше 1 трека
       if (queues[userId].length > 1) {
-  await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
-    Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
-  ]));
-} else {
-  await ctx.telegram.sendMessage(userId, texts.downloading);
-}
+        await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
+          Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
+        ]));
+      } else {
+        await ctx.telegram.sendMessage(userId, texts.downloading);
+      }
 
       try {
         await Promise.race([
           processTrackByUrl(ctx, userId, trackUrl),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000))
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000)) // 5 минут
         ]);
       } catch (e) {
         console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
@@ -184,7 +219,6 @@ async function enqueue(ctx, userId, url) {
     processing[userId] = false;
     delete userStates[userId];
 
-    // Заключительное сообщение — только если было несколько треков
     if (limitedEntries.length > 1) {
       await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
     }
@@ -194,6 +228,7 @@ async function enqueue(ctx, userId, url) {
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
+
     // Обработка названия
     let name = info.title || 'track';
     name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
