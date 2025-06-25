@@ -20,14 +20,14 @@ async function query(text, params) {
 }
 
 // ✅ Создание пользователя
-async function createUser(id, username, first_name) {
+async function createUser(id, first_name, username) {
+  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}`);
   await query(`
     INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active)
     VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW())
     ON CONFLICT (id) DO NOTHING
   `, [id, username, first_name]);
 }
-
 // ✅ Получение пользователя
 async function getUser(id) {
 const res = await query('SELECT * FROM users WHERE active = true ORDER BY created_at DESC');
