@@ -379,9 +379,12 @@ app.post('/broadcast', requireAuth, async (req, res) => {
   }
 });
 app.get('/dashboard', requireAuth, async (req, res) => {
-  const users = await getAllUsers();
-  const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-
+  const showInactive = req.query.showInactive === 'true';
+  const users = showInactive
+    ? await pool.query('SELECT * FROM users ORDER BY created_at DESC')
+    : await pool.query('SELECT * FROM users WHERE active = true ORDER BY created_at DESC');
+  res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
+  const totalDownloads = users.rows.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
   const registrations = await pool.query(`
     SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
     FROM users GROUP BY date ORDER BY date
