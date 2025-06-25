@@ -89,7 +89,14 @@ Unlimited — 💎 (199₽)
   queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
   adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
 };
-
+const isSubscribed = async (userId) => {
+  try {
+    const res = await bot.telegram.getChatMember('@BAZAproject', userId);
+    return ['member', 'creator', 'administrator'].includes(res.status);
+  } catch (e) {
+    return false;
+  }
+};
 // Клавиатура всегда русская, фиксированная
 const kb = () =>
   Markup.keyboard([
@@ -204,7 +211,15 @@ bot.command('reviews', async ctx => {
     await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
   }
 });
-
+bot.action('check_subscription', async ctx => {
+  const userId = ctx.from.id;
+  if (await isSubscribed(userId)) {
+    await setPremium(userId, 50, 7); // Plus на 7 дней
+    return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
+  } else {
+    return ctx.reply('❌ Подписка не найдена. Убедись, что подписан на канал @BAZAproject и попробуй снова.');
+  }
+});
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
@@ -217,7 +232,22 @@ bot.hears(texts.mytracks, async ctx => {
     await ctx.replyWithMediaGroup(media.slice(i, i + 10));
   }
 });
+const bonusCheckMode = new Set();
 
+bot.action('check_bonus', async ctx => {
+  try {
+    const member = await ctx.telegram.getChatMember('@BAZAproject', ctx.from.id);
+    if (['member', 'creator', 'administrator'].includes(member.status)) {
+      await setPremium(ctx.from.id, 50, 7);
+      return ctx.editMessageText('🎉 Бонус активирован! Тариф Plus на 7 дней выдан.');
+    } else {
+      return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
+    }
+  } catch (e) {
+    console.error('Ошибка при проверке подписки:', e);
+    return ctx.answerCbQuery('❌ Не удалось проверить подписку', { show_alert: true });
+  }
+});
 // Обрабатываем текст — игнорируем команды (начинающиеся с '/')
 bot.on('text', async ctx => {
   if (ctx.message.text.startsWith('/')) return;
@@ -235,9 +265,15 @@ bot.on('text', async ctx => {
   await resetDailyLimitIfNeeded(ctx.from.id);
   const u = await getUser(ctx.from.id);
   if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts.limitReached);
-  }
-
+  return ctx.reply(
+    `🚫 Лимит достигнут ❌\n\n` +
+    `🔔 Получи 7 дней Plus!\n` +
+    `Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
+    Markup.inlineKeyboard([
+      Markup.button.callback('✅ Я подписался', 'check_subscription')
+    ])
+  );
+}
   await enqueue(ctx.from.id, url);
 });
 
