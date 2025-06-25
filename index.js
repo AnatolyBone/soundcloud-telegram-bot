@@ -58,6 +58,7 @@ setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
 const queues = {};
 const processing = {};
+const userStates = {}; // Хранит состояние загрузки (например, флаг остановки)
 const reviewMode = new Set();
 
 const texts = {
@@ -110,24 +111,45 @@ const isSubscribed = async userId => {
 
 async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
-  queues[userId].push(url);
-  if (processing[userId]) return;
 
-  processing[userId] = true;
-  while (queues[userId].length > 0) {
-    const trackUrl = queues[userId].shift();
-    try {
-      await bot.telegram.sendMessage(userId, texts.queuePosition(queues[userId].length + 1));
-      await Promise.race([
-        processTrackByUrl(userId, trackUrl),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
-      ]);
-    } catch (err) {
-      console.error(`Ошибка в очереди пользователя ${userId}:`, err);
-      await bot.telegram.sendMessage(userId, texts.error);
+  try {
+    const info = await ytdl(url, { dumpSingleJson: true });
+    const isPlaylist = Array.isArray(info.entries);
+
+    const entries = isPlaylist ? info.entries.map(e => e.webpage_url) : [url];
+    queues[userId].push(...entries);
+    userStates[userId] = { abort: false };
+
+    if (processing[userId]) return;
+    processing[userId] = true;
+
+    for (let i = 0; i < queues[userId].length; i++) {
+      if (userStates[userId].abort) break;
+
+      const trackUrl = queues[userId][i];
+      await bot.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
+        Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
+      ]));
+
+      try {
+        await Promise.race([
+          processTrackByUrl(userId, trackUrl),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 180000))
+        ]);
+      } catch (e) {
+        console.error('Ошибка при загрузке трека:', e);
+        await bot.telegram.sendMessage(userId, texts.error);
+      }
     }
+
+    queues[userId] = [];
+    processing[userId] = false;
+    delete userStates[userId];
+
+  } catch (err) {
+    console.error('Ошибка в enqueue:', err);
+    await bot.telegram.sendMessage(userId, texts.error);
   }
-  processing[userId] = false;
 }
 
 async function processTrackByUrl(userId, url) {
@@ -215,7 +237,13 @@ bot.action('check_subscription', async ctx => {
     return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
   }
 });
-
+bot.action(/^stop_(\d+)$/, async ctx => {
+  const targetId = parseInt(ctx.match[1]);
+  if (ctx.from.id !== targetId) return ctx.answerCbQuery('⛔️ Это не ваша загрузка');
+  if (userStates[targetId]) userStates[targetId].abort = true;
+  await ctx.editMessageReplyMarkup();
+  await ctx.reply('⏹️ Загрузка остановлена.');
+});
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
