@@ -258,7 +258,7 @@ bot.hears(texts.menu, async ctx => {
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
-
+console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
   // Начисляем дни Plus за рефералов, если тариф не активен
   if (u.referred_count > 0 && daysLeft <= 0) {
     await setPremium(ctx.from.id, 50, u.referred_count);
