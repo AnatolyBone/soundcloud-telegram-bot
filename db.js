@@ -30,7 +30,7 @@ async function createUser(id, username, first_name) {
 
 // ✅ Получение пользователя
 async function getUser(id) {
-  const res = await query('SELECT * FROM users WHERE id = $1', [id]);
+const res = await query('SELECT * FROM users WHERE active = true ORDER BY created_at DESC');
   if (res.rows[0]) {
     await query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]);
   }
