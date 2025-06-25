@@ -203,6 +203,32 @@ async function processTrackByUrl(userId, url) {
   }
 }
 
+async function broadcastMessage(bot, pool, message) {
+  const users = await getAllUsers();
+  let successCount = 0;
+  let errorCount = 0;
+
+  for (const user of users) {
+  if (!user.active) continue;
+
+  try {
+    await bot.telegram.sendMessage(user.id, message);
+    successCount++;
+    await new Promise(r => setTimeout(r, 150));
+  } catch (e) {
+    console.log(`Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
+    errorCount++;
+    try {
+      await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
+    } catch (err) {
+      console.error('Ошибка при обновлении статуса пользователя:', err);
+    }
+  }
+}
+
+  return { successCount, errorCount };
+}
+
 bot.hears(texts.menu, async ctx => {
   const u = await getUser(ctx.from.id);
   const now = new Date();
@@ -345,21 +371,8 @@ app.post('/broadcast', requireAuth, async (req, res) => {
   }
 
   try {
-    const users = await getAllUsers(); // Получаем всех пользователей из базы
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const user of users) {
-      try {
-        await bot.telegram.sendMessage(user.id, message);
-        successCount++;
-      } catch (e) {
-        console.error(`Ошибка при отправке пользователю ${user.id}:`, e);
-        failCount++;
-      }
-    }
-
-    res.send(`Рассылка завершена. Отправлено: ${successCount}, ошибок: ${failCount}`);
+    const { successCount, errorCount } = await broadcastMessage(bot, pool, message);
+    res.send(`Рассылка завершена. Отправлено: ${successCount}, ошибок: ${errorCount}`);
   } catch (e) {
     console.error('Ошибка рассылки:', e);
     res.status(500).send('Внутренняя ошибка сервера');
