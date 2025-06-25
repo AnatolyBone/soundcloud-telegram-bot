@@ -402,7 +402,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
   res.render('dashboard', { stats, users: users.rows, reviews, showInactive });
 });
-
+app.post('/delete-inactive', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM users WHERE active = false');
+    console.log(`Удалено неактивных: ${result.rowCount}`);
+    res.redirect('/dashboard');
+  } catch (e) {
+    console.error('Ошибка удаления:', e);
+    res.status(500).send('Ошибка удаления неактивных');
+  }
+});
 app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin'));
 });
