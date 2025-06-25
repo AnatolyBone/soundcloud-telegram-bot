@@ -7,6 +7,7 @@ const session = require('express-session');
 const ejs = require('ejs');
 const fs = require('fs');
 const path = require('path');
+const cleanUrl = url.trim().split('\n').pop(); // Возьмёт только ссылку
 const ytdl = require('youtube-dl-exec');
 
 const pgSession = require('connect-pg-simple')(session);
@@ -133,7 +134,12 @@ async function enqueue(userId, url) {
 async function processTrackByUrl(userId, url) {
   await bot.telegram.sendMessage(userId, texts.downloading);
   try {
-    const info = await ytdl(url, { dumpSingleJson: true });
+    const info = await ytdl(url, {
+      dumpSingleJson: true,
+      preferFreeFormats: true,
+      noCheckCertificates: true
+    });
+
     let name = (info.title || 'track')
       .replace(/[^\w\s\-]/g, '')
       .trim()
@@ -142,7 +148,13 @@ async function processTrackByUrl(userId, url) {
 
     const fp = path.join(cacheDir, `${name}.mp3`);
     if (!fs.existsSync(fp)) {
-      await ytdl(url, { extractAudio: true, audioFormat: 'mp3', output: fp });
+      await ytdl(url, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: fp,
+        preferFreeFormats: true,
+        noCheckCertificates: true
+      });
     }
 
     await incrementDownloads(userId, name);
@@ -153,11 +165,6 @@ async function processTrackByUrl(userId, url) {
     await bot.telegram.sendMessage(userId, texts.error);
   }
 }
-
-bot.start(async ctx => {
-  await createUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
-  ctx.reply(texts.start, kb());
-});
 
 bot.hears(texts.menu, async ctx => {
   const u = await getUser(ctx.from.id);
