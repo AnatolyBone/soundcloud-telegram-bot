@@ -191,7 +191,7 @@ async function enqueue(ctx, userId, url) {
 
 async function processTrackByUrl(ctx, userId, url) {
   await ctx.telegram.sendMessage(userId, texts.downloading);
-  const start = Date.now(); // ← вот это добавляем
+  const start = Date.now();
 
   try {
     const info = await ytdl(url, {
@@ -200,7 +200,15 @@ async function processTrackByUrl(ctx, userId, url) {
       noCheckCertificates: true
     });
 
-    // ... (обработка названия и пути к файлу)
+    // Обработка названия
+    let name = info.title || 'track';
+    name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
+    name = name.trim().replace(/\s+/g, '_');   // замена пробелов
+    name = name.replace(/__+/g, '_');          // удаление лишних подчёркиваний
+    if (name.length > 64) name = name.slice(0, 64);
+
+    // Путь к кешу
+    const fp = path.join(cacheDir, `${name}.mp3`);
 
     if (!fs.existsSync(fp)) {
       await ytdl(url, {
@@ -216,14 +224,13 @@ async function processTrackByUrl(ctx, userId, url) {
     await saveTrackForUser(userId, name);
     await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
 
-    const duration = ((Date.now() - start) / 1000).toFixed(1); // ← и это
+    const duration = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
