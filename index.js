@@ -441,8 +441,42 @@ app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), asyn
 });
 
 app.get('/dashboard', requireAuth, async (req, res) => {
-  const users = await getAllUsers();
-  res.render('dashboard', { users });
+  try {
+    const showInactive = req.query.showInactive === 'true';
+
+    // Выбираем пользователей с учётом фильтра
+    let users;
+    if (showInactive) {
+      users = await getAllUsers(true); // передаём true, чтобы получить всех, включая неактивных
+    } else {
+      users = await getAllUsers(false); // только активных, если есть логика в db.js
+    }
+
+    // Получаем статистику для панели
+    const stats = {
+      totalUsers: users.length,
+      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+      free: users.filter(u => u.premium_limit === 10).length,
+      plus: users.filter(u => u.premium_limit === 50).length,
+      pro: users.filter(u => u.premium_limit === 100).length,
+      unlimited: users.filter(u => u.premium_limit >= 1000).length,
+      registrationsByDate: await getRegistrationsByDate(), // объект {date: count}
+      downloadsByDate: await getDownloadsByDate()          // объект {date: count}
+    };
+
+    // Получаем последние отзывы
+    const reviews = await getLatestReviews(10);
+
+    res.render('dashboard', {
+      users,
+      stats,
+      reviews,
+      showInactive
+    });
+  } catch (e) {
+    console.error('Ошибка при загрузке /dashboard:', e);
+    res.status(500).send('Внутренняя ошибка сервера');
+  }
 });
 
 // Запуск сервера и бота
