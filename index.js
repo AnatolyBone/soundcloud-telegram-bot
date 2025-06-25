@@ -92,13 +92,17 @@ Unlimited — 💎 (199₽)
   adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
 };
 
-//const kb = () =>
-  //Markup.keyboard([
-   // [texts.menu, texts.upgrade],
-  //  [texts.mytracks, texts.help],
-// ['✍️ Оставить отзыв']
-  //]).resize();
-//
+const kb = () =>
+  Markup.keyboard([
+    [texts.menu, texts.upgrade],
+    [texts.mytracks, texts.help],
+const kb = () =>
+  Markup.keyboard([
+    [texts.menu, texts.upgrade],
+    [texts.mytracks, texts.help]
+    // ['✍️ Оставить отзыв']  <-- убрать эту строку
+  ]).resize();
+
 const isSubscribed = async userId => {
   try {
     const res = await bot.telegram.getChatMember('@BAZAproject', userId);
@@ -250,9 +254,6 @@ bot.on('text', async ctx => {
       Markup.button.callback('✅ Я подписался', 'check_subscription')
     ]));
   }
-
-  await enqueue(ctx.from.id, url);
-});
 
   await enqueue(ctx.from.id, url);
 });
