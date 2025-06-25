@@ -113,11 +113,26 @@ async function enqueue(userId, url) {
   if (!queues[userId]) queues[userId] = [];
 
   try {
+    const u = await getUser(userId);
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
 
     const entries = isPlaylist ? info.entries.map(e => e.webpage_url) : [url];
-    queues[userId].push(...entries);
+
+    const remainingLimit = u.premium_limit - u.downloads_today;
+    if (remainingLimit <= 0) {
+      return bot.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
+        Markup.button.callback('✅ Я подписался', 'check_subscription')
+      ]));
+    }
+
+    if (entries.length > remainingLimit) {
+      await bot.telegram.sendMessage(userId,
+        `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено только первые ${remainingLimit}.`);
+    }
+
+    const limitedEntries = entries.slice(0, remainingLimit);
+    queues[userId].push(...limitedEntries);
     userStates[userId] = { abort: false };
 
     if (processing[userId]) return;
@@ -146,12 +161,13 @@ async function enqueue(userId, url) {
     processing[userId] = false;
     delete userStates[userId];
 
+    await bot.telegram.sendMessage(userId, '✅ Загрузка завершена.');
+
   } catch (err) {
     console.error('Ошибка в enqueue:', err);
     await bot.telegram.sendMessage(userId, texts.error);
   }
 }
-
 async function processTrackByUrl(userId, url) {
   await bot.telegram.sendMessage(userId, texts.downloading);
   try {
