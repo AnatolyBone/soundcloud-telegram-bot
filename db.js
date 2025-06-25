@@ -105,8 +105,20 @@ async function resetDailyStats() {
 }
 
 // ✅ Все пользователи
-async function getAllUsers() {
-  const res = await query('SELECT * FROM users ORDER BY created_at DESC');
+// db.js
+async function getAllUsers(filter = 'all') {
+  let sql = 'SELECT * FROM users';
+  const params = [];
+
+  if (filter === 'active') {
+    sql += ' WHERE active = TRUE';
+  } else if (filter === 'inactive') {
+    sql += ' WHERE active = FALSE';
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  const res = await query(sql, params);
   return res.rows;
 }
 
