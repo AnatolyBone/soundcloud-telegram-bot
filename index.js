@@ -11,6 +11,7 @@ const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
 
 const {
   createUser,
