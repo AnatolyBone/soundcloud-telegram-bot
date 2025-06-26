@@ -174,7 +174,7 @@ async function processTrackByUrl(ctx, userId, url) {
     // Обновляем статистику
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
-    await query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, trackTitle]);
+await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
     // Отправляем аудио пользователю
     await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
 
