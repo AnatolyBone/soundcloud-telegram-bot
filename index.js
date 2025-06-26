@@ -569,7 +569,34 @@ const stats = {
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
+app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, async (req, res) => {
+  const { userId, newTariff } = req.body;
 
+  if (!userId || !newTariff) {
+    return res.status(400).send('Missing parameters');
+  }
+
+  // Определяем лимит по тарифу
+  let limit;
+  switch(newTariff) {
+    case 'Free': limit = 10; break;
+    case 'Plus': limit = 50; break;
+    case 'Pro': limit = 100; break;
+    case 'Unlimited': limit = 1000; break; // или другое число для unlimited
+    default:
+      return res.status(400).send('Unknown tariff');
+  }
+
+  try {
+    // Обновляем в базе
+    await setPremium(parseInt(userId), limit, 0); // 0 дней или можно добавить дни
+
+    res.redirect('/dashboard');
+  } catch (e) {
+    console.error('Ошибка при смене тарифа:', e);
+    res.status(500).send('Ошибка сервера');
+  }
+});
 // Запуск сервера и бота
 
 (async () => {
