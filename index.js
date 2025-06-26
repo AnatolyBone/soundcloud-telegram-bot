@@ -12,6 +12,7 @@ const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
+const { Parser } = require('json2csv');
 
 const {
   createUser,
@@ -197,7 +198,9 @@ async function enqueue(ctx, userId, url) {
     const u = await getUser(userId);
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
-    const entries = isPlaylist ? info.entries.map(e => e.webpage_url) : [url];
+const entries = isPlaylist && Array.isArray(info.entries)
+  ? info.entries.filter(e => e && e.webpage_url).map(e => e.webpage_url)
+  : [url];
 
     const remainingLimit = u.premium_limit - u.downloads_today;
     if (remainingLimit <= 0) {
