@@ -359,14 +359,15 @@ ${refLink}`;
   const message = [baseInfo, promo, referrals].join('\n\n');
 
 // Отправляем сообщение с кнопкой подписки
-await ctx.replyWithMarkdown(message, {
-  ...kb(),
-  reply_markup: {
-    ...Markup.inlineKeyboard([
-      Markup.button.callback('✅ Я подписался', 'check_subscription')
-    ]).reply_markup
-  }
-});
+  await ctx.replyWithMarkdown(message, {
+    ...kb(),
+    reply_markup: {
+      ...Markup.inlineKeyboard([
+        Markup.button.callback('✅ Я подписался', 'check_subscription')
+      ]).reply_markup
+    }
+  });
+}); 
 
 bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
 bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
