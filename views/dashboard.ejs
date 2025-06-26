@@ -1,133 +1,107 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Admin Panel</title>
   <meta charset="UTF-8" />
-  
-  <!-- DataTables CSS -->
+  <title>Admin Dashboard</title>
+
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-  
-  <!-- jQuery и DataTables JS -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  
-  <!-- Chart.js для графиков -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-    h1, h3 {
-      margin-bottom: 10px;
-    }
-    table.dataTable thead th {
-      background-color: #f2f2f2;
-    }
-    .chart-container {
-      width: 100%;
-      max-width: 900px;
-      margin-bottom: 40px;
-      height: 200px; /* добавил высоту для графиков */
-    }
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1, h3 { margin-bottom: 10px; }
+    .chart-container { width: 100%; max-width: 900px; margin-bottom: 40px; height: 200px; }
+    .inactive { color: #aaa; }
   </style>
 </head>
 <body>
   <h1>📊 Admin Dashboard</h1>
+
   <form method="GET" action="/dashboard" style="margin-bottom: 20px;">
-    <label>
-      <input type="checkbox" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
-      Показать неактивных пользователей
-    </label>
+    <label><input type="checkbox" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>> Показать неактивных</label>
     <button type="submit">Обновить</button>
+    <a href="/export" style="margin-left: 20px;">📁 Экспорт в CSV</a>
   </form>
 
   <% if (showInactive) { %>
-    <form method="POST" action="/delete-inactive" style="margin-top: 10px;">
+    <form method="POST" action="/delete-inactive">
       <button type="submit" onclick="return confirm('Удалить всех неактивных пользователей?')">🗑 Удалить неактивных</button>
     </form>
   <% } %>
 
-  <p><strong>Пользователей:</strong> <%= stats && stats.totalUsers != null ? stats.totalUsers : '0' %></p>
-  <p><strong>Всего загрузок:</strong> <%= stats && stats.totalDownloads != null ? stats.totalDownloads : '0' %></p>
-  <p><strong>Тарифы:</strong> 
-    Free: <%= stats && stats.free != null ? stats.free : '0' %>, 
-    Plus: <%= stats && stats.plus != null ? stats.plus : '0' %>, 
-    Pro: <%= stats && stats.pro != null ? stats.pro : '0' %>, 
-    Unlim: <%= stats && stats.unlimited != null ? stats.unlimited : '0' %>
-  </p>
-  
-  <div class="chart-container">
-    <canvas id="registrationsChart"></canvas>
-  </div>
-  
-  <div class="chart-container">
-    <canvas id="downloadsChart"></canvas>
-  </div>
+  <p><strong>Всего пользователей:</strong> <%= stats.totalUsers %></p>
+  <p><strong>Загрузок:</strong> <%= stats.totalDownloads %></p>
+  <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
 
-  <h3>👤 Все пользователи (<%= users ? users.length : 0 %>)</h3>
-  <table id="usersTable" class="display" style="width:100%">
+  <div class="chart-container"><canvas id="registrationsChart"></canvas></div>
+  <div class="chart-container"><canvas id="downloadsChart"></canvas></div>
+  <div class="chart-container"><canvas id="activeChart"></canvas></div>
+
+  <h3>🕒 С тарифом, истекающим в ближайшие 3 дня</h3>
+  <% if (expiringSoon.length === 0) { %>
+    <p>Нет таких пользователей</p>
+  <% } else { %>
+    <ul>
+      <% expiringSoon.forEach(u => { %>
+        <li><%= u.first_name %> (<%= u.username ? '@' + u.username : '—' %>) — до <%= new Date(u.premium_until).toLocaleDateString() %></li>
+      <% }) %>
+    </ul>
+  <% } %>
+
+  <h3>👤 Пользователи (<%= users.length %>)</h3>
+  <table id="usersTable" class="display">
     <thead>
       <tr>
-        <th>ID</th>
-        <th>Username</th>
-        <th>Имя</th>
-        <th>Скачано</th>
-        <th>Лимит</th>
-        <th>Дата регистрации</th>
-        <th>Последняя активность</th>
-        <th>Сменить тариф</th>
+        <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
+        <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Тариф</th>
       </tr>
     </thead>
     <tbody>
-      <% if (users) { users.forEach(user => { %>
-        <tr>
+      <% users.forEach(user => { %>
+        <tr class="<%= !user.active ? 'inactive' : '' %>">
           <td><%= user.id %></td>
           <td><%= user.username ? '@' + user.username : '' %></td>
-          <td><%= user.first_name %></td>
+          <td>
+            <%= user.first_name %> 
+            <% if (new Date(user.created_at) > Date.now() - 24 * 60 * 60 * 1000) { %>🆕<% } %>
+          </td>
           <td><%= user.total_downloads || 0 %></td>
           <td><%= user.premium_limit %></td>
           <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
           <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
           <td>
+            <% if (!user.last_active) { %>🔴
+            <% } else if (new Date(user.last_active) > Date.now() - 24 * 60 * 60 * 1000) { %>🟢
+            <% } else { %>🟡<% } %>
+          </td>
+          <td>
             <form method="POST" action="/set-tariff" style="margin:0;">
               <input type="hidden" name="userId" value="<%= user.id %>">
               <select name="limit">
-                <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>🆓 Free</option>
-                <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>🎯 Plus</option>
-                <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>💪 Pro</option>
-                <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>💎 Unlim</option>
+                <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
               </select>
               <button type="submit">Сохранить</button>
             </form>
           </td>
         </tr>
-      <% }) } %>
+      <% }) %>
     </tbody>
   </table>
 
   <h3>📢 Массовая рассылка</h3>
-  <form method="POST" action="/broadcast">
-    <textarea name="message" rows="4" cols="60" placeholder="Введите текст сообщения" required></textarea><br>
-    <button type="submit">Отправить всем</button>
+  <form method="POST" action="/broadcast" enctype="multipart/form-data">
+    <textarea name="message" rows="4" cols="60" placeholder="Введите текст" required></textarea><br>
+    <input type="file" name="audio"><br>
+    <button type="submit">Отправить</button>
   </form>
 
-  <h3>📝 Последние отзывы:</h3>
-  <ul>
-    <% if (reviews && reviews.length > 0) { %>
-      <% reviews.forEach(r => { %>
-        <li><strong><%= new Date(r.time).toLocaleString() %></strong>: <%= r.text %></li>
-      <% }) %>
-    <% } else { %>
-      <li>Отзывы отсутствуют</li>
-    <% } %>
-  </ul>
-<form method="GET" action="/export">
-  <button type="submit">⬇️ Экспорт CSV</button>
-</form>
   <script>
-    $(document).ready(function () {
+    $(document).ready(() => {
       $('#usersTable').DataTable({
         order: [[5, 'desc']],
         language: {
@@ -135,74 +109,59 @@
           lengthMenu: "Показать _MENU_ записей",
           info: "Показано _START_ - _END_ из _TOTAL_",
           paginate: {
-            first: "Первая",
-            last: "Последняя",
-            next: "Следующая",
-            previous: "Предыдущая"
+            first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая"
           },
-          zeroRecords: "Ничего не найдено"
+          zeroRecords: "Нет данных"
         }
       });
     });
 
-    // Безопасное получение данных графиков
-    const registrationsLabels = <%- JSON.stringify(stats && stats.registrationsByDate ? Object.keys(stats.registrationsByDate) : []) %>;
-    const registrationsData = <%- JSON.stringify(stats && stats.registrationsByDate ? Object.values(stats.registrationsByDate) : []) %>;
+    const regLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
+    const regData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
+    const dlLabels = <%- JSON.stringify(Object.keys(stats.downloadsByDate)) %>;
+    const dlData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
+    const actLabels = <%- JSON.stringify(Object.keys(stats.activeByDate)) %>;
+    const actData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
 
-    const downloadsLabels = <%- JSON.stringify(stats && stats.downloadsByDate ? Object.keys(stats.downloadsByDate) : []) %>;
-    const downloadsData = <%- JSON.stringify(stats && stats.downloadsByDate ? Object.values(stats.downloadsByDate) : []) %>;
-
-    const ctxReg = document.getElementById('registrationsChart').getContext('2d');
-    const registrationsChart = new Chart(ctxReg, {
+    new Chart(document.getElementById('registrationsChart'), {
       type: 'line',
       data: {
-        labels: registrationsLabels,
+        labels: regLabels,
         datasets: [{
-          label: 'Регистрации пользователей',
-          data: registrationsData,
-          borderColor: 'rgba(54, 162, 235, 1)',
-          backgroundColor: 'rgba(54, 162, 235, 0.2)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 6
+          label: 'Регистрации',
+          data: regData,
+          borderColor: 'blue',
+          backgroundColor: 'lightblue',
+          fill: true
         }]
-      },
-      options: {
-        scales: {
-          x: { title: { display: true, text: 'Дата' } },
-          y: { title: { display: true, text: 'Количество' }, beginAtZero: true }
-        },
-        plugins: { legend: { display: true } },
-        responsive: true,
-        maintainAspectRatio: false
       }
     });
 
-    const ctxDown = document.getElementById('downloadsChart').getContext('2d');
-    const downloadsChart = new Chart(ctxDown, {
+    new Chart(document.getElementById('downloadsChart'), {
       type: 'line',
       data: {
-        labels: downloadsLabels,
+        labels: dlLabels,
         datasets: [{
-          label: 'Загрузки треков',
-          data: downloadsData,
-          borderColor: 'rgba(255, 99, 132, 1)',
-          backgroundColor: 'rgba(255, 99, 132, 0.2)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 6
+          label: 'Загрузки',
+          data: dlData,
+          borderColor: 'green',
+          backgroundColor: 'lightgreen',
+          fill: true
         }]
-      },
-      options: {
-        scales: {
-          x: { title: { display: true, text: 'Дата' } },
-          y: { title: { display: true, text: 'Количество' }, beginAtZero: true }
-        },
-        plugins: { legend: { display: true } },
-        responsive: true,
-        maintainAspectRatio: false
+      }
+    });
+
+    new Chart(document.getElementById('activeChart'), {
+      type: 'line',
+      data: {
+        labels: actLabels,
+        datasets: [{
+          label: 'Активные пользователи',
+          data: actData,
+          borderColor: 'orange',
+          backgroundColor: 'moccasin',
+          fill: true
+        }]
       }
     });
   </script>
