@@ -487,18 +487,17 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const showInactive = req.query.showInactive === 'true';
     const users = await getAllUsers(showInactive);
 
-    const stats = {
-      totalUsers: users.length,
-      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-      free: users.filter(u => u.premium_limit === 10).length,
-      plus: users.filter(u => u.premium_limit === 50).length,
-      pro: users.filter(u => u.premium_limit === 100).length,
-      unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: await getRegistrationsByDate(),
-      downloadsByDate: await getDownloadsByDate(),
-      activeByDate: await getActiveByDate()
-    };
-
+const stats = {
+  totalUsers: users.length,
+  totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+  free: users.filter(u => u.premium_limit === 10).length,
+  plus: users.filter(u => u.premium_limit === 50).length,
+  pro: users.filter(u => u.premium_limit === 100).length,
+  unlimited: users.filter(u => u.premium_limit >= 1000).length,
+  registrationsByDate: await getRegistrationsByDate(),
+  downloadsByDate: await getDownloadsByDate(),
+  activeByDate: await getActiveUsersByDate()
+};
     const expiringSoon = await getExpiringPremiums();
 
     res.render('dashboard', {
