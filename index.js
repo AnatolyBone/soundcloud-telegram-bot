@@ -1,6 +1,4 @@
-// index.js
-
-const { Telegraf, Markup } = require('telegraf');
+// index.jsconst { Telegraf, Markup } = require('telegraf');
 const compression = require('compression');
 const express = require('express');
 const session = require('express-session');
@@ -10,16 +8,25 @@ const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
-const { getActiveByDate, getExpiringPremiums } = require('./db');
 const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
-const { Parser } = require('json2csv');
 
 const {
-  createUser, getUser, updateUserField, incrementDownloads,
-  setPremium, getAllUsers, resetDailyStats, addReview,
-  saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded,
-  getRegistrationsByDate, getDownloadsByDate
+  createUser,
+  getUser,
+  updateUserField,
+  incrementDownloads,
+  setPremium,
+  getAllUsers,
+  resetDailyStats,
+  addReview,
+  saveTrackForUser,
+  hasLeftReview,
+  getLatestReviews,
+  resetDailyLimitIfNeeded,
+  getRegistrationsByDate,
+  getDownloadsByDate,
+  getActiveUsersByDate,
+  getExpiringUsers
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -27,7 +34,6 @@ const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PATH = '/telegram';
 const PORT = process.env.PORT || 3000;
-
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Отсутствуют необходимые переменные окружения!');
   process.exit(1);
