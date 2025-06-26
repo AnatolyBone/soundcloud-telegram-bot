@@ -139,6 +139,14 @@ async function getLatestReviews(limit = 10) {
   return data;
 }
 
+async function logDownload(userId, trackTitle) {
+  const { error } = await supabase
+    .from('downloads_log')
+    .insert([{ user_id: userId, track_title: trackTitle }]);
+
+  if (error) console.error('❌ Ошибка записи лога загрузки:', error);
+}
+
 async function getTrackMetadata(url) {
   const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
   if (!res.rows.length) return null;
@@ -226,6 +234,7 @@ module.exports = {
   addReview,
   hasLeftReview,
   getLatestReviews,
+  logDownload,
   getTrackMetadata,
   saveTrackMetadata,
   getRegistrationsByDate,
