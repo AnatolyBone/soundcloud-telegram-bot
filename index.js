@@ -445,7 +445,25 @@ app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), asyn
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
+const { Parser } = require('json2csv');
 
+app.get('/export', requireAuth, async (req, res) => {
+  try {
+    const users = await getAllUsers(true); // получаем всех (включая неактивных)
+
+    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
+    const opts = { fields };
+    const parser = new Parser(opts);
+    const csv = parser.parse(users);
+
+    res.header('Content-Type', 'text/csv');
+    res.attachment('users.csv');
+    return res.send(csv);
+  } catch (err) {
+    console.error('Ошибка экспорта CSV:', err);
+    res.status(500).send('Ошибка сервера');
+  }
+});
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
