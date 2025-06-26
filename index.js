@@ -227,50 +227,54 @@ const entries = isPlaylist && Array.isArray(info.entries)
     userStates[userId] = { abort: false };
     processing[userId] = true;
 
-    for (let i = 0; i < queues[userId].length; i++) {
-  const updatedUser = await getUser(userId); // получаем актуальные данные
-  if (updatedUser.downloads_today >= updatedUser.premium_limit) {
-    await ctx.telegram.sendMessage(userId, texts.limitReached);
-    break; // останавливаем загрузку
-  }
+try {
+  for (let i = 0; i < queues[userId].length; i++) {
+    if (userStates[userId]?.abort) {
+      await ctx.telegram.sendMessage(userId, '⏹️ Загрузка отменена по вашей команде.');
+      break;
+    }
 
-  const trackUrl = queues[userId][i];
-  
-      if (queues[userId].length > 1) {
-        await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
-          Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
-        ]));
+    const updatedUser = await getUser(userId);
+    if (updatedUser.downloads_today >= updatedUser.premium_limit) {
+      await ctx.telegram.sendMessage(userId, texts.limitReached);
+      break;
+    }
+
+    const trackUrl = queues[userId][i];
+
+    if (queues[userId].length > 1) {
+      await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
+        Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
+      ]));
+    } else {
+      await ctx.telegram.sendMessage(userId, texts.downloading);
+    }
+
+    try {
+      await Promise.race([
+        processTrackByUrl(ctx, userId, trackUrl),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000))
+      ]);
+    } catch (e) {
+      console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
+      if (e.message === 'Timeout') {
+        await ctx.telegram.sendMessage(userId, '❌ Превышено время ожидания загрузки трека.');
       } else {
-        await ctx.telegram.sendMessage(userId, texts.downloading);
-      }
-
-      try {
-        await Promise.race([
-          processTrackByUrl(ctx, userId, trackUrl),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000)) // 5 минут таймаут
-        ]);
-      } catch (e) {
-        console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
-        if (e.message === 'Timeout') {
-          await ctx.telegram.sendMessage(userId, '❌ Превышено время ожидания загрузки трека.');
-        } else {
-          await ctx.telegram.sendMessage(userId, texts.error);
-        }
+        await ctx.telegram.sendMessage(userId, texts.error);
       }
     }
-
-    queues[userId] = [];
-    processing[userId] = false;
-    delete userStates[userId];
-
-    if (limitedEntries.length > 1) {
-      await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
-    }
-
-  } catch (err) {
-    console.error('Ошибка в enqueue:', err);
-    await ctx.telegram.sendMessage(userId, texts.error);
   }
+
+  if (queues[userId].length > 1) {
+    await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
+  }
+} catch (err) {
+  console.error('Ошибка в enqueue:', err);
+  await ctx.telegram.sendMessage(userId, texts.error);
+} finally {
+  queues[userId] = [];
+  processing[userId] = false;
+  delete userStates[userId];
 }
 
 async function broadcastMessage(bot, pool, message) {
