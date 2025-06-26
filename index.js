@@ -507,7 +507,7 @@ const stats = {
   downloadsByDate: await getDownloadsByDate(),
   activeByDate: await getActiveUsersByDate()
 };
-    const expiringSoon = await getExpiringPremiums();
+    const expiringSoon = await getExpiringUsers();
 
     res.render('dashboard', {
       users,
