@@ -1,4 +1,5 @@
-// index.jsconst { Telegraf, Markup } = require('telegraf');
+// index.js
+const { Telegraf, Markup } = require('telegraf');
 
 const compression = require('compression');
 const express = require('express');
