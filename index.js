@@ -8,7 +8,9 @@ const ejs = require('ejs');
 const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
-
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+const { getActiveByDate, getExpiringPremiums } = require('./db');
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 
@@ -431,22 +433,37 @@ app.post('/admin/login', express.urlencoded({ extended: true }), (req, res) => {
   res.render('login', { error: 'Неверные данные' });
 });
 
-app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
-  const message = req.body.message;
-  if (!message) {
-    return res.status(400).send('Сообщение не может быть пустым');
+app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
+  const { message } = req.body;
+  const audio = req.file;
+  if (!message && !audio) return res.status(400).send('Сообщение или файл обязательно');
+
+  const users = await getAllUsers();
+
+  let success = 0, error = 0;
+  for (const u of users) {
+    try {
+      if (audio) {
+        await bot.telegram.sendAudio(u.id, {
+          source: fs.createReadStream(audio.path),
+          filename: audio.originalname
+        }, { caption: message || '' });
+      } else {
+        await bot.telegram.sendMessage(u.id, message);
+      }
+      success++;
+    } catch (e) {
+      error++;
+      try {
+        await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [u.id]);
+      } catch (_) {}
+    }
+    await new Promise(r => setTimeout(r, 100));
   }
 
-  try {
-    const { successCount, errorCount } = await broadcastMessage(bot, pool, message);
-    res.send(`Рассылка завершена. Отправлено: ${successCount}, ошибок: ${errorCount}`);
-  } catch (e) {
-    console.error('Ошибка рассылки:', e);
-    res.status(500).send('Внутренняя ошибка сервера');
-  }
+  if (audio) fs.unlink(audio.path, () => {});
+  res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
-const { Parser } = require('json2csv');
-
 app.get('/export', requireAuth, async (req, res) => {
   try {
     const users = await getAllUsers(true); // получаем всех (включая неактивных)
@@ -467,16 +484,8 @@ app.get('/export', requireAuth, async (req, res) => {
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
-    console.log('showInactive:', showInactive);
-    // Выбираем пользователей с учётом фильтра
-    let users;
-    if (showInactive) {
-      users = await getAllUsers(true); // передаём true, чтобы получить всех, включая неактивных
-    } else {
-      users = await getAllUsers(false); // только активных, если есть логика в db.js
-    }
+    const users = await getAllUsers(showInactive);
 
-    // Получаем статистику для панели
     const stats = {
       totalUsers: users.length,
       totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
@@ -484,17 +493,17 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       plus: users.filter(u => u.premium_limit === 50).length,
       pro: users.filter(u => u.premium_limit === 100).length,
       unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: await getRegistrationsByDate(), // объект {date: count}
-      downloadsByDate: await getDownloadsByDate()          // объект {date: count}
+      registrationsByDate: await getRegistrationsByDate(),
+      downloadsByDate: await getDownloadsByDate(),
+      activeByDate: await getActiveByDate()
     };
 
-    // Получаем последние отзывы
-    const reviews = await getLatestReviews(10);
+    const expiringSoon = await getExpiringPremiums();
 
     res.render('dashboard', {
       users,
       stats,
-      reviews,
+      expiringSoon,
       showInactive
     });
   } catch (e) {
