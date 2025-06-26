@@ -228,13 +228,14 @@ const entries = isPlaylist && Array.isArray(info.entries)
     processing[userId] = true;
 
     for (let i = 0; i < queues[userId].length; i++) {
-      if (userStates?.[userId]?.abort) {
-        queues[userId] = [];
-        break;
-      }
+  const updatedUser = await getUser(userId); // получаем актуальные данные
+  if (updatedUser.downloads_today >= updatedUser.premium_limit) {
+    await ctx.telegram.sendMessage(userId, texts.limitReached);
+    break; // останавливаем загрузку
+  }
 
-      const trackUrl = queues[userId][i];
-
+  const trackUrl = queues[userId][i];
+  
       if (queues[userId].length > 1) {
         await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
           Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
