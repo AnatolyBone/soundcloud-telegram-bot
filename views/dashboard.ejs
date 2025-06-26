@@ -123,7 +123,9 @@
       <li>Отзывы отсутствуют</li>
     <% } %>
   </ul>
-
+<form method="GET" action="/export">
+  <button type="submit">⬇️ Экспорт CSV</button>
+</form>
   <script>
     $(document).ready(function () {
       $('#usersTable').DataTable({
