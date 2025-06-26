@@ -366,11 +366,18 @@ bot.hears(texts.mytracks, async ctx => {
   }
 });
 
+function extractUrl(text) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const matches = text.match(urlRegex);
+  if (!matches) return null;
+  return matches.find(u => u.includes('soundcloud.com')) || null;
+}
+
 bot.on('text', async ctx => {
   if (ctx.message.text.startsWith('/')) return;
 
-  const url = ctx.message.text.trim();
-  if (!url.includes('soundcloud.com')) return;
+  const url = extractUrl(ctx.message.text);
+  if (!url) return;
 
   await resetDailyLimitIfNeeded(ctx.from.id);
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
@@ -382,7 +389,6 @@ bot.on('text', async ctx => {
     ]));
   }
 
-  // Ответ сразу, обработка в фоне
   ctx.reply('⏳ Загрузка началась. Это может занять до 5 минут...');
   enqueue(ctx, ctx.from.id, url).catch(e => {
     console.error('Ошибка в enqueue:', e);
