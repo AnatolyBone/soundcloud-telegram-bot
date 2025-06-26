@@ -449,7 +449,7 @@ app.post('/broadcast', requireAuth, express.urlencoded({ extended: true }), asyn
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
-
+    console.log('showInactive:', showInactive);
     // Выбираем пользователей с учётом фильтра
     let users;
     if (showInactive) {
