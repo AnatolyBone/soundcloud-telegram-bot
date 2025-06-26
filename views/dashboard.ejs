@@ -77,13 +77,13 @@
             <% } else { %>🟡<% } %>
           </td>
           <td>
-           <form method="POST" action="/set-tariff" style="margin:0;">
+<form method="POST" action="/set-tariff" style="margin:0;">
   <input type="hidden" name="userId" value="<%= user.id %>">
-  <select name="newTariff">
-    <option value="Free" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
-    <option value="Plus" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
-    <option value="Pro" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
-    <option value="Unlimited" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
+  <select name="limit">
+    <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+    <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+    <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+    <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
   </select>
   <button type="submit">Сохранить</button>
 </form>
