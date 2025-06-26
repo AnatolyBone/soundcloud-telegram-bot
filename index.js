@@ -268,15 +268,15 @@ try {
   if (queues[userId].length > 1) {
     await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
   }
-} catch (err) {
-  console.error('Ошибка в enqueue:', err);
-  await ctx.telegram.sendMessage(userId, texts.error);
-} finally {
-  queues[userId] = [];
-  processing[userId] = false;
-  delete userStates[userId];
-}
-}
+  } catch (err) {
+    console.error('Ошибка в enqueue:', err);
+    await ctx.telegram.sendMessage(userId, texts.error);
+  } finally {
+    queues[userId] = [];
+    processing[userId] = false;
+    delete userStates[userId];
+  }
+} // ← эта скобка завершает enqueue
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
