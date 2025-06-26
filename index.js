@@ -13,6 +13,7 @@ const upload = multer({ dest: 'uploads/' });
 const { getActiveByDate, getExpiringPremiums } = require('./db');
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
+const { Parser } = require('json2csv');
 
 const {
   createUser, getUser, updateUserField, incrementDownloads,
