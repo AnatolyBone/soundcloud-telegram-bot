@@ -227,7 +227,7 @@ const entries = isPlaylist && Array.isArray(info.entries)
     userStates[userId] = { abort: false };
     processing[userId] = true;
 
-try {
+
   for (let i = 0; i < queues[userId].length; i++) {
     if (userStates[userId]?.abort) {
       await ctx.telegram.sendMessage(userId, '⏹️ Загрузка отменена по вашей команде.');
