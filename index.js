@@ -576,21 +576,19 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
     return res.status(400).send('Missing parameters');
   }
 
-  // Определяем лимит по тарифу
   let limit;
   switch(newTariff) {
     case 'Free': limit = 10; break;
     case 'Plus': limit = 50; break;
     case 'Pro': limit = 100; break;
-    case 'Unlimited': limit = 1000; break; // или другое число для unlimited
+    case 'Unlimited': limit = 1000; break;
     default:
       return res.status(400).send('Unknown tariff');
   }
 
   try {
-    // Обновляем в базе
-    await setPremium(parseInt(userId), limit, 0); // 0 дней или можно добавить дни
-
+    // Можно добавить логику для дней, сейчас 0
+    await setPremium(parseInt(userId), limit, 0);
     res.redirect('/dashboard');
   } catch (e) {
     console.error('Ошибка при смене тарифа:', e);
