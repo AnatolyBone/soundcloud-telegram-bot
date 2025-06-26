@@ -294,7 +294,23 @@ async function broadcastMessage(bot, pool, message) {
 
   return { successCount, errorCount };
 }
+bot.start(async ctx => {
+  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
 
+  await ctx.replyWithMarkdown(`👋 Добро пожаловать, *${ctx.from.first_name}*!
+
+🎵 Этот бот качает **треки и плейлисты** с SoundCloud в MP3.
+
+📌 Просто пришли ссылку — и получи MP3.
+
+🎁 Подпишись на канал @BAZAproject — получи *7 дней тарифа Plus бесплатно*.
+
+📋 Нажми кнопку «Меню», чтобы:
+— узнать свой тариф и лимит,
+— посмотреть треки за сегодня,
+— получить реферальную ссылку,
+— расширить лимит.`, kb());
+});
 // Хендлеры бота
 
 bot.hears(texts.menu, async ctx => {
@@ -305,7 +321,7 @@ bot.hears(texts.menu, async ctx => {
   const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
-  
+
   console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
 
   // Обновляем тариф, если пользователь привёл рефералов
@@ -313,14 +329,36 @@ bot.hears(texts.menu, async ctx => {
     await setPremium(ctx.from.id, 50, u.referred_count);
   }
 
-  ctx.reply(
-    `👋 Добро пожаловать, ${u.first_name}!\n\n` +
-    `💼 Тариф: ${u.premium_limit === 10 ? 'Free' : u.premium_limit === 50 ? 'Plus' : u.premium_limit === 100 ? 'Pro' : 'Unlimited'}\n` +
-    `⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}\n\n` +
-    `👫 Приглашено: ${u.referred_count || 0}\n🎁 Дней Plus: ${u.referred_count || 0}\n\n` +
-    `🔗 Твоя ссылка:\n${refLink}`,
-    kb()
-  );
+  const tariffName =
+    u.premium_limit === 10 ? 'Free (10/день)' :
+    u.premium_limit === 50 ? 'Plus (50/день)' :
+    u.premium_limit === 100 ? 'Pro (100/день)' :
+    'Unlimited';
+
+  const baseInfo = `👋 Привет, ${u.first_name}!
+
+📥 Бот качает **треки и целые плейлисты** с SoundCloud в MP3.
+Просто пришли ссылку — и всё 🧙‍♂️
+
+💼 Тариф: ${tariffName}
+⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}
+
+🎧 Сегодня скачано: ${u.downloads_today || 0} из ${u.premium_limit}
+`;
+
+  const promo = `🎁 Хочешь больше?
+
+Подпишись на канал @BAZAproject — получи **7 дней тарифа Plus бесплатно**.
+Нажми «🔓 Расширить лимит», чтобы получить бонус.`;
+
+  const referrals = `👫 Приглашено: ${u.referred_count || 0}
+🎁 Дней Plus: ${u.referred_count || 0}
+🔗 Твоя реферальная ссылка:
+${refLink}`;
+
+  const message = [baseInfo, promo, referrals].join('\n\n');
+
+  ctx.replyWithMarkdown(message, kb());
 });
 
 bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
