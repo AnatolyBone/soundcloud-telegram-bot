@@ -276,7 +276,7 @@ try {
   processing[userId] = false;
   delete userStates[userId];
 }
-
+}
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
