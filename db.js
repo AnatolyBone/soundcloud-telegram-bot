@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { createClient } = require('@supabase/supabase-js');
+const { Parser } = require('json2csv');
 
 // Supabase
 const supabase = createClient(
@@ -13,13 +14,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// SQL утилита
 async function query(text, params) {
   const res = await pool.query(text, params);
   return res;
 }
 
-// ✅ Создание пользователя
 async function createUser(id, first_name = '', username = '') {
   console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}`);
   await query(`
@@ -29,7 +28,6 @@ async function createUser(id, first_name = '', username = '') {
   `, [id, username || '', first_name || '']);
 }
 
-// ✅ Получение пользователя с автоматическим созданием
 async function getUser(id, first_name = '', username = '') {
   const res = await query('SELECT * FROM users WHERE id = $1 AND active = true', [id]);
   if (res.rows.length === 0) {
@@ -41,12 +39,10 @@ async function getUser(id, first_name = '', username = '') {
   return res.rows[0];
 }
 
-// ✅ Обновление произвольного поля
 async function updateUserField(id, field, value) {
   return (await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id])).rowCount;
 }
 
-// ✅ Инкремент загрузок
 async function incrementDownloads(id, trackTitle) {
   await query(`
     UPDATE users SET 
@@ -56,7 +52,6 @@ async function incrementDownloads(id, trackTitle) {
   `, [id]);
 }
 
-// ✅ Сохранение трека за день
 async function saveTrackForUser(id, title) {
   const user = await getUser(id);
   let updated = user.tracks_today || '';
@@ -64,7 +59,6 @@ async function saveTrackForUser(id, title) {
   await query('UPDATE users SET tracks_today = $1 WHERE id = $2', [updated, id]);
 }
 
-// ✅ Установка тарифа и срока
 async function setPremium(id, limit, days = null) {
   await query('UPDATE users SET premium_limit = $1 WHERE id = $2', [limit, id]);
   if (days) {
@@ -73,7 +67,6 @@ async function setPremium(id, limit, days = null) {
   }
 }
 
-// ✅ Сброс лимита по дате
 async function resetDailyLimitIfNeeded(userId) {
   const res = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
   if (!res.rows.length) return;
@@ -93,7 +86,6 @@ async function resetDailyLimitIfNeeded(userId) {
   }
 }
 
-// ✅ Массовый сброс лимитов
 async function resetDailyStats() {
   await query(`
     UPDATE users
@@ -104,22 +96,17 @@ async function resetDailyStats() {
   console.log('🕛 Суточные лимиты сброшены у всех');
 }
 
-// ✅ Все пользователи
-// db.js
 async function getAllUsers(includeInactive = false) {
   let sql = 'SELECT * FROM users';
-  const params = [];
-
   if (!includeInactive) {
     sql += ' WHERE active = TRUE';
   }
   sql += ' ORDER BY created_at DESC';
 
-  const res = await query(sql, params);
+  const res = await query(sql);
   return res.rows;
 }
 
-// ✅ Добавление отзыва
 async function addReview(userId, text) {
   const time = new Date().toISOString();
 
@@ -127,20 +114,16 @@ async function addReview(userId, text) {
     .from('reviews')
     .insert([{ user_id: userId, text, time }]);
 
-  if (error) {
-    console.error('❌ Supabase review error:', error);
-  }
+  if (error) console.error('❌ Supabase review error:', error);
 
   await query('UPDATE users SET has_reviewed = true WHERE id = $1', [userId]);
 }
 
-// ✅ Проверка отзыва
 async function hasLeftReview(userId) {
   const res = await query('SELECT has_reviewed FROM users WHERE id = $1', [userId]);
   return res.rows[0]?.has_reviewed;
 }
 
-// ✅ Получение отзывов
 async function getLatestReviews(limit = 10) {
   const { data, error } = await supabase
     .from('reviews')
@@ -156,7 +139,6 @@ async function getLatestReviews(limit = 10) {
   return data;
 }
 
-// ✅ Метаданные трека (кеш)
 async function getTrackMetadata(url) {
   const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
   if (!res.rows.length) return null;
@@ -168,7 +150,6 @@ async function getTrackMetadata(url) {
   return row.metadata;
 }
 
-// ✅ Сохранение метаданных трека
 async function saveTrackMetadata(url, metadata) {
   await query(`
     INSERT INTO track_metadata (url, metadata, updated_at)
@@ -179,7 +160,6 @@ async function saveTrackMetadata(url, metadata) {
   `, [url, metadata]);
 }
 
-// ✅ Получение количества регистраций по датам
 async function getRegistrationsByDate() {
   const res = await query(`
     SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count
@@ -188,13 +168,10 @@ async function getRegistrationsByDate() {
     ORDER BY date
   `);
   const result = {};
-  res.rows.forEach(row => {
-    result[row.date] = parseInt(row.count, 10);
-  });
+  res.rows.forEach(row => result[row.date] = parseInt(row.count, 10));
   return result;
 }
 
-// ✅ Получение количества загрузок по датам
 async function getDownloadsByDate() {
   const res = await query(`
     SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, SUM(downloads_today) as count
@@ -203,10 +180,37 @@ async function getDownloadsByDate() {
     ORDER BY date
   `);
   const result = {};
-  res.rows.forEach(row => {
-    result[row.date] = parseInt(row.count, 10);
-  });
+  res.rows.forEach(row => result[row.date] = parseInt(row.count, 10));
   return result;
+}
+
+async function getActiveUsersByDate() {
+  const res = await query(`
+    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(*) as count
+    FROM users
+    WHERE last_active IS NOT NULL
+    GROUP BY date
+    ORDER BY date
+  `);
+  const result = {};
+  res.rows.forEach(row => result[row.date] = parseInt(row.count, 10));
+  return result;
+}
+
+async function getExpiringUsers(days = 3) {
+  const res = await query(`
+    SELECT id, username, first_name, premium_until
+    FROM users
+    WHERE premium_until IS NOT NULL AND premium_until <= NOW() + INTERVAL '${days} days'
+    ORDER BY premium_until ASC
+  `);
+  return res.rows;
+}
+
+async function exportUsersToCSV() {
+  const users = await getAllUsers(true);
+  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active'] });
+  return parser.parse(users);
 }
 
 module.exports = {
@@ -225,5 +229,8 @@ module.exports = {
   getTrackMetadata,
   saveTrackMetadata,
   getRegistrationsByDate,
-  getDownloadsByDate
+  getDownloadsByDate,
+  getActiveUsersByDate,
+  getExpiringUsers,
+  exportUsersToCSV
 };
