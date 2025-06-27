@@ -331,7 +331,6 @@ bot.hears(texts.menu, async ctx => {
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
   const user = await getUser(ctx.from.id);
 
-  // Обновляем тариф при необходимости
   const now = new Date();
   const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
@@ -342,15 +341,18 @@ bot.hears(texts.menu, async ctx => {
 
   const message = formatMenuMessage(user);
 
-  await ctx.reply(message, {
-  parse_mode: 'Markdown',
-  reply_markup: Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Я подписался', 'check_subscription')]
-  ])
-});
+  // 1. Отправляем основное сообщение
+  await ctx.reply(message, { parse_mode: 'Markdown' });
 
-// отправляем клавиатуру отдельно, без текста
-await ctx.reply(' ', kb());
+  // 2. Отдельно отправляем кнопку
+  await ctx.reply('👇 Нажми, если уже подписался', {
+    reply_markup: Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Я подписался', 'check_subscription')]
+    ])
+  });
+
+  // 3. Клавиатура отдельно (без текста)
+  await ctx.reply(' ', kb());
 });
 
 bot.action('check_subscription', async ctx => {
