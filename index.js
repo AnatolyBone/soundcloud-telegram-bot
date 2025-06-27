@@ -13,7 +13,7 @@ const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
-
+const playlistTracker = new Map();
 
 const {
   createUser,
@@ -151,10 +151,10 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
 // --- Функция для скачивания и отправки одного трека ---
 async function processTrackByUrl(ctx, userId, url) {
   const start = Date.now();
-
+await processTrackByUrl(ctx, userId, url, playlistUrl);
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
-
+await processTrackByUrl(ctx, userId, url, playlistUrl);
     // Обработка названия трека
     let name = info.title || 'track';
     name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
@@ -185,7 +185,16 @@ await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $
 
     const duration = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
-
+const playlistKey = playlistUrl ? `${userId}:${playlistUrl}` : null;
+if (playlistKey && playlistTracker.has(playlistKey)) {
+  let remaining = playlistTracker.get(playlistKey) - 1;
+  if (remaining <= 0) {
+    await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
+    playlistTracker.delete(playlistKey);
+  } else {
+    playlistTracker.set(playlistKey, remaining);
+  }
+}
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, texts.error);
@@ -219,7 +228,6 @@ async function processNextInQueue() {
   processNextInQueue();
 }
 
-async function enqueue(ctx, userId, url) {
   const u = await getUser(userId);
 
   const remainingLimit = u.premium_limit - u.downloads_today;
@@ -259,7 +267,8 @@ async function enqueue(ctx, userId, url) {
       entries = info.entries
         .filter(e => e && e.webpage_url)
         .map(e => e.webpage_url);
-
+const playlistKey = `${user.id}:${url}`;
+playlistTracker.set(playlistKey, entries.length);
       if (entries.length > remainingLimit) {
         await ctx.telegram.sendMessage(userId,
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
@@ -270,10 +279,11 @@ async function enqueue(ctx, userId, url) {
     }
 
     for (const entryUrl of entries) {
-      addToGlobalQueue({
+            addToGlobalQueue({
         ctx,
         userId,
         url: entryUrl,
+        playlistUrl: isPlaylist ? url : null,
         priority: user.premium_limit
       });
 
@@ -287,6 +297,7 @@ async function enqueue(ctx, userId, url) {
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
+
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
