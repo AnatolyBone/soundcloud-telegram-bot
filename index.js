@@ -342,12 +342,10 @@ bot.hears(texts.menu, async ctx => {
   const message = formatMenuMessage(user);
 
   // Отправляем сообщение сразу с кнопкой
-  await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: Markup.inlineKeyboard([
-      [Markup.button.callback('✅ Я подписался', 'check_subscription')]
-    ])
-  });
+  await ctx.reply(texts.limitReached, Markup.inlineKeyboard([
+      Markup.button.callback('✅ Я подписался', 'check_subscription')
+    ]));
+  }
 
   // Отправляем обычную клавиатуру, если нужна
   await ctx.reply('Выберите действие:', kb());
