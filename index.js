@@ -351,6 +351,7 @@ bot.hears(texts.menu, async ctx => {
   ])
 });
 await ctx.reply('👇 Выбери действие:', kb())
+  });
   function formatMenuMessage(user) {
   const now = new Date();
   const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
