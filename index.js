@@ -213,13 +213,15 @@ async function processNextInQueue() {
   const task = globalQueue.shift();
   activeDownloadsCount++;
 
-const { ctx, userId, url, playlistUrl } = task;
+  const { ctx, userId, url, playlistUrl } = task;
 
   try {
-await processTrackByUrl(ctx, userId, url, playlistUrl);
+    await processTrackByUrl(ctx, userId, url, playlistUrl);
   } catch (e) {
     console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-    await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
+    try {
+      await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
+    } catch {}
   }
 
   activeDownloadsCount--;
@@ -260,16 +262,17 @@ playlistTracker.set(playlistKey, entries.length);
     }
 
     for (const entryUrl of entries) {
-            addToGlobalQueue({
-        ctx,
-        userId,
-        url: entryUrl,
-        playlistUrl: isPlaylist ? url : null,
-        priority: user.premium_limit
-      });
+  addToGlobalQueue({
+    ctx,
+    userId,
+    url: entryUrl,
+    playlistUrl: isPlaylist ? url : null,
+    priority: user.premium_limit
+  });
+}
 
-      const position = globalQueue.findIndex(task => task.userId === userId && task.url === entryUrl) + 1;
-      await ctx.telegram.sendMessage(userId, texts.queuePosition(position));
+// Отправляем одно сообщение с информацией о количестве
+await ctx.telegram.sendMessage(userId, texts.queuePosition(globalQueue.filter(task => task.userId === userId).length));
     }
 
     processNextInQueue();
@@ -325,59 +328,71 @@ bot.start(async ctx => {
 
 bot.hears(texts.menu, async ctx => {
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
+  const user = await getUser(ctx.from.id);
 
-  const u = await getUser(ctx.from.id);
+  // Обновляем тариф при необходимости
   const now = new Date();
-  const premiumUntil = u.premium_until ? new Date(u.premium_until) : null;
+  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
-  const refLink = `https://t.me/SCloudMusicBot?start=${ctx.from.id}`;
 
-  console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, u);
-
-  // Обновляем тариф, если пользователь привёл рефералов
-  if (u.referred_count > 0 && daysLeft <= 0 && u.premium_limit < 50) {
-    await setPremium(ctx.from.id, 50, u.referred_count);
+  if (user.referred_count > 0 && daysLeft <= 0 && user.premium_limit < 50) {
+    await setPremium(ctx.from.id, 50, user.referred_count);
   }
 
+  const message = formatMenuMessage(user);
+
+  console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, user);
+
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
+    reply_markup: Markup.inlineKeyboard([
+      Markup.button.callback('✅ Я подписался', 'check_subscription')
+    ]).reply_markup,
+    ...kb()
+  });
+});
+  function formatMenuMessage(user) {
+  const now = new Date();
+  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
+
   const tariffName =
-    u.premium_limit === 10 ? 'Free (10/день)' :
-    u.premium_limit === 50 ? 'Plus (50/день)' :
-    u.premium_limit === 100 ? 'Pro (100/день)' :
+    user.premium_limit === 10 ? 'Free (10/день)' :
+    user.premium_limit === 50 ? 'Plus (50/день)' :
+    user.premium_limit === 100 ? 'Pro (100/день)' :
     'Unlimited';
 
-  const baseInfo = `👋 Привет, ${u.first_name}!
+  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
 
-📥 Бот качает **треки и целые плейлисты** с SoundCloud в MP3.
+
+return `
+👋 Привет, ${user.first_name}!
+
+📥 Бот качает треки и целые плейлисты с SoundCloud в MP3.  
 Просто пришли ссылку — и всё 🧙‍♂️
 
-💼 Тариф: ${tariffName}
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
+🎯 Платные тарифы (Plus / Pro / Unlimited) идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже. Всё честно.
+
+💼 Тариф: ${tariffName}  
 ⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}
 
-🎧 Сегодня скачано: ${u.downloads_today || 0} из ${u.premium_limit}
+🎧 Сегодня скачано: ${user.downloads_today || 0} из ${user.premium_limit}
+
+🎁 Хочешь больше?
+
+Подпишись на канал @BAZAproject — получи 7 дней тарифа Plus бесплатно.
+
+Нажми «✅ Я подписался», чтобы получить бонус.
+
+👫 Приглашено: ${user.referred_count || 0}  
+🎁 Дней Plus: ${user.referred_count || 0}
+
+🔗 Твоя реферальная ссылка:  
+${refLink}
 `;
-
-  const promo = `🎁 Хочешь больше?
-
-Подпишись на канал @BAZAproject — получи **7 дней тарифа Plus бесплатно**.
-Нажми «🔓 Расширить лимит», чтобы получить бонус.`;
-
-  const referrals = `👫 Приглашено: ${u.referred_count || 0}
-🎁 Дней Plus: ${u.referred_count || 0}
-🔗 Твоя реферальная ссылка:
-${refLink}`;
-
-  const message = [baseInfo, promo, referrals].join('\n\n');
-
-// Отправляем сообщение с кнопкой подписки
-  await ctx.replyWithMarkdown(message, {
-    ...kb(),
-    reply_markup: {
-      ...Markup.inlineKeyboard([
-        Markup.button.callback('✅ Я подписался', 'check_subscription')
-      ]).reply_markup
-    }
-  });
-}); 
+}
 
 bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
 bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
@@ -407,9 +422,11 @@ bot.action('check_subscription', async ctx => {
   }
 
   if (await isSubscribed(ctx.from.id)) {
+    // Активируем тариф Plus на 7 дней и лимит 50 треков
     await setPremium(ctx.from.id, 50, 7);
     await markSubscribedBonusUsed(ctx.from.id);
-    await ctx.editMessageReplyMarkup();
+
+    await ctx.editMessageReplyMarkup(); // убираем кнопку
     return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
   } else {
     return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
@@ -524,14 +541,22 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
       error++;
       try {
         await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [u.id]);
-      } catch (_) {}
+      } catch (err) {
+        console.error(`Ошибка при обновлении статуса пользователя ${u.id}:`, err);
+      }
     }
     await new Promise(r => setTimeout(r, 100));
   }
 
-  if (audio) fs.unlink(audio.path, () => {});
+  if (audio) {
+    fs.unlink(audio.path, err => {
+      if (err) console.error('Ошибка удаления файла аудио рассылки:', err);
+    });
+  }
+
   res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
+
 app.get('/export', requireAuth, async (req, res) => {
   try {
     const users = await getAllUsers(true); // получаем всех (включая неактивных)
