@@ -342,7 +342,7 @@ bot.hears(texts.menu, async ctx => {
   const message = formatMenuMessage(user);
 
   // Отправляем сообщение сразу с кнопкой
-  await ctx.reply(texts.limitReached, Markup.inlineKeyboard([
+const message = formatMenuMessage(user);
       Markup.button.callback('✅ Я подписался', 'check_subscription')
     ]));
 });
