@@ -66,7 +66,9 @@ async function setPremium(id, limit, days = null) {
     await query('UPDATE users SET premium_until = $1 WHERE id = $2', [until, id]);
   }
 }
-
+async function markSubscribedBonusUsed(userId) {
+  await pool.query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
+}
 async function resetDailyLimitIfNeeded(userId) {
   const res = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
   if (!res.rows.length) return;
@@ -241,5 +243,7 @@ module.exports = {
   getDownloadsByDate,
   getActiveUsersByDate,
   getExpiringUsers,
-  exportUsersToCSV
+  exportUsersToCSV,
+  markSubscribedBonusUsed
+};
 };
