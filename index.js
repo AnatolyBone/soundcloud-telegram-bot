@@ -345,12 +345,7 @@ bot.hears(texts.menu, async ctx => {
   await ctx.reply(texts.limitReached, Markup.inlineKeyboard([
       Markup.button.callback('✅ Я подписался', 'check_subscription')
     ]));
-  }
-
-  // Отправляем обычную клавиатуру, если нужна
-  await ctx.reply('Выберите действие:', kb());
 });
-
 bot.action('check_subscription', async ctx => {
   const user = await getUser(ctx.from.id);
 
