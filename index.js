@@ -345,13 +345,12 @@ bot.hears(texts.menu, async ctx => {
   console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, user);
 
   await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: Markup.inlineKeyboard([
-      Markup.button.callback('✅ Я подписался', 'check_subscription')
-    ]).reply_markup,
-    ...kb()
-  });
+  parse_mode: 'Markdown',
+  reply_markup: Markup.inlineKeyboard([
+    [Markup.button.callback('✅ Я подписался', 'check_subscription')]
+  ])
 });
+await ctx.reply('👇 Выбери действие:', kb())
   function formatMenuMessage(user) {
   const now = new Date();
   const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
