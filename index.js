@@ -397,10 +397,19 @@ bot.command('reviews', async ctx => {
   }
 });
 
+const { markSubscribedBonusUsed } = require('./db'); // обязательно добавь
+
 bot.action('check_subscription', async ctx => {
+  const user = await getUser(ctx.from.id);
+
+  if (user.subscribed_bonus_used) {
+    return ctx.answerCbQuery('⚠️ Бонус уже был активирован ранее.', { show_alert: true });
+  }
+
   if (await isSubscribed(ctx.from.id)) {
     await setPremium(ctx.from.id, 50, 7);
-    await ctx.editMessageReplyMarkup(); // удаляет кнопку
+    await markSubscribedBonusUsed(ctx.from.id);
+    await ctx.editMessageReplyMarkup();
     return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
   } else {
     return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
