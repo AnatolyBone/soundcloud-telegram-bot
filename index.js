@@ -228,23 +228,6 @@ async function processNextInQueue() {
   processNextInQueue();
 }
 
-  const u = await getUser(userId);
-
-  const remainingLimit = u.premium_limit - u.downloads_today;
-  if (remainingLimit <= 0) {
-    return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
-      Markup.button.callback('✅ Я подписался', 'check_subscription')
-    ]));
-  }
-
-  addToGlobalQueue({ ctx, userId, url, priority: u.premium_limit });
-
-  const position = globalQueue.findIndex(task => task.userId === userId && task.url === url) + 1;
-
-  await ctx.telegram.sendMessage(userId, texts.queuePosition(position));
-
-  processNextInQueue();
-}
     // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
 
    async function enqueue(ctx, userId, url) {
