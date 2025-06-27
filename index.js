@@ -261,7 +261,7 @@ playlistTracker.set(playlistKey, entries.length);
       entries = [url];
     }
 
-    for (const entryUrl of entries) {
+   for (const entryUrl of entries) {
   addToGlobalQueue({
     ctx,
     userId,
@@ -269,11 +269,12 @@ playlistTracker.set(playlistKey, entries.length);
     playlistUrl: isPlaylist ? url : null,
     priority: user.premium_limit
   });
-}
+} // ← ЭТОТ ЗАКРЫВАЮЩИЙ `}` ОБЯЗАТЕЛЕН
 
-// Отправляем одно сообщение с информацией о количестве
-await ctx.telegram.sendMessage(userId, texts.queuePosition(globalQueue.filter(task => task.userId === userId).length));
-    }
+// Отправляем одно сообщение
+await ctx.telegram.sendMessage(userId, texts.queuePosition(
+  globalQueue.filter(task => task.userId === userId).length
+));
 
     processNextInQueue();
   } catch (e) {
