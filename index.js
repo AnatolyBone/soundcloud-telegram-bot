@@ -339,8 +339,6 @@ bot.hears(texts.menu, async ctx => {
     await setPremium(ctx.from.id, 50, user.referred_count);
   }
 
-  const message = formatMenuMessage(user);
-
   // Отправляем сообщение сразу с кнопкой
 const message = formatMenuMessage(user);
       Markup.button.callback('✅ Я подписался', 'check_subscription')
