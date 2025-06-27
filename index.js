@@ -149,12 +149,10 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
 }
   
 // --- Функция для скачивания и отправки одного трека ---
-async function processTrackByUrl(ctx, userId, url) {
+async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
-await processTrackByUrl(ctx, userId, url, playlistUrl);
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
-await processTrackByUrl(ctx, userId, url, playlistUrl);
     // Обработка названия трека
     let name = info.title || 'track';
     name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
@@ -215,10 +213,10 @@ async function processNextInQueue() {
   const task = globalQueue.shift();
   activeDownloadsCount++;
 
-  const { ctx, userId, url } = task;
+const { ctx, userId, url, playlistUrl } = task;
 
   try {
-    await processTrackByUrl(ctx, userId, url);
+await processTrackByUrl(ctx, userId, url, playlistUrl);
   } catch (e) {
     console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
     await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
