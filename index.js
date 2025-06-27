@@ -208,8 +208,6 @@ async function processNextInQueue() {
 
   const { ctx, userId, url } = task;
 
-  await ctx.telegram.sendMessage(userId, '⏳ Загрузка началась. Это может занять до 5 минут...');
-
   try {
     await processTrackByUrl(ctx, userId, url);
   } catch (e) {
