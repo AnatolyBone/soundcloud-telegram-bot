@@ -351,6 +351,7 @@ bot.hears(texts.menu, async ctx => {
 
 // отправляем клавиатуру отдельно, без текста
 await ctx.reply(' ', kb());
+});
 
 bot.action('check_subscription', async ctx => {
   const user = await getUser(ctx.from.id);
