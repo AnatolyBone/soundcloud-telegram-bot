@@ -147,10 +147,7 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-
-  // Сортируем по убыванию priority (чем больше, тем выше приоритет)
-  globalQueue.sort((a, b) => b.priority - a.priority);
-}
+  
 // --- Функция для скачивания и отправки одного трека ---
 async function processTrackByUrl(ctx, userId, url) {
   const start = Date.now();
