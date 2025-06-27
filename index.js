@@ -342,16 +342,33 @@ bot.hears(texts.menu, async ctx => {
 
   const message = formatMenuMessage(user);
 
-  console.log(`DEBUG getUser: id=${ctx.from.id}, from DB:`, user);
-
   await ctx.reply(message, {
-  parse_mode: 'Markdown',
-  reply_markup: Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Я подписался', 'check_subscription')]
-  ])
-});
-await ctx.reply('👇 Выбери действие:', kb())
+    parse_mode: 'Markdown',
+    reply_markup: Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Я подписался', 'check_subscription')]
+    ])
   });
+
+  await ctx.reply('👇 Выбери действие:', kb());
+});
+
+bot.action('check_subscription', async ctx => {
+  const user = await getUser(ctx.from.id);
+
+  if (user.subscribed_bonus_used) {
+    return ctx.answerCbQuery('⚠️ Бонус уже был активирован ранее.', { show_alert: true });
+  }
+
+  if (await isSubscribed(ctx.from.id)) {
+    await setPremium(ctx.from.id, 50, 7);
+    await markSubscribedBonusUsed(ctx.from.id);
+
+    await ctx.editMessageReplyMarkup(); // убирает кнопку
+    return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
+  } else {
+    return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
+  }
+});
   function formatMenuMessage(user) {
   const now = new Date();
   const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
@@ -630,7 +647,9 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 // Запуск сервера и бота
-
+bot.catch((err, ctx) => {
+  console.error(`Error for ${ctx.updateType}`, err);
+});
 (async () => {
   try {
     await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
