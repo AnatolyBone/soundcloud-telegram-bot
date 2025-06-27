@@ -341,18 +341,16 @@ bot.hears(texts.menu, async ctx => {
 
   const message = formatMenuMessage(user);
 
-  // 1. Отправляем основное сообщение
-  await ctx.reply(message, { parse_mode: 'Markdown' });
-
-  // 2. Отдельно отправляем кнопку
-  await ctx.reply('👇 Нажми, если уже подписался', {
+  // Отправляем сообщение сразу с кнопкой
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
     reply_markup: Markup.inlineKeyboard([
       [Markup.button.callback('✅ Я подписался', 'check_subscription')]
     ])
   });
 
-  // 3. Клавиатура отдельно (без текста)
-  await ctx.reply(' ', kb());
+  // Отправляем обычную клавиатуру, если нужна
+  await ctx.reply('Выберите действие:', kb());
 });
 
 bot.action('check_subscription', async ctx => {
