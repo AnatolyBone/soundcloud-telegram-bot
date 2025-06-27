@@ -343,14 +343,14 @@ bot.hears(texts.menu, async ctx => {
   const message = formatMenuMessage(user);
 
   await ctx.reply(message, {
-    parse_mode: 'Markdown',
-    reply_markup: Markup.inlineKeyboard([
-      [Markup.button.callback('✅ Я подписался', 'check_subscription')]
-    ])
-  });
-
-  await ctx.reply('👇 Выбери действие:', kb());
+  parse_mode: 'Markdown',
+  reply_markup: Markup.inlineKeyboard([
+    [Markup.button.callback('✅ Я подписался', 'check_subscription')]
+  ])
 });
+
+// отправляем клавиатуру отдельно, без текста
+await ctx.reply(' ', kb());
 
 bot.action('check_subscription', async ctx => {
   const user = await getUser(ctx.from.id);
