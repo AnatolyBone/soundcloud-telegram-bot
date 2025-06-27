@@ -14,6 +14,7 @@ const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 
+
 const {
   createUser,
   getUser,
@@ -87,9 +88,12 @@ setInterval(() => {
 // Сброс статистики раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
-const queues = {};
-const processing = {};
-const userStates = {}; // для флага остановки загрузки
+const MAX_CONCURRENT_DOWNLOADS = 5; // можно подстроить под возможности сервера
+let globalQueue = [];
+let activeDownloadsCount = 0;
+// const queues = {};
+// const processing = {};
+// const userStates = {};// для флага остановки загрузки
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -144,6 +148,9 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
   }
 }
 
+  // Сортируем по убыванию priority (чем больше, тем выше приоритет)
+  globalQueue.sort((a, b) => b.priority - a.priority);
+}
 // --- Функция для скачивания и отправки одного трека ---
 async function processTrackByUrl(ctx, userId, url) {
   const start = Date.now();
@@ -189,94 +196,102 @@ await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $
 }
 
 // --- Функция управления очередью загрузок ---
-async function enqueue(ctx, userId, url) {
-  if (!queues[userId]) queues[userId] = [];
+function addToGlobalQueue(task) {
+  globalQueue.push(task);
+  // Сортируем по приоритету (чем выше premium_limit — тем выше приоритет)
+  globalQueue.sort((a, b) => b.priority - a.priority);
+}
+
+async function processNextInQueue() {
+  if (activeDownloadsCount >= MAX_CONCURRENT_DOWNLOADS) return;
+  if (globalQueue.length === 0) return;
+
+  const task = globalQueue.shift();
+  activeDownloadsCount++;
+
+  const { ctx, userId, url } = task;
+
+  await ctx.telegram.sendMessage(userId, '⏳ Загрузка началась. Это может занять до 5 минут...');
 
   try {
+    await processTrackByUrl(ctx, userId, url);
+  } catch (e) {
+    console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
+    await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
+  }
+
+  activeDownloadsCount--;
+  processNextInQueue();
+}
+
+async function enqueue(ctx, userId, url) {
+  const u = await getUser(userId);
+
+  const remainingLimit = u.premium_limit - u.downloads_today;
+  if (remainingLimit <= 0) {
+    return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
+      Markup.button.callback('✅ Я подписался', 'check_subscription')
+    ]));
+  }
+
+  addToGlobalQueue({ ctx, userId, url, priority: u.premium_limit });
+
+  const position = globalQueue.findIndex(task => task.userId === userId && task.url === url) + 1;
+
+  await ctx.telegram.sendMessage(userId, texts.queuePosition(position));
+
+  processNextInQueue();
+}
     // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
 
-    const u = await getUser(userId);
-    const info = await ytdl(url, { dumpSingleJson: true });
-    const isPlaylist = Array.isArray(info.entries);
-const entries = isPlaylist && Array.isArray(info.entries)
-  ? info.entries.filter(e => e && e.webpage_url).map(e => e.webpage_url)
-  : [url];
+   async function enqueue(ctx, userId, url) {
+  try {
+    const user = await getUser(userId);
+    const remainingLimit = user.premium_limit - user.downloads_today;
 
-    const remainingLimit = u.premium_limit - u.downloads_today;
     if (remainingLimit <= 0) {
       return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ]));
     }
 
-    if (entries.length > remainingLimit) {
-      await ctx.telegram.sendMessage(userId,
-        `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено только первые ${remainingLimit}.`);
-    }
+    const info = await ytdl(url, { dumpSingleJson: true });
+    const isPlaylist = Array.isArray(info.entries);
 
-    const limitedEntries = entries.slice(0, remainingLimit);
+    let entries = [];
 
-    // Если очередь уже обрабатывается, добавляем в конец и выходим
-    if (processing[userId]) {
-      queues[userId].push(...limitedEntries);
-      await ctx.telegram.sendMessage(userId, `⏳ Трек(и) добавлены в очередь. Текущая позиция: ${queues[userId].length}`);
-      return;
-    }
+    if (isPlaylist) {
+      entries = info.entries
+        .filter(e => e && e.webpage_url)
+        .map(e => e.webpage_url);
 
-    queues[userId].push(...limitedEntries);
-    userStates[userId] = { abort: false };
-    processing[userId] = true;
-
-
-  for (let i = 0; i < queues[userId].length; i++) {
-    if (userStates[userId]?.abort) {
-      await ctx.telegram.sendMessage(userId, '⏹️ Загрузка отменена по вашей команде.');
-      break;
-    }
-
-    const updatedUser = await getUser(userId);
-    if (updatedUser.downloads_today >= updatedUser.premium_limit) {
-      await ctx.telegram.sendMessage(userId, texts.limitReached);
-      break;
-    }
-
-    const trackUrl = queues[userId][i];
-
-    if (queues[userId].length > 1) {
-      await ctx.telegram.sendMessage(userId, `🎵 Загружаю ${i + 1} из ${queues[userId].length}`, Markup.inlineKeyboard([
-        Markup.button.callback('⏹️ Остановить', `stop_${userId}`)
-      ]));
-    } else {
-      await ctx.telegram.sendMessage(userId, texts.downloading);
-    }
-
-    try {
-      await Promise.race([
-        processTrackByUrl(ctx, userId, trackUrl),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), 300000))
-      ]);
-    } catch (e) {
-      console.error(`Ошибка при загрузке трека ${trackUrl}:`, e);
-      if (e.message === 'Timeout') {
-        await ctx.telegram.sendMessage(userId, '❌ Превышено время ожидания загрузки трека.');
-      } else {
-        await ctx.telegram.sendMessage(userId, texts.error);
+      if (entries.length > remainingLimit) {
+        await ctx.telegram.sendMessage(userId,
+          `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
+        entries = entries.slice(0, remainingLimit);
       }
+    } else {
+      entries = [url];
     }
-  }
 
-  if (queues[userId].length > 1) {
-    await ctx.telegram.sendMessage(userId, '✅ Все треки загружены.');
-  }
-  } catch (err) {
-    console.error('Ошибка в enqueue:', err);
+    for (const entryUrl of entries) {
+      addToGlobalQueue({
+        ctx,
+        userId,
+        url: entryUrl,
+        priority: user.premium_limit
+      });
+
+      const position = globalQueue.findIndex(task => task.userId === userId && task.url === entryUrl) + 1;
+      await ctx.telegram.sendMessage(userId, texts.queuePosition(position));
+    }
+
+    processNextInQueue();
+  } catch (e) {
+    console.error('Ошибка в enqueue:', e);
     await ctx.telegram.sendMessage(userId, texts.error);
-  } finally {
-    queues[userId] = [];
-    processing[userId] = false;
-    delete userStates[userId];
   }
-} // ← эта скобка завершает enqueue
+}
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
   let successCount = 0;
@@ -405,13 +420,6 @@ bot.action('check_subscription', async ctx => {
   }
 });
 
-bot.action(/^stop_(\d+)$/, async ctx => {
-  const targetId = parseInt(ctx.match[1]);
-  if (ctx.from.id !== targetId) return ctx.answerCbQuery('⛔️ Это не ваша загрузка');
-  if (userStates?.[targetId]) userStates[targetId].abort = true;
-  await ctx.editMessageReplyMarkup();
-  await ctx.reply('⏹️ Загрузка остановлена.');
-});
 
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
