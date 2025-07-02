@@ -19,19 +19,19 @@ async function query(text, params) {
   return res;
 }
 
-async function createUser(id, first_name = '', username = '') {
-  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}`);
+async function createUser(id, first_name = '', username = '', referral_source = null) {
+  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}`);
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active)
-    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW())
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active, referral_source)
+    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4)
     ON CONFLICT (id) DO NOTHING
-  `, [id, username || '', first_name || '']);
+  `, [id, username || '', first_name || '', referral_source]);
 }
 
-async function getUser(id, first_name = '', username = '') {
+async function getUser(id, first_name = '', username = '', referral_source = null) {
   const res = await query('SELECT * FROM users WHERE id = $1 AND active = true', [id]);
   if (res.rows.length === 0) {
-    await createUser(id, first_name, username);
+    await createUser(id, first_name, username, referral_source);
     const newUser = await query('SELECT * FROM users WHERE id = $1 AND active = true', [id]);
     return newUser.rows[0];
   }
@@ -66,9 +66,11 @@ async function setPremium(id, limit, days = null) {
     await query('UPDATE users SET premium_until = $1 WHERE id = $2', [until, id]);
   }
 }
+
 async function markSubscribedBonusUsed(userId) {
   await pool.query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
 }
+
 async function resetDailyLimitIfNeeded(userId) {
   const res = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
   if (!res.rows.length) return;
@@ -219,7 +221,7 @@ async function getExpiringUsers(days = 3) {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active'] });
+  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source'] });
   return parser.parse(users);
 }
 
