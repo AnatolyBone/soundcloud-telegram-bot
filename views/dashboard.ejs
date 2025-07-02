@@ -55,7 +55,7 @@
     <thead>
       <tr>
         <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
-        <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Тариф</th>
+        <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th>
       </tr>
     </thead>
     <tbody>
@@ -76,17 +76,18 @@
             <% } else if (new Date(user.last_active) > Date.now() - 24 * 60 * 60 * 1000) { %>🟢
             <% } else { %>🟡<% } %>
           </td>
+          <td><%= user.referral_source || '—' %></td>
           <td>
-<form method="POST" action="/set-tariff" style="margin:0;">
-  <input type="hidden" name="userId" value="<%= user.id %>">
-  <select name="limit">
-    <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
-    <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
-    <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
-    <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
-  </select>
-  <button type="submit">Сохранить</button>
-</form>
+            <form method="POST" action="/set-tariff" style="margin:0;">
+              <input type="hidden" name="userId" value="<%= user.id %>">
+              <select name="limit">
+                <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
+              </select>
+              <button type="submit">Сохранить</button>
+            </form>
           </td>
         </tr>
       <% }) %>
