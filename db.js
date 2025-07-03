@@ -118,7 +118,11 @@ async function getReferralSourcesStats() {
     GROUP BY referral_source
     ORDER BY count DESC
   `);
-  return res.rows;
+  // Преобразуем ключ referral_source в source для удобства шаблона
+  return res.rows.map(row => ({
+    source: row.referral_source,
+    count: parseInt(row.count, 10)
+  }));
 }
 async function addReview(userId, text) {
   const time = new Date().toISOString();
