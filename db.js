@@ -28,31 +28,36 @@ async function query(text, params) {
   }
 }
 
-async function createUser(id, first_name = '', username = '', referral_source = null) {
-  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}`);
+async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
+  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}, referrer_id=${referrer_id}`);
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active, referral_source, active)
-    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4, TRUE)
+    INSERT INTO users (
+      id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date,
+      referred_count, created_at, last_active, referral_source, referrer_id, active
+    )
+    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4, $5, TRUE)
     ON CONFLICT (id) DO NOTHING
-  `, [id, username || '', first_name || '', referral_source]);
+  `, [id, username || '', first_name || '', referral_source, referrer_id]);
 }
 
-async function getUser(id, first_name = '', username = '', referral_source = null) {
+async function getUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
   const res = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
   if (res.rows.length === 0) {
-    await createUser(id, first_name, username, referral_source);
+    await createUser(id, first_name, username, referral_source, referrer_id);
     const newUser = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
     return newUser.rows[0];
   }
   await query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]);
   return res.rows[0];
 }
+
 async function logUserActivity(userId) {
   return pool.query(
     'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW())',
     [userId]
   );
 }
+
 const allowedFields = new Set([
   'premium_limit',
   'downloads_today',
@@ -67,6 +72,7 @@ const allowedFields = new Set([
   'referred_count',
   'referral_source',
   'has_reviewed',
+  'referrer_id',
 ]);
 
 async function updateUserField(id, field, value) {
@@ -351,7 +357,7 @@ async function getExpiringUsersCount() {
 // Экспорт пользователей в CSV (с учётом всех)
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source'] });
+  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
   return parser.parse(users);
 }
 
