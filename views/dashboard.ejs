@@ -35,9 +35,7 @@
   <p><strong>Загрузок:</strong> <%= stats.totalDownloads %></p>
   <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
 
-  <div class="chart-container"><canvas id="registrationsChart"></canvas></div>
-  <div class="chart-container"><canvas id="downloadsChart"></canvas></div>
-  <div class="chart-container"><canvas id="activeChart"></canvas></div>
+  <div class="chart-container"><canvas id="combinedChart"></canvas></div>
 
   <h3>🕒 С тарифом, истекающим в ближайшие 3 дня</h3>
   <% if (expiringSoon.length === 0) { %>
@@ -49,22 +47,22 @@
       <% }) %>
     </ul>
   <% } %>
-
+  
   <h3>📈 Источники трафика</h3>
   <table>
     <thead>
       <tr><th>Источник</th><th>Кол-во</th></tr>
     </thead>
     <tbody>
-      <% referralStats.forEach(item => { %>
+      <% referralStats.forEach(source => { %>
         <tr>
-          <td><%= item.source || '—' %></td>
-          <td><%= item.count %></td>
+          <td><%= source.referral_source || '—' %></td>
+          <td><%= source.count %></td>
         </tr>
       <% }) %>
     </tbody>
   </table>
-
+  
   <h3>👤 Пользователи (<%= users.length %>)</h3>
   <table id="usersTable" class="display">
     <thead>
@@ -132,52 +130,54 @@
       });
     });
 
-    const regLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
-    const regData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
-    const dlLabels = <%- JSON.stringify(Object.keys(stats.downloadsByDate)) %>;
-    const dlData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
-    const actLabels = <%- JSON.stringify(Object.keys(stats.activeByDate)) %>;
-    const actData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
+    const combinedLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
+    const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
+    const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
+    const activeUsersData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
 
-    new Chart(document.getElementById('registrationsChart'), {
+    new Chart(document.getElementById('combinedChart'), {
       type: 'line',
       data: {
-        labels: regLabels,
-        datasets: [{
-          label: 'Регистрации',
-          data: regData,
-          borderColor: 'blue',
-          backgroundColor: 'lightblue',
-          fill: true
-        }]
-      }
-    });
-
-    new Chart(document.getElementById('downloadsChart'), {
-      type: 'line',
-      data: {
-        labels: dlLabels,
-        datasets: [{
-          label: 'Загрузки',
-          data: dlData,
-          borderColor: 'green',
-          backgroundColor: 'lightgreen',
-          fill: true
-        }]
-      }
-    });
-
-    new Chart(document.getElementById('activeChart'), {
-      type: 'line',
-      data: {
-        labels: actLabels,
-        datasets: [{
-          label: 'Активные пользователи',
-          data: actData,
-          borderColor: 'orange',
-          backgroundColor: 'moccasin',
-          fill: true
-        }]
+        labels: combinedLabels,
+        datasets: [
+          {
+            label: 'Регистрации',
+            data: registrationsData,
+            borderColor: 'blue',
+            backgroundColor: 'lightblue',
+            fill: false,
+            tension: 0.3,
+          },
+          {
+            label: 'Загрузки',
+            data: downloadsData,
+            borderColor: 'green',
+            backgroundColor: 'lightgreen',
+            fill: false,
+            tension: 0.3,
+          },
+          {
+            label: 'Активные пользователи',
+            data: activeUsersData,
+            borderColor: 'orange',
+            backgroundColor: 'moccasin',
+            fill: false,
+            tension: 0.3,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        stacked: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+          }
+        }
       }
     });
   </script>
