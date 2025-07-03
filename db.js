@@ -15,32 +15,59 @@ const pool = new Pool({
 });
 
 async function query(text, params) {
-  const res = await pool.query(text, params);
-  return res;
+  try {
+    const res = await pool.query(text, params);
+    return res;
+  } catch (e) {
+    console.error('Ошибка запроса к БД:', e);
+    throw e;
+  }
 }
 
 async function createUser(id, first_name = '', username = '', referral_source = null) {
   console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}`);
   await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active, referral_source)
-    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4)
+    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active, referral_source, active)
+    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4, TRUE)
     ON CONFLICT (id) DO NOTHING
   `, [id, username || '', first_name || '', referral_source]);
 }
 
 async function getUser(id, first_name = '', username = '', referral_source = null) {
-  const res = await query('SELECT * FROM users WHERE id = $1 AND active = true', [id]);
+  const res = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
   if (res.rows.length === 0) {
     await createUser(id, first_name, username, referral_source);
-    const newUser = await query('SELECT * FROM users WHERE id = $1 AND active = true', [id]);
+    const newUser = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
     return newUser.rows[0];
   }
   await query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]);
   return res.rows[0];
 }
 
+// Безопасное обновление поля с проверкой
+const allowedFields = new Set([
+  'premium_limit',
+  'downloads_today',
+  'total_downloads',
+  'first_name',
+  'username',
+  'premium_until',
+  'subscribed_bonus_used',
+  'tracks_today',
+  'last_reset_date',
+  'active',
+  'referred_count',
+  'referral_source',
+  'has_reviewed',
+  // добавляй сюда нужные поля
+]);
+
 async function updateUserField(id, field, value) {
-  return (await query(`UPDATE users SET ${field} = $1 WHERE id = $2`, [value, id])).rowCount;
+  if (!allowedFields.has(field)) {
+    throw new Error(`Недопустимое поле для обновления: ${field}`);
+  }
+  const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
+  return (await query(sql, [value, id])).rowCount;
 }
 
 async function incrementDownloads(id, trackTitle) {
@@ -68,7 +95,7 @@ async function setPremium(id, limit, days = null) {
 }
 
 async function markSubscribedBonusUsed(userId) {
-  await pool.query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
+  await query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
 }
 
 async function resetDailyLimitIfNeeded(userId) {
@@ -110,6 +137,7 @@ async function getAllUsers(includeInactive = false) {
   const res = await query(sql);
   return res.rows;
 }
+
 async function getReferralSourcesStats() {
   const res = await query(`
     SELECT referral_source, COUNT(*) as count
@@ -118,12 +146,12 @@ async function getReferralSourcesStats() {
     GROUP BY referral_source
     ORDER BY count DESC
   `);
-  // Преобразуем ключ referral_source в source для удобства шаблона
   return res.rows.map(row => ({
     source: row.referral_source,
     count: parseInt(row.count, 10)
   }));
 }
+
 async function addReview(userId, text) {
   const time = new Date().toISOString();
 
@@ -260,5 +288,5 @@ module.exports = {
   getExpiringUsers,
   exportUsersToCSV,
   getReferralSourcesStats,
-  markSubscribedBonusUse
+  markSubscribedBonusUsed
 };
