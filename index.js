@@ -466,8 +466,6 @@ bot.command('reviews', async ctx => {
   }
 });
 
-const { markSubscribedBonusUsed } = require('./db'); // обязательно добавь
-
 bot.action('check_subscription', async ctx => {
   const user = await getUser(ctx.from.id);
 
