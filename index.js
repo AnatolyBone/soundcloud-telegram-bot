@@ -635,7 +635,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
 
 const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
-
+const expiringCount = expiringSoon.length;
     const users = await getAllUsers(showInactive);
 
     const stats = {
@@ -662,7 +662,8 @@ const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOff
       referralStats,
       activityByDayHour,
       expiringLimit,
-      expiringOffset
+      expiringOffset,
+      expiringCount
     });
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
