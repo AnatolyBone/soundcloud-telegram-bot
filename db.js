@@ -356,6 +356,7 @@ async function exportUsersToCSV() {
 }
 
 module.exports = {
+  supabase,
   createUser,
   getUser,
   updateUserField,
