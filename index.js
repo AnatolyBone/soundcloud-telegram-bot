@@ -212,17 +212,13 @@ function addToGlobalQueue(task) {
 }
 
 async function processNextInQueue() {
-  if (activeDownloadsCount >= MAX_CONCURRENT_DOWNLOADS) return;
-  if (globalQueue.length === 0) return;
-
-  const task = globalQueue.shift();
-  activeDownloadsCount++;
-
-  const { ctx, userId, url, playlistUrl } = task;
-
-  try {
-    await processTrackByUrl(ctx, userId, url, playlistUrl);
-  } catch (e) {
+  while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
+    const task = globalQueue.shift();
+    activeDownloadsCount++;
+    const { ctx, userId, url, playlistUrl } = task;
+    try {
+      await processTrackByUrl(ctx, userId, url, playlistUrl);
+    } catch (e) {
     console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
     try {
       await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
@@ -537,7 +533,7 @@ await logUserActivity(ctx.from.id);
   }
 
   ctx.reply('⏳ Загрузка началась. Это может занять до 5 минут...');
-  enqueue(ctx, ctx.from.id, url).catch(e => {
+  await enqueue(ctx, ctx.from.id, url).catch(e => {
     console.error('Ошибка в enqueue:', e);
     ctx.telegram.sendMessage(ctx.from.id, '❌ Произошла ошибка при загрузке.');
   });
