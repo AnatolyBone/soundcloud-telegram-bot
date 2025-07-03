@@ -634,6 +634,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     // Добавляем эту строку — получаем expiringLimit из query или ставим по умолчанию
     const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
 
+const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
+
     const users = await getAllUsers(showInactive);
 
     const stats = {
@@ -659,7 +661,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       showInactive,
       referralStats,
       activityByDayHour,
-      expiringLimit,  // теперь переменная определена и передана
+      expiringLimit,
+      expiringOffset
     });
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
