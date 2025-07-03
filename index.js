@@ -561,20 +561,17 @@ function requireAuth(req, res, next) {
   res.redirect('/admin');
 }
 
-app.get('/admin', (req, res) => res.render('login', { error: null }));
-
-app.post('/admin/login', express.urlencoded({ extended: true }), (req, res) => {
-  if (req.body.username === process.env.ADMIN_LOGIN && req.body.password === process.env.ADMIN_PASSWORD) {
-    req.session.authenticated = true;
-    return res.redirect('/dashboard');
-  }
-  res.render('login', { error: 'Неверные данные' });
+app.get('/broadcast', requireAuth, (req, res) => {
+  res.render('broadcast-form'); // Просто отображаем форму
 });
 
 app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
   const { message } = req.body;
   const audio = req.file;
-  if (!message && !audio) return res.status(400).send('Сообщение или файл обязательно');
+
+  if (!message && !audio) {
+    return res.status(400).send('Сообщение или файл обязательно');
+  }
 
   const users = await getAllUsers();
 
@@ -609,7 +606,6 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 
   res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
-
 app.get('/export', requireAuth, async (req, res) => {
   try {
     const users = await getAllUsers(true); // получаем всех (включая неактивных)
