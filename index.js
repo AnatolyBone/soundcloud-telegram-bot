@@ -316,6 +316,10 @@ async function broadcastMessage(bot, pool, message) {
 }
 async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
   if (!id) return;
+  if (!supabase) {
+  console.error('Supabase клиент не инициализирован');
+  return;
+}
   try {
     const { data, error } = await supabase
       .from('users')
