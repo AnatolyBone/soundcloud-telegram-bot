@@ -44,7 +44,6 @@ async function getUser(id, first_name = '', username = '', referral_source = nul
   return res.rows[0];
 }
 
-// Безопасное обновление поля с проверкой
 const allowedFields = new Set([
   'premium_limit',
   'downloads_today',
@@ -59,7 +58,6 @@ const allowedFields = new Set([
   'referred_count',
   'referral_source',
   'has_reviewed',
-  // добавляй сюда нужные поля
 ]);
 
 async function updateUserField(id, field, value) {
@@ -213,6 +211,7 @@ async function saveTrackMetadata(url, metadata) {
   `, [url, metadata]);
 }
 
+// Регистрации пользователей по датам
 async function getRegistrationsByDate() {
   const res = await query(`
     SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count
@@ -225,10 +224,12 @@ async function getRegistrationsByDate() {
   return result;
 }
 
+// Корректная статистика загрузок (по суточным лимитам) с динамическим интервалом (30 дней)
 async function getDownloadsByDate() {
   const res = await query(`
-    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, SUM(downloads_today) as count
+    SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') as date, SUM(downloads_today) as count
     FROM users
+    WHERE last_reset_date >= CURRENT_DATE - INTERVAL '30 days'
     GROUP BY date
     ORDER BY date
   `);
@@ -237,11 +238,12 @@ async function getDownloadsByDate() {
   return result;
 }
 
+// Активные пользователи по дате (посещаемость) с динамическим интервалом (30 дней)
 async function getActiveUsersByDate() {
   const res = await query(`
     SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(*) as count
     FROM users
-    WHERE last_active IS NOT NULL
+    WHERE last_active >= CURRENT_DATE - INTERVAL '30 days'
     GROUP BY date
     ORDER BY date
   `);
@@ -250,16 +252,61 @@ async function getActiveUsersByDate() {
   return result;
 }
 
-async function getExpiringUsers(days = 3) {
+// Активность пользователей по часам (0-23)
+async function getActivityByHour() {
+  const res = await query(`
+    SELECT EXTRACT(HOUR FROM last_active) AS hour, COUNT(*) AS count
+    FROM users
+    WHERE last_active IS NOT NULL
+    GROUP BY hour
+    ORDER BY hour
+  `);
+  // Вернём массив из 24 чисел, индексы — часы, значения — кол-во
+  const counts = Array(24).fill(0);
+  res.rows.forEach(row => {
+    counts[parseInt(row.hour, 10)] = parseInt(row.count, 10);
+  });
+  return counts;
+}
+
+// Активность пользователей по дням недели (0=вс, 6=сб)
+async function getActivityByWeekday() {
+  const res = await query(`
+    SELECT EXTRACT(DOW FROM last_active) AS weekday, COUNT(*) AS count
+    FROM users
+    WHERE last_active IS NOT NULL
+    GROUP BY weekday
+    ORDER BY weekday
+  `);
+  const counts = Array(7).fill(0);
+  res.rows.forEach(row => {
+    counts[parseInt(row.weekday, 10)] = parseInt(row.count, 10);
+  });
+  return counts;
+}
+
+// Получить пользователей с истекающим тарифом, с пагинацией
+async function getExpiringUsersPaginated(limit = 10, offset = 0) {
   const res = await query(`
     SELECT id, username, first_name, premium_until
     FROM users
-    WHERE premium_until IS NOT NULL AND premium_until <= NOW() + INTERVAL '${days} days'
+    WHERE premium_until IS NOT NULL AND premium_until BETWEEN NOW() AND NOW() + INTERVAL '3 days'
     ORDER BY premium_until ASC
-  `);
+    LIMIT $1 OFFSET $2
+  `, [limit, offset]);
   return res.rows;
 }
 
+async function getExpiringUsersCount() {
+  const res = await query(`
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE premium_until IS NOT NULL AND premium_until BETWEEN NOW() AND NOW() + INTERVAL '3 days'
+  `);
+  return parseInt(res.rows[0].count, 10);
+}
+
+// Экспорт пользователей в CSV (с учётом всех)
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source'] });
@@ -285,8 +332,11 @@ module.exports = {
   getRegistrationsByDate,
   getDownloadsByDate,
   getActiveUsersByDate,
-  getExpiringUsers,
+  getActivityByHour,
+  getActivityByWeekday,
+  getExpiringUsersPaginated,
+  getExpiringUsersCount,
   exportUsersToCSV,
   getReferralSourcesStats,
-  markSubscribedBonusUsed
+  markSubscribedBonusUsed,
 };
