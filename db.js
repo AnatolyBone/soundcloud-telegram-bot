@@ -110,7 +110,16 @@ async function getAllUsers(includeInactive = false) {
   const res = await query(sql);
   return res.rows;
 }
-
+async function getReferralSourcesStats() {
+  const res = await query(`
+    SELECT referral_source, COUNT(*) as count
+    FROM users
+    WHERE referral_source IS NOT NULL
+    GROUP BY referral_source
+    ORDER BY count DESC
+  `);
+  return res.rows;
+}
 async function addReview(userId, text) {
   const time = new Date().toISOString();
 
