@@ -723,7 +723,6 @@ bot.catch((err, ctx) => {
   }
 })();// index.js
 
-const compression = require('compression');
 const express = require('express');
 const session = require('express-session');
 const ejs = require('ejs');
