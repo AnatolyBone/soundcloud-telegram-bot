@@ -723,10 +723,8 @@ bot.catch((err, ctx) => {
   }
 })();// index.js
 
-const express = require('express');
 const session = require('express-session');
 const ejs = require('ejs');
-const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
