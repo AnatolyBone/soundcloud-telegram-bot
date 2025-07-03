@@ -658,6 +658,28 @@ const referralStats = await getReferralSourcesStats();
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
+
+app.get('/expiring-users', requireAuth, async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const perPage = parseInt(req.query.perPage) || 10;
+
+  try {
+    const total = await getExpiringUsersCount();
+    const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
+
+    const totalPages = Math.ceil(total / perPage);
+
+    res.render('expiring-users', {
+      users,
+      page,
+      perPage,
+      totalPages
+    });
+  } catch (e) {
+    console.error('Ошибка загрузки expiring-users:', e);
+    res.status(500).send('Внутренняя ошибка сервера');
+  }
+});
 app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, async (req, res) => {
   const { userId, limit } = req.body;
 
