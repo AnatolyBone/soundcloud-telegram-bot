@@ -653,9 +653,10 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       stats,
       expiringSoon,
       showInactive,
-      referralStats,
-      activityByDayHour
-    });
+    referralStats,
+  activityByDayHour,
+  expiringLimit,
+});
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
