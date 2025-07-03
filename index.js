@@ -14,6 +14,7 @@ const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 const playlistTracker = new Map();
+const { supabase } = require('./db'); // или путь, где у тебя инициализация supabase клиента
 
 const {
   createUser,
@@ -308,7 +309,40 @@ async function broadcastMessage(bot, pool, message) {
 
   return { successCount, errorCount };
 }
+async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
+  if (!id) return;
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, referred_by')
+      .eq('id', id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Supabase error:', error);
+      return;
+    }
+
+    if (!data) {
+      // Новый пользователь
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert([{ id, first_name, username, referred_by: referralSource || null }]);
+
+      if (insertError) console.error('Ошибка вставки в Supabase:', insertError);
+    }
+    // Не меняем referred_by, если пользователь уже есть
+  } catch (e) {
+    console.error('Ошибка Supabase:', e);
+  }
+}
 bot.start(async ctx => {
+  const referralSource = ctx.startPayload || null; // вытаскиваем параметр из ссылки /start ref_id
+  
+  // Добавляем/обновляем пользователя в Supabase с рефералом
+  await addOrUpdateUserInSupabase(ctx.from.id, ctx.from.first_name, ctx.from.username, referralSource);
+
+  // Создаём пользователя в Postgres (если нужна твоя текущая логика)
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
 
   await ctx.replyWithMarkdown(`👋 Добро пожаловать, *${ctx.from.first_name}*!
@@ -401,7 +435,7 @@ return `
 Нажми «✅ Я подписался», чтобы получить бонус.
 
 👫 Приглашено: ${user.referred_count || 0}  
-🎁 Дней Plus: ${user.referred_count || 0}
+🎁 Получено дней Plus по рефералам: ${user.referred_count || 0}
 
 🔗 Твоя реферальная ссылка:  
 ${refLink}
@@ -417,7 +451,11 @@ bot.command('admin', async ctx => {
   const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
   ctx.reply(`📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}${texts.adminCommands}`);
 });
-
+bot.command('testdb', async ctx => {
+  if (ctx.from.id !== ADMIN_ID) return;
+  const user = await getUser(ctx.from.id);
+  ctx.reply(JSON.stringify(user, null, 2));
+});
 bot.command('reviews', async ctx => {
   if (ctx.from.id !== ADMIN_ID) return;
   const reviews = await getLatestReviews(10);
