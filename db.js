@@ -43,7 +43,12 @@ async function getUser(id, first_name = '', username = '', referral_source = nul
   await query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]);
   return res.rows[0];
 }
-
+async function logUserActivity(userId) {
+  return pool.query(
+    'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW())',
+    [userId]
+  );
+}
 const allowedFields = new Set([
   'premium_limit',
   'downloads_today',
