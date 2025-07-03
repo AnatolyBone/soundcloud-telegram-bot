@@ -722,7 +722,6 @@ bot.catch((err, ctx) => {
     process.exit(1);
   }
 })();// index.js
-const { Telegraf, Markup } = require('telegraf');
 
 const compression = require('compression');
 const express = require('express');
