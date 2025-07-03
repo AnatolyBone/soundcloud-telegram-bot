@@ -379,4 +379,5 @@ module.exports = {
   exportUsersToCSV,
   getReferralSourcesStats,
   markSubscribedBonusUsed,
+  logUserActivity,
 };
