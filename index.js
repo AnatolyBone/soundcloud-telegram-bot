@@ -630,6 +630,10 @@ app.get('/export', requireAuth, async (req, res) => {
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
+
+    // Добавляем эту строку — получаем expiringLimit из query или ставим по умолчанию
+    const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
+
     const users = await getAllUsers(showInactive);
 
     const stats = {
@@ -653,10 +657,10 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       stats,
       expiringSoon,
       showInactive,
-    referralStats,
-  activityByDayHour,
-  expiringLimit,
-});
+      referralStats,
+      activityByDayHour,
+      expiringLimit,  // теперь переменная определена и передана
+    });
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
