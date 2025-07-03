@@ -261,7 +261,6 @@ async function getActivityByHour() {
     GROUP BY hour
     ORDER BY hour
   `);
-  // Вернём массив из 24 чисел, индексы — часы, значения — кол-во
   const counts = Array(24).fill(0);
   res.rows.forEach(row => {
     counts[parseInt(row.hour, 10)] = parseInt(row.count, 10);
@@ -283,6 +282,36 @@ async function getActivityByWeekday() {
     counts[parseInt(row.weekday, 10)] = parseInt(row.count, 10);
   });
   return counts;
+}
+
+// Новая функция: активность пользователей по дням и часам (тепловая карта)
+// Вернет объект с датами (YYYY-MM-DD) и массивом из 24 чисел по часам активности
+async function getUserActivityByDayHour(days = 30) {
+  const res = await query(`
+    SELECT
+      TO_CHAR(last_active, 'YYYY-MM-DD') AS day,
+      EXTRACT(HOUR FROM last_active) AS hour,
+      COUNT(*) AS count
+    FROM users
+    WHERE last_active >= CURRENT_DATE - INTERVAL '${days} days'
+    GROUP BY day, hour
+    ORDER BY day, hour
+  `);
+
+  const activity = {};
+
+  res.rows.forEach(row => {
+    const day = row.day;
+    const hour = parseInt(row.hour, 10);
+    const count = parseInt(row.count, 10);
+
+    if (!activity[day]) {
+      activity[day] = Array(24).fill(0);
+    }
+    activity[day][hour] = count;
+  });
+
+  return activity;
 }
 
 // Получить пользователей с истекающим тарифом, с пагинацией
@@ -334,6 +363,7 @@ module.exports = {
   getActiveUsersByDate,
   getActivityByHour,
   getActivityByWeekday,
+  getUserActivityByDayHour,  // <-- добавил сюда
   getExpiringUsersPaginated,
   getExpiringUsersCount,
   exportUsersToCSV,
