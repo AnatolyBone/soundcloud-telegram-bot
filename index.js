@@ -313,30 +313,16 @@ async function broadcastMessage(bot, pool, message) {
 async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
   if (!id) return;
   if (!supabase) {
-  console.error('Supabase клиент не инициализирован');
-  return;
-}
+    console.error('Supabase клиент не инициализирован');
+    return;
+  }
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('users')
-      .select('id, referred_by')
-      .eq('id', id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Supabase error:', error);
-      return;
+      .upsert([{ id, first_name, username, referred_by: referralSource || null }]);
+    if (error) {
+      console.error('Ошибка upsert в Supabase:', error);
     }
-
-    if (!data) {
-      // Новый пользователь
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert([{ id, first_name, username, referred_by: referralSource || null }]);
-
-      if (insertError) console.error('Ошибка вставки в Supabase:', insertError);
-    }
-    // Не меняем referred_by, если пользователь уже есть
   } catch (e) {
     console.error('Ошибка Supabase:', e);
   }
