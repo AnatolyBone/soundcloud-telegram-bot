@@ -32,7 +32,9 @@ const {
   getRegistrationsByDate,
   getDownloadsByDate,
   getActiveUsersByDate,
-  getExpiringUsers
+  getExpiringUsers,
+  getReferralSourcesStats,
+  markSubscribedBonusUsed,
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -644,7 +646,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     };
 
     const expiringSoon = await getExpiringUsers();
-    const referralStats = await require('./db').getReferralSourcesStats(); // 👈 добавлено
+const referralStats = await getReferralSourcesStats();
 
     res.render('dashboard', {
       users,
