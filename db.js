@@ -285,7 +285,6 @@ async function getActivityByWeekday() {
 }
 
 // Новая функция: активность пользователей по дням и часам (тепловая карта)
-// Вернет объект с датами (YYYY-MM-DD) и массивом из 24 чисел по часам активности
 async function getUserActivityByDayHour(days = 30) {
   const res = await query(`
     SELECT
@@ -326,6 +325,11 @@ async function getExpiringUsersPaginated(limit = 10, offset = 0) {
   return res.rows;
 }
 
+// Обёртка для совместимости: getExpiringUsers
+async function getExpiringUsers(limit = 10, offset = 0) {
+  return getExpiringUsersPaginated(limit, offset);
+}
+
 async function getExpiringUsersCount() {
   const res = await query(`
     SELECT COUNT(*) AS count
@@ -363,7 +367,8 @@ module.exports = {
   getActiveUsersByDate,
   getActivityByHour,
   getActivityByWeekday,
-  getUserActivityByDayHour,  // <-- добавил сюда
+  getUserActivityByDayHour,
+  getExpiringUsers,
   getExpiringUsersPaginated,
   getExpiringUsersCount,
   exportUsersToCSV,
