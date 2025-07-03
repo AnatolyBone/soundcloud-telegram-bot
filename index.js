@@ -722,8 +722,6 @@ bot.catch((err, ctx) => {
     process.exit(1);
   }
 })();// index.js
-
-const session = require('express-session');
 const ejs = require('ejs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
