@@ -35,6 +35,7 @@ const {
   getExpiringUsers,
   getReferralSourcesStats,
   markSubscribedBonusUsed,
+  getUserActivityByDayHour
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -644,14 +645,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     };
 
     const expiringSoon = await getExpiringUsers();
-const referralStats = await getReferralSourcesStats();
+    const referralStats = await getReferralSourcesStats();
+    const activityByDayHour = await getUserActivityByDayHour();
 
     res.render('dashboard', {
       users,
       stats,
       expiringSoon,
       showInactive,
-      referralStats // 👈 передаём в шаблон
+      referralStats,
+      activityByDayHour
     });
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
