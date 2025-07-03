@@ -259,5 +259,6 @@ module.exports = {
   getActiveUsersByDate,
   getExpiringUsers,
   exportUsersToCSV,
-  markSubscribedBonusUsed
+  markSubscribedBonusUsed,
+  getReferralSourcesStats
 };
