@@ -49,6 +49,12 @@
   <div class="chart-container"><canvas id="hourActivityChart"></canvas></div>
   <div class="chart-container"><canvas id="weekdayActivityChart"></canvas></div>
 
+  <!-- Новый блок с тепловой картой -->
+  <h3>🗓 Активность пользователей по дате и часу (тепловая карта)</h3>
+  <div class="chart-container" style="height: 400px;">
+    <canvas id="heatmapChart"></canvas>
+  </div>
+
   <h3>🕒 С тарифом, истекающим в ближайшие 3 дня</h3>
 
   <form id="paginationForm" method="GET" action="/dashboard">
@@ -257,6 +263,78 @@
         scales: {
           y: { beginAtZero: true },
           x: { title: { display: true, text: 'Дни недели' } }
+        }
+      }
+    });
+
+    // Тепловая карта активности по дате и часу
+    const activityByDayHour = <%- JSON.stringify(stats.activityByDayHour || {}) %>;
+
+    const days = Object.keys(activityByDayHour).sort();
+    const hours = Array.from({length: 24}, (_, i) => i);
+
+    const heatmapDatasets = hours.map(hour => {
+      return {
+        label: hour + ':00',
+        data: days.map(day => {
+          const count = activityByDayHour[day] ? activityByDayHour[day][hour] : 0;
+          return count;
+        }),
+        backgroundColor: function(context) {
+          const value = context.dataset.data[context.dataIndex];
+          const alpha = Math.min(value / 10, 1);
+          return `rgba(54, 162, 235, ${alpha})`;
+        },
+        borderWidth: 0
+      };
+    });
+
+    const ctxHeatmap = document.getElementById('heatmapChart').getContext('2d');
+    new Chart(ctxHeatmap, {
+      type: 'bar',
+      data: {
+        labels: days,
+        datasets: heatmapDatasets
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        scales: {
+          x: {
+            stacked: true,
+            title: {
+              display: true,
+              text: 'Активность'
+            },
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1
+            }
+          },
+          y: {
+            stacked: true,
+            title: {
+              display: true,
+              text: 'Дата'
+            },
+            ticks: {
+              autoSkip: true,
+              maxTicksLimit: 10
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + context.parsed.x;
+              }
+            }
+          }
         }
       }
     });
