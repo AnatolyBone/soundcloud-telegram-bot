@@ -226,8 +226,9 @@ async function processNextInQueue() {
   }
 
   activeDownloadsCount--;
-  processNextInQueue();
-}
+    processNextInQueue();
+  }
+} 
 
     // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
 
