@@ -631,11 +631,17 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
 
-    // Добавляем эту строку — получаем expiringLimit из query или ставим по умолчанию
+    // Парсим параметры
     const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
+    const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
 
-const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
-const expiringCount = expiringSoon.length;
+    // Сначала получаем expiringSoon из базы
+    const expiringSoon = await getExpiringUsers();
+
+    // Теперь можно получить количество
+    const expiringCount = expiringSoon.length;
+
+    // Получаем всех пользователей (уже после)
     const users = await getAllUsers(showInactive);
 
     const stats = {
@@ -650,7 +656,6 @@ const expiringCount = expiringSoon.length;
       activeByDate: await getActiveUsersByDate()
     };
 
-    const expiringSoon = await getExpiringUsers();
     const referralStats = await getReferralSourcesStats();
     const activityByDayHour = await getUserActivityByDayHour();
 
