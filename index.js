@@ -631,24 +631,27 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const showInactive = req.query.showInactive === 'true';
     const users = await getAllUsers(showInactive);
 
-const stats = {
-  totalUsers: users.length,
-  totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-  free: users.filter(u => u.premium_limit === 10).length,
-  plus: users.filter(u => u.premium_limit === 50).length,
-  pro: users.filter(u => u.premium_limit === 100).length,
-  unlimited: users.filter(u => u.premium_limit >= 1000).length,
-  registrationsByDate: await getRegistrationsByDate(),
-  downloadsByDate: await getDownloadsByDate(),
-  activeByDate: await getActiveUsersByDate()
-};
+    const stats = {
+      totalUsers: users.length,
+      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+      free: users.filter(u => u.premium_limit === 10).length,
+      plus: users.filter(u => u.premium_limit === 50).length,
+      pro: users.filter(u => u.premium_limit === 100).length,
+      unlimited: users.filter(u => u.premium_limit >= 1000).length,
+      registrationsByDate: await getRegistrationsByDate(),
+      downloadsByDate: await getDownloadsByDate(),
+      activeByDate: await getActiveUsersByDate()
+    };
+
     const expiringSoon = await getExpiringUsers();
+    const referralStats = await require('./db').getReferralSourcesStats(); // 👈 добавлено
 
     res.render('dashboard', {
       users,
       stats,
       expiringSoon,
-      showInactive
+      showInactive,
+      referralStats // 👈 передаём в шаблон
     });
   } catch (e) {
     console.error('Ошибка при загрузке /dashboard:', e);
