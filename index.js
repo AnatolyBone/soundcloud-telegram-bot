@@ -236,6 +236,7 @@ async function processNextInQueue() {
 
    async function enqueue(ctx, userId, url) {
   try {
+    await logUserActivity(userId)
     const user = await getUser(userId);
     const remainingLimit = user.premium_limit - user.downloads_today;
 
@@ -518,7 +519,8 @@ bot.on('text', async ctx => {
 
   const url = extractUrl(ctx.message.text);
   if (!url) return;
-
+  
+await logUserActivity(ctx.from.id);
   await resetDailyLimitIfNeeded(ctx.from.id);
   await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
   const u = await getUser(ctx.from.id);
