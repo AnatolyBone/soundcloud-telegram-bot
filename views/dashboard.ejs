@@ -23,6 +23,13 @@
       padding: 5px 10px;
       cursor: pointer;
     }
+    pre {
+      background: #f4f4f4;
+      border: 1px solid #ddd;
+      padding: 10px;
+      max-height: 300px;
+      overflow: auto;
+    }
   </style>
 </head>
 <body>
@@ -54,6 +61,12 @@
   <div class="chart-container" style="height: 400px;">
     <canvas id="heatmapChart"></canvas>
   </div>
+
+  <!-- Вывод JSON данных тепловой карты для отладки -->
+  <details>
+    <summary>Показать данные активности по дате и часу (JSON)</summary>
+    <pre><%= JSON.stringify(stats.activityByDayHour || {}, null, 2) %></pre>
+  </details>
 
   <h3>🕒 С тарифом, истекающим в ближайшие 3 дня</h3>
 
@@ -273,21 +286,16 @@
     const days = Object.keys(activityByDayHour).sort();
     const hours = Array.from({length: 24}, (_, i) => i);
 
-    const heatmapDatasets = hours.map(hour => {
-      return {
-        label: hour + ':00',
-        data: days.map(day => {
-          const count = activityByDayHour[day] ? activityByDayHour[day][hour] : 0;
-          return count;
-        }),
-        backgroundColor: function(context) {
-          const value = context.dataset.data[context.dataIndex];
-          const alpha = Math.min(value / 10, 1);
-          return `rgba(54, 162, 235, ${alpha})`;
-        },
-        borderWidth: 0
-      };
-    });
+    const heatmapDatasets = hours.map(hour => ({
+      label: hour + ':00',
+      data: days.map(day => (activityByDayHour[day] ? activityByDayHour[day][hour] : 0)),
+      backgroundColor: function(context) {
+        const value = context.dataset.data[context.dataIndex];
+        const alpha = Math.min(value / 3, 1); // цвет ярче чем раньше
+        return `rgba(54, 162, 235, ${alpha})`;
+      },
+      borderWidth: 0
+    }));
 
     const ctxHeatmap = document.getElementById('heatmapChart').getContext('2d');
     new Chart(ctxHeatmap, {
@@ -302,37 +310,20 @@
         scales: {
           x: {
             stacked: true,
-            title: {
-              display: true,
-              text: 'Активность'
-            },
             beginAtZero: true,
-            ticks: {
-              stepSize: 1
-            }
+            title: { display: true, text: 'Активность' }
           },
           y: {
             stacked: true,
-            title: {
-              display: true,
-              text: 'Дата'
-            },
-            ticks: {
-              autoSkip: true,
-              maxTicksLimit: 10
-            }
+            title: { display: true, text: 'Дата' },
+            ticks: { autoSkip: true, maxTicksLimit: 10 }
           }
         },
         plugins: {
-          legend: {
-            display: false
-          },
+          legend: { display: true, position: 'top' },
           tooltip: {
-            enabled: true,
             callbacks: {
-              label: function(context) {
-                return context.dataset.label + ': ' + context.parsed.x;
-              }
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.x}`
             }
           }
         }
