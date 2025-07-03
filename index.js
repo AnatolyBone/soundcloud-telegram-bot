@@ -35,7 +35,8 @@ const {
   getExpiringUsers,
   getReferralSourcesStats,
   markSubscribedBonusUsed,
-  getUserActivityByDayHour
+  getUserActivityByDayHour,
+  logUserActivity
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
