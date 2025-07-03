@@ -550,7 +550,47 @@ function requireAuth(req, res, next) {
   if (req.session.authenticated) return next();
   res.redirect('/admin');
 }
+app.get('/dashboard', requireAuth, async (req, res) => {
+  try {
+    const showInactive = req.query.showInactive === 'true';
+    const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
+    const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
 
+    const expiringSoon = await getExpiringUsers();
+    const expiringCount = expiringSoon.length;
+    const users = await getAllUsers(showInactive);
+
+    const stats = {
+      totalUsers: users.length,
+      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+      free: users.filter(u => u.premium_limit === 10).length,
+      plus: users.filter(u => u.premium_limit === 50).length,
+      pro: users.filter(u => u.premium_limit === 100).length,
+      unlimited: users.filter(u => u.premium_limit >= 1000).length,
+      registrationsByDate: await getRegistrationsByDate(),
+      downloadsByDate: await getDownloadsByDate(),
+      activeByDate: await getActiveUsersByDate()
+    };
+
+    const referralStats = await getReferralSourcesStats();
+    const activityByDayHour = await getUserActivityByDayHour();
+
+    res.render('dashboard', {
+      users,
+      stats,
+      expiringSoon,
+      showInactive,
+      referralStats,
+      activityByDayHour,
+      expiringLimit,
+      expiringOffset,
+      expiringCount
+    });
+  } catch (e) {
+    console.error('Ошибка при загрузке dashboard:', e);
+    res.status(500).send('Внутренняя ошибка сервера');
+  }
+});
 app.get('/broadcast', requireAuth, (req, res) => {
   res.render('broadcast-form'); // Просто отображаем форму
 });
