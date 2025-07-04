@@ -12,9 +12,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <!-- DataTables CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" />
-  <% if (customStyles) { %>
-    <%- customStyles %>
-  <% } %>
+  <% if (typeof customStyles !== 'undefined' && customStyles) { %>
+  <%- customStyles %>
+<% } %>
   <style>
     .content-wrapper {
       min-height: 90vh;
@@ -95,7 +95,7 @@
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<% if (customScripts) { %>
+<% if (typeof customScripts !== 'undefined' && customScripts) { %>
   <%- customScripts %>
 <% } %>
 </body>
