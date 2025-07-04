@@ -27,7 +27,11 @@ async function query(text, params) {
     throw e;
   }
 }
-
+async function getUserById(id) {
+  const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
+  if (error) throw error;
+  return data;
+}
 async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
   console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}, referrer_id=${referrer_id}`);
   await query(`
@@ -391,4 +395,5 @@ module.exports = {
   getReferralSourcesStats,
   markSubscribedBonusUsed,
   logUserActivity,
+  getUserById,
 };
