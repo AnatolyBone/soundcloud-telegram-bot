@@ -401,8 +401,12 @@ async function requireAuth(req, res, next) {
 
 // Вход в админку
 app.get('/admin', (req, res) => {
+  // Если уже авторизован - редирект на /dashboard
+  if (req.session.authenticated && req.session.userId === ADMIN_ID) {
+    return res.redirect('/dashboard');
+  }
   res.render('login', { error: null });
-});
+  });
 
 app.post('/admin', (req, res) => {
   const { username, password } = req.body;
@@ -457,7 +461,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
-
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/admin');
+  });
+});
 // Рассылка
 app.get('/broadcast', requireAuth, (req, res) => {
   res.render('broadcast-form', { error: null });
@@ -610,7 +618,10 @@ bot.hears(texts.mytracks, async ctx => {
   // Загрузка списка треков, здесь пример простого ответа:
   await ctx.reply(`Твои треки сегодня: ${user.total_downloads || 0}`);
 });
-
+bot.command('admin', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) {
+    return ctx.reply('❌ У вас нет доступа к этой команде.');
+  }
 bot.action('check_subscription', async ctx => {
   const subscribed = await isSubscribed(ctx.from.id);
   if (subscribed) {
