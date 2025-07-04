@@ -13,7 +13,7 @@ const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 const playlistTracker = new Map();
 const { supabase } = require('./db');
-
+const expressLayouts = require('express-ejs-layouts');
 const {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
   getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
@@ -380,6 +380,8 @@ app.use(session({
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+app.set('layout', 'layout');
+app.use(expressLayouts);
 
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
