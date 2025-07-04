@@ -603,7 +603,7 @@ bot.hears(texts.mytracks, async ctx => {
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
-  }
+  });
 bot.action('check_subscription', async ctx => {
   const subscribed = await isSubscribed(ctx.from.id);
   if (subscribed) {
