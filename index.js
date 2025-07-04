@@ -462,11 +462,12 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activeByDate: await getActiveUsersByDate()
     };
 
-    const activityByHour = await getActivityByHour();     // массив из 24 чисел
-    const activityByWeekday = await getActivityByWeekday(); // массив из 7 чиселconst activityByHour = computeActivityByHour(activityByDayHour);
+   const activityByDayHour = await getUserActivityByDayHour(); // сначала получаем данные
+
+const activityByHour = computeActivityByHour(activityByDayHour);     // теперь вычисляем массив из 24 чисел
 const activityByWeekday = computeActivityByWeekday(activityByDayHour);
-    const referralStats = await getReferralSourcesStats();
-    const activityByDayHour = await getUserActivityByDayHour();
+
+const referralStats = await getReferralSourcesStats();
 
     res.render('dashboard', {
       users,
