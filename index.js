@@ -631,6 +631,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       expiringLimit,
       expiringOffset,
       expiringCount,
+      user: req.user,
       page: 'dashboard'
     });
   } catch (e) {
@@ -697,6 +698,7 @@ app.get('', requireAuth, async (req, res) => {
       expiringLimit,
       expiringOffset,
       expiringCount,
+      user: req.user,
       page: 'dashboard'
     });
   } catch (e) {
