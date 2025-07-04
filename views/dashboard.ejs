@@ -1,413 +1,276 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Admin Dashboard</title>
+  <title>Панель администратора</title>
 
-  <!-- Bootstrap 5 Dark Theme CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" >
-  
-  <!-- DataTables CSS с Bootstrap 5 -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" />
-  
-  <!-- jQuery и DataTables JS -->
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-  
+  <!-- AdminLTE -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css">
+
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap4.min.css">
+
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <style>
-    body {
-      background-color: #121212;
-      color: #eee;
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-    a {
-      color: #80bdff;
-    }
-    a:hover {
-      color: #a8d0ff;
-    }
-    h1, h3 {
-      margin-bottom: 10px;
-    }
-    .chart-container {
-      width: 100%;
-      max-width: 900px;
-      margin-bottom: 40px;
-      height: 250px;
-    }
-    .inactive {
-      color: #777 !important;
-      opacity: 0.7;
-    }
-    .pagination-controls {
-      margin-top: 10px;
-      margin-bottom: 20px;
-    }
-    .pagination-controls button {
-      margin-right: 5px;
-      padding: 5px 10px;
-      cursor: pointer;
-      background-color: #1f1f1f;
-      border: 1px solid #444;
-      color: #eee;
-    }
-    .pagination-controls button:hover {
-      background-color: #333;
-    }
-    pre {
-      background: #222;
-      border: 1px solid #444;
-      padding: 10px;
-      max-height: 300px;
-      overflow: auto;
-      color: #ccc;
-    }
-    table.dataTable thead {
-      background-color: #1e1e1e;
-      color: #eee;
-    }
-    table.dataTable tbody tr:hover {
-      background-color: #2c2c2c !important;
-    }
-    /* Bootstrap override для формы и кнопок */
-    form {
-      margin-bottom: 20px;
-    }
-    button, select, input[type="checkbox"] {
-      cursor: pointer;
-    }
-  </style>
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap4.min.js"></script>
 </head>
-<body>
-  <div class="container-fluid">
-    <h1>📊 Admin Dashboard</h1>
+<body class="hold-transition sidebar-mini dark-mode">
+<div class="wrapper">
+  <div class="content-wrapper p-4">
+    <div class="container-fluid">
 
-    <form method="GET" action="/dashboard" class="d-flex align-items-center gap-3">
-      <div class="form-check">
-        <input type="checkbox" class="form-check-input" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
-        <label for="showInactive" class="form-check-label">Показать неактивных</label>
+      <div class="mb-4">
+        <h1 class="m-0 text-white"><i class="fas fa-chart-line"></i> Панель администратора</h1>
       </div>
-      <button type="submit" class="btn btn-primary btn-sm">Обновить</button>
-      <a href="/export" class="btn btn-outline-light btn-sm ms-3">📁 Экспорт в CSV</a>
-    </form>
 
-    <% if (showInactive) { %>
-      <form method="POST" action="/delete-inactive" onsubmit="return confirm('Удалить всех неактивных пользователей?')">
-        <button type="submit" class="btn btn-danger btn-sm mb-3">🗑 Удалить неактивных</button>
-      </form>
-    <% } %>
+      <div class="row mb-4">
+        <div class="col-md-3 col-sm-6">
+          <div class="small-box bg-info">
+            <div class="inner">
+              <h3><%= stats.totalUsers %></h3>
+              <p>Всего пользователей</p>
+            </div>
+            <div class="icon">
+              <i class="fas fa-users"></i>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+          <div class="small-box bg-success">
+            <div class="inner">
+              <h3><%= stats.totalDownloads %></h3>
+              <p>Загрузок</p>
+            </div>
+            <div class="icon">
+              <i class="fas fa-download"></i>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6 col-sm-12">
+          <div class="card bg-dark">
+            <div class="card-header">
+              <h3 class="card-title">Тарифы</h3>
+            </div>
+            <div class="card-body">
+              Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <p><strong>Всего пользователей:</strong> <%= stats.totalUsers %></p>
-    <p><strong>Загрузок:</strong> <%= stats.totalDownloads %></p>
-    <p><strong>Тарифы:</strong> Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %></p>
+      <!-- Графики -->
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card card-dark">
+            <div class="card-header">
+              <h3 class="card-title">Активность / регистрации / загрузки</h3>
+            </div>
+            <div class="card-body">
+              <canvas id="combinedChart"></canvas>
+            </div>
+          </div>
+        </div>
 
-    <div class="chart-container"><canvas id="combinedChart"></canvas></div>
+        <div class="col-md-3">
+          <div class="card card-dark">
+            <div class="card-header">
+              <h3 class="card-title">Активность по часам</h3>
+            </div>
+            <div class="card-body">
+              <canvas id="hourActivityChart"></canvas>
+            </div>
+          </div>
+        </div>
 
-    <div class="chart-container"><canvas id="hourActivityChart"></canvas></div>
-    <div class="chart-container"><canvas id="weekdayActivityChart"></canvas></div>
+        <div class="col-md-3">
+          <div class="card card-dark">
+            <div class="card-header">
+              <h3 class="card-title">По дням недели</h3>
+            </div>
+            <div class="card-body">
+              <canvas id="weekdayActivityChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Тепловая карта -->
+      <div class="card card-dark">
+        <div class="card-header">
+          <h3 class="card-title">🗓 Тепловая карта активности</h3>
+        </div>
+        <div class="card-body">
+          <canvas id="heatmapChart" style="height:400px;"></canvas>
+        </div>
+      </div>
 
-    <h3>🗓 Активность пользователей по дате и часу (тепловая карта)</h3>
-    <div class="chart-container" style="height: 400px;">
-      <canvas id="heatmapChart"></canvas>
+      <!-- Истекающие тарифы -->
+      <div class="card card-dark">
+        <div class="card-header">
+          <h3 class="card-title">🕒 Истекающие тарифы</h3>
+        </div>
+        <div class="card-body">
+          <% if (expiringSoon.length === 0) { %>
+            <p>Нет таких пользователей</p>
+          <% } else { %>
+            <ul>
+              <% expiringSoon.forEach(u => { %>
+                <li><%= u.first_name %> (<%= u.username ? '@' + u.username : '—' %>) — до <%= new Date(u.premium_until).toLocaleDateString() %></li>
+              <% }) %>
+            </ul>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Таблица пользователей -->
+      <div class="card card-dark">
+        <div class="card-header">
+          <h3 class="card-title">👤 Пользователи</h3>
+        </div>
+        <div class="card-body">
+          <table id="usersTable" class="table table-bordered table-striped">
+            <thead>
+              <tr>
+                <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
+                <th>Регистрация</th><th>Активность</th><th>🟢/🟡/🔴</th><th>Источник</th><th>Тариф</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% users.forEach(user => { %>
+                <tr class="<%= !user.active ? 'text-muted' : '' %>">
+                  <td><%= user.id %></td>
+                  <td><%= user.username ? '@' + user.username : '' %></td>
+                  <td>
+                    <%= user.first_name %> 
+                    <% if (new Date(user.created_at) > Date.now() - 24 * 60 * 60 * 1000) { %>🆕<% } %>
+                  </td>
+                  <td><%= user.total_downloads || 0 %></td>
+                  <td><%= user.premium_limit %></td>
+                  <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
+                  <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
+                  <td>
+                    <% if (!user.last_active) { %>🔴
+                    <% } else if (new Date(user.last_active) > Date.now() - 24 * 60 * 60 * 1000) { %>🟢
+                    <% } else { %>🟡<% } %>
+                  </td>
+                  <td><%= user.referral_source || '—' %></td>
+                  <td>
+                    <form method="POST" action="/set-tariff" style="margin:0;">
+                      <input type="hidden" name="userId" value="<%= user.id %>">
+                      <select name="limit" class="form-control form-control-sm">
+                        <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                        <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                        <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                        <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
+                      </select>
+                      <button type="submit" class="btn btn-sm btn-primary mt-1">Сохранить</button>
+                    </form>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Массовая рассылка -->
+      <div class="card card-dark">
+        <div class="card-header">
+          <h3 class="card-title">📢 Массовая рассылка</h3>
+        </div>
+        <div class="card-body">
+          <form method="POST" action="/broadcast" enctype="multipart/form-data">
+            <div class="form-group">
+              <textarea name="message" rows="4" class="form-control" placeholder="Введите текст..." required></textarea>
+            </div>
+            <div class="form-group">
+              <label>Прикрепить аудио:</label>
+              <input type="file" name="audio" class="form-control-file">
+            </div>
+            <button type="submit" class="btn btn-success">Отправить</button>
+          </form>
+        </div>
+      </div>
+
     </div>
-
-    <details>
-      <summary>Показать данные активности по дате и часу (JSON)</summary>
-      <pre><%= JSON.stringify(stats.activityByDayHour || {}, null, 2) %></pre>
-    </details>
-
-    <h3>🕒 С тарифом, истекающим в ближайшие 3 дня</h3>
-
-    <form id="paginationForm" method="GET" action="/dashboard" class="d-flex align-items-center gap-3 mb-3">
-      <input type="hidden" name="showInactive" value="<%= showInactive ? 'true' : '' %>">
-      <label for="expiringLimit">Показывать по:</label>
-      <select name="expiringLimit" id="expiringLimit" class="form-select form-select-sm w-auto" onchange="document.getElementById('paginationForm').submit()">
-        <option value="5" <%= expiringLimit == 5 ? 'selected' : '' %>>5</option>
-        <option value="10" <%= expiringLimit == 10 ? 'selected' : '' %>>10</option>
-        <option value="25" <%= expiringLimit == 25 ? 'selected' : '' %>>25</option>
-        <option value="50" <%= expiringLimit == 50 ? 'selected' : '' %>>50</option>
-        <option value="100" <%= expiringLimit == 100 ? 'selected' : '' %>>100</option>
-      </select>
-      <input type="hidden" name="expiringOffset" id="expiringOffset" value="<%= expiringOffset || 0 %>">
-    </form>
-
-    <% if (expiringSoon.length === 0) { %>
-      <p>Нет таких пользователей</p>
-    <% } else { %>
-      <ul class="list-group mb-3" style="max-width: 500px;">
-        <% expiringSoon.forEach(u => { %>
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span><%= u.first_name %> (<%= u.username ? '@' + u.username : '—' %>)</span>
-            <span>до <%= new Date(u.premium_until).toLocaleDateString() %></span>
-          </li>
-        <% }) %>
-      </ul>
-
-      <div class="pagination-controls">
-        <% if (expiringOffset > 0) { %>
-          <button class="btn btn-outline-light btn-sm" onclick="changePage(-1)">← Назад</button>
-        <% } %>
-        <% if (expiringOffset + expiringLimit < expiringCount) { %>
-          <button class="btn btn-outline-light btn-sm" onclick="changePage(1)">Вперёд →</button>
-        <% } %>
-        <span>Показано <%= expiringOffset + 1 %>–<%= Math.min(expiringOffset + expiringLimit, expiringCount) %> из <%= expiringCount %></span>
-      </div>
-    <% } %>
-
-    <h3>📈 Источники трафика</h3>
-    <table class="table table-sm table-dark table-striped table-bordered" style="max-width: 400px;">
-      <thead>
-        <tr><th>Источник</th><th>Кол-во</th></tr>
-      </thead>
-      <tbody>
-        <% referralStats.forEach(source => { %>
-          <tr>
-            <td><%= source.source || '—' %></td>
-            <td><%= source.count %></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-
-    <h3>👤 Пользователи (<%= users.length %>)</h3>
-    <table id="usersTable" class="table table-sm table-dark table-striped table-bordered display" style="width:100%">
-      <thead>
-        <tr>
-          <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
-          <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% users.forEach(user => { %>
-          <tr class="<%= !user.active ? 'inactive' : '' %>">
-            <td><%= user.id %></td>
-            <td><%= user.username ? '@' + user.username : '' %></td>
-            <td>
-              <%= user.first_name %> 
-              <% if (new Date(user.created_at) > Date.now() - 24 * 60 * 60 * 1000) { %>🆕<% } %>
-            </td>
-            <td><%= user.total_downloads || 0 %></td>
-            <td><%= user.premium_limit %></td>
-            <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
-            <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
-            <td>
-              <% if (!user.last_active) { %>🔴
-              <% } else if (new Date(user.last_active) > Date.now() - 24 * 60 * 60 * 1000) { %>🟢
-              <% } else { %>🟡<% } %>
-            </td>
-            <td><%= user.referral_source || '—' %></td>
-            <td>
-              <form method="POST" action="/set-tariff" style="margin:0;" class="d-flex gap-2 align-items-center">
-                <input type="hidden" name="userId" value="<%= user.id %>">
-                <select name="limit" class="form-select form-select-sm">
-                  <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
-                  <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
-                  <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
-                  <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
-                </select>
-                <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
-              </form>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-
-    <h3>📢 Массовая рассылка</h3>
-    <form method="POST" action="/broadcast" enctype="multipart/form-data" class="mb-5">
-      <textarea name="message" rows="4" class="form-control mb-2" placeholder="Введите текст" required></textarea>
-      <input type="file" name="audio" class="form-control mb-2">
-      <button type="submit" class="btn btn-success">Отправить</button>
-    </form>
   </div>
+</div>
 
-  <script>
-    // DataTables с Bootstrap 5 и русской локализацией
-    $(document).ready(() => {
-      $('#usersTable').DataTable({
-        order: [[5, 'desc']],
-        language: {
-          search: "Поиск:",
-          lengthMenu: "Показать _MENU_ записей",
-          info: "Показано _START_ - _END_ из _TOTAL_",
-          paginate: {
-            first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая"
-          },
-          zeroRecords: "Нет данных"
-        }
-      });
-    });
+<!-- JS для графиков -->
+<script>
+  const labels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
+  const regData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
+  const downloads = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
+  const active = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
 
-    // Данные для графиков
-    const combinedLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
-    const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
-    const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
-    const activeUsersData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
-
-    new Chart(document.getElementById('combinedChart'), {
-      type: 'line',
-      data: {
-        labels: combinedLabels,
-        datasets: [
-          {
-            label: 'Регистрации',
-            data: registrationsData,
-            borderColor: '#2196F3',
-            backgroundColor: 'rgba(33, 150, 243, 0.5)',
-            fill: true,
-            tension: 0.3,
-          },
-          {
-            label: 'Загрузки',
-            data: downloadsData,
-            borderColor: '#4CAF50',
-            backgroundColor: 'rgba(76, 175, 80, 0.5)',
-            fill: true,
-            tension: 0.3,
-          },
-          {
-            label: 'Активные пользователи',
-            data: activeUsersData,
-            borderColor: '#FF9800',
-            backgroundColor: 'rgba(255, 152, 0, 0.5)',
-            fill: true,
-            tension: 0.3,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        interaction: { mode: 'index', intersect: false },
-        stacked: false,
-        scales: {
-          y: { beginAtZero: true, ticks: { color: '#eee' } },
-          x: { ticks: { color: '#eee' } }
-        },
-        plugins: {
-          legend: { labels: { color: '#eee' } }
-        }
-      }
-    });
-
-    const hoursLabels = Array.from({length:24}, (_,i) => i + ':00');
-    const activityByHour = <%- JSON.stringify(stats.activityByHour || Array(24).fill(0)) %>;
-
-    new Chart(document.getElementById('hourActivityChart'), {
-      type: 'bar',
-      data: {
-        labels: hoursLabels,
-        datasets: [{
-          label: 'Активность по часам',
-          data: activityByHour,
-          backgroundColor: 'rgba(75, 192, 192, 0.8)',
-          borderColor: 'rgba(75, 192, 192, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        scales: {
-          y: { beginAtZero: true, ticks: { color: '#eee' } },
-          x: { title: { display: true, text: 'Часы', color: '#eee' }, ticks: { color: '#eee' } }
-        },
-        plugins: {
-          legend: { labels: { color: '#eee' } }
-        },
-        responsive: true
-      }
-    });
-
-    const weekdaysLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    const activityByWeekday = <%- JSON.stringify(stats.activityByWeekday || Array(7).fill(0)) %>;
-
-    new Chart(document.getElementById('weekdayActivityChart'), {
-      type: 'bar',
-      data: {
-        labels: weekdaysLabels,
-        datasets: [{
-          label: 'Активность по дням недели',
-          data: activityByWeekday,
-          backgroundColor: 'rgba(153, 102, 255, 0.8)',
-          borderColor: 'rgba(153, 102, 255, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        scales: {
-          y: { beginAtZero: true, ticks: { color: '#eee' } },
-          x: { title: { display: true, text: 'Дни недели', color: '#eee' }, ticks: { color: '#eee' } }
-        },
-        plugins: {
-          legend: { labels: { color: '#eee' } }
-        },
-        responsive: true
-      }
-    });
-
-    const activityByDayHour = <%- JSON.stringify(stats.activityByDayHour || {}) %>;
-
-    const days = Object.keys(activityByDayHour).sort();
-    const hours = Array.from({length: 24}, (_, i) => i);
-
-    const heatmapDatasets = hours.map(hour => ({
-      label: hour + ':00',
-      data: days.map(day => (activityByDayHour[day] ? activityByDayHour[day][hour] : 0)),
-      backgroundColor: function(context) {
-        const value = context.dataset.data[context.dataIndex];
-        const alpha = Math.max(Math.min(value / 3, 1), 0.3);
-        return `rgba(54, 162, 235, ${alpha})`;
-      },
-      borderWidth: 0
-    }));
-
-    const ctxHeatmap = document.getElementById('heatmapChart').getContext('2d');
-    new Chart(ctxHeatmap, {
-      type: 'bar',
-      data: {
-        labels: days,
-        datasets: heatmapDatasets
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        scales: {
-          x: {
-            stacked: true,
-            beginAtZero: true,
-            title: { display: true, text: 'Активность', color: '#eee' },
-            ticks: { color: '#eee' }
-          },
-          y: {
-            stacked: true,
-            title: { display: true, text: 'Дата', color: '#eee' },
-            ticks: { autoSkip: true, maxTicksLimit: 10, color: '#eee' }
-          }
-        },
-        plugins: {
-          legend: { display: true, position: 'top', labels: { color: '#eee' } },
-          tooltip: {
-            callbacks: {
-              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.x}`
-            }
-          }
-        }
-      }
-    });
-
-    // Управление пагинацией списка пользователей с истекающим тарифом
-    function changePage(delta) {
-      const offsetInput = document.getElementById('expiringOffset');
-      let offset = parseInt(offsetInput.value) || 0;
-      const limit = parseInt(document.getElementById('expiringLimit').value) || 10;
-      offset += delta * limit;
-      if (offset < 0) offset = 0;
-      offsetInput.value = offset;
-      document.getElementById('paginationForm').submit();
+  new Chart(document.getElementById('combinedChart'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Регистрации', data: regData, borderColor: 'blue', fill: false },
+        { label: 'Загрузки', data: downloads, borderColor: 'green', fill: false },
+        { label: 'Активные', data: active, borderColor: 'orange', fill: false }
+      ]
     }
-  </script>
+  });
+
+  const hoursLabels = Array.from({length:24}, (_,i) => i + ':00');
+  const activityByHour = <%- JSON.stringify(stats.activityByHour || Array(24).fill(0)) %>;
+  new Chart(document.getElementById('hourActivityChart'), {
+    type: 'bar',
+    data: { labels: hoursLabels, datasets: [{ label: 'По часам', data: activityByHour, backgroundColor: 'teal' }] }
+  });
+
+  const weekdaysLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const activityByWeekday = <%- JSON.stringify(stats.activityByWeekday || Array(7).fill(0)) %>;
+  new Chart(document.getElementById('weekdayActivityChart'), {
+    type: 'bar',
+    data: { labels: weekdaysLabels, datasets: [{ label: 'По дням', data: activityByWeekday, backgroundColor: 'purple' }] }
+  });
+
+  const activityByDayHour = <%- JSON.stringify(stats.activityByDayHour || {}) %>;
+  const days = Object.keys(activityByDayHour).sort();
+  const hours = Array.from({length: 24}, (_, i) => i);
+  const heatmapDatasets = hours.map(hour => ({
+    label: hour + ':00',
+    data: days.map(day => activityByDayHour[day]?.[hour] || 0),
+    backgroundColor: ctx => {
+      const v = ctx.dataset.data[ctx.dataIndex];
+      const a = Math.min(v / 3, 1);
+      return `rgba(54, 162, 235, ${a})`;
+    },
+    borderWidth: 0
+  }));
+  new Chart(document.getElementById('heatmapChart'), {
+    type: 'bar',
+    data: { labels: days, datasets: heatmapDatasets },
+    options: {
+      indexAxis: 'y',
+      scales: { x: { stacked: true }, y: { stacked: true } },
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  // DataTables init
+  $(document).ready(() => {
+    $('#usersTable').DataTable({
+      language: {
+        search: "Поиск:",
+        lengthMenu: "Показать _MENU_ записей",
+        info: "Показано _START_ - _END_ из _TOTAL_",
+        paginate: {
+          first: "Первая", last: "Последняя", next: "→", previous: "←"
+        },
+        zeroRecords: "Нет данных"
+      }
+    });
+  });
+</script>
+
 </body>
 </html>
