@@ -152,7 +152,6 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-  
 // --- Функция для скачивания и отправки одного трека ---
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
@@ -178,7 +177,6 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         noCheckCertificates: true
       });
     }
-
     // Обновляем статистику
     await incrementDownloads(userId, name);
     await saveTrackForUser(userId, name);
@@ -203,7 +201,6 @@ if (playlistKey && playlistTracker.has(playlistKey)) {
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-
 // --- Функция управления очередью загрузок ---
 function addToGlobalQueue(task) {
   globalQueue.push(task);
@@ -229,9 +226,7 @@ async function processNextInQueue() {
     processNextInQueue();
   }
 } 
-
     // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
-
    async function enqueue(ctx, userId, url) {
   try {
     await logUserActivity(userId)
@@ -404,7 +399,6 @@ bot.action('check_subscription', async ctx => {
 
   const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
 
-
 return `
 👋 Привет, ${user.first_name}!
 
@@ -475,7 +469,6 @@ bot.action('check_subscription', async ctx => {
   }
 });
 
-
 bot.hears(texts.mytracks, async ctx => {
   const u = await getUser(ctx.from.id);
   const list = u.tracks_today?.split(',').filter(Boolean) || [];
@@ -545,29 +538,41 @@ app.use(session({
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+// Маршрут для страницы входа (логина)
+app.get('/admin', (req, res) => {
+  res.render('login'); // или 'admin' если твой шаблон называется так
+});
+app.post('/admin', async (req, res) => {
+  const { username, password } = req.body;
 
-function requireAuth(req, res, next) {
-  if (req.session.authenticated) {
-    // Предположим, что в сессии у тебя хранится userId
-    if (req.session.userId) {
-      // Получаем пользователя из базы и кладём в req.user
-      getUser(req.session.userId).then(user => {
-        req.user = user;
-        next();
-      }).catch(err => {
-        console.error('Ошибка при получении пользователя:', err);
-        res.redirect('/admin'); // или 500
-      });
-    } else {
-      // Если userId нет — просто вызываем дальше без user
-      next();
-    }
+  // Пример простой проверки — нужно заменить на свою логику
+  // Можно проверить username и password через базу или жестко прописать
+  if (username === 'admin' && password === 'секрет') {
+    // Сохраняем идентификатор пользователя в сессии
+    req.session.userId = 1; // или реальный ID из БД
+    req.session.authenticated = true;
+    res.redirect('/dashboard'); // или куда надо
   } else {
-    res.redirect('/admin');
+    res.render('login', { error: 'Неверный логин или пароль' });
   }
+});
+async function requireAuth(req, res, next) {
+  if (req.session.authenticated && req.session.userId) {
+    try {
+      const user = await getUserById(req.session.userId);
+      if (user) {
+        req.user = user; // кладём пользователя в req.user
+        return next();
+      }
+    } catch (e) {
+      console.error('Ошибка при получении пользователя:', e);
+    }
+  }
+  // Если не авторизован, редирект на логин
+  res.redirect('/admin');
 }
 
-app.get('/broadcast', requireAuth, (req, res) => {
+app.get('/broadcast', '/dashboard', requireAuth, (req, res) => {
   res.render('broadcast-form'); // Просто отображаем форму
 });
 
@@ -612,7 +617,7 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 
   res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
-app.get('/dashboard', requireAuth, async (req, res) => {
+app.get('/dashboard', '/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
     const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
