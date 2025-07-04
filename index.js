@@ -440,6 +440,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activeByDate: await getActiveUsersByDate()
     };
 
+    const activityByHour = await getActivityByHour(); // <– ВСТАВИЛИ СЮДА
+    const activityByWeekday = await getActivityByWeekday(); // <– И ЭТО
+
     const referralStats = await getReferralSourcesStats();
     const activityByDayHour = await getUserActivityByDayHour();
 
