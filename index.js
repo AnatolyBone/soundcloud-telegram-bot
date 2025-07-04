@@ -547,8 +547,24 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 function requireAuth(req, res, next) {
-  if (req.session.authenticated) return next();
-  res.redirect('/admin');
+  if (req.session.authenticated) {
+    // Предположим, что в сессии у тебя хранится userId
+    if (req.session.userId) {
+      // Получаем пользователя из базы и кладём в req.user
+      getUser(req.session.userId).then(user => {
+        req.user = user;
+        next();
+      }).catch(err => {
+        console.error('Ошибка при получении пользователя:', err);
+        res.redirect('/admin'); // или 500
+      });
+    } else {
+      // Если userId нет — просто вызываем дальше без user
+      next();
+    }
+  } else {
+    res.redirect('/admin');
+  }
 }
 
 app.get('/broadcast', requireAuth, (req, res) => {
