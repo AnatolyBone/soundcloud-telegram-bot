@@ -1,764 +1,527 @@
-// index.js
-const { Telegraf, Markup } = require('telegraf');
-
-const compression = require('compression');
-const express = require('express');
-const session = require('express-session');
-const ejs = require('ejs');
-const fs = require('fs');
-const path = require('path');
-const ytdl = require('youtube-dl-exec');
-const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
-const { Parser } = require('json2csv');
-const playlistTracker = new Map();
-const { supabase } = require('./db'); // или путь, где у тебя инициализация supabase клиента
-
-const {
-  createUser,
-  getUser,
-  updateUserField,
-  incrementDownloads,
-  setPremium,
-  getAllUsers,
-  resetDailyStats,
-  addReview,
-  saveTrackForUser,
-  hasLeftReview,
-  getLatestReviews,
-  resetDailyLimitIfNeeded,
-  getRegistrationsByDate,
-  getDownloadsByDate,
-  getActiveUsersByDate,
-  getExpiringUsers,
-  getReferralSourcesStats,
-  markSubscribedBonusUsed,
-  getUserActivityByDayHour,
-  logUserActivity
-} = require('./db');
-
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const WEBHOOK_PATH = '/telegram';
-const PORT = process.env.PORT || 3000;
-if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
-  console.error('❌ Отсутствуют необходимые переменные окружения!');
-  process.exit(1);
-}
-if (isNaN(ADMIN_ID)) {
-  console.error('❌ ADMIN_ID должен быть числом');
-  process.exit(1);
-}
-
-const bot = new Telegraf(BOT_TOKEN);
-const app = express();
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
-
-const cacheDir = path.join(__dirname, 'cache');
-if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
-// Очистка кеша старше 7 дней
-setInterval(() => {
-  const cutoff = Date.now() - 7 * 86400 * 1000;
-  fs.readdir(cacheDir, (err, files) => {
-    if (err) {
-      console.error('Ошибка чтения кеша:', err);
-      return;
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- AdminLTE CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css" />
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap4.min.css" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <!-- Bootstrap 4 JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- DataTables JS -->
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap4.min.js"></script>
+  <style>
+    /* Немного кастомных стилей для подсказок и высоты контента */
+    .content-wrapper {
+      min-height: 90vh;
     }
-    files.forEach(file => {
-      const filePath = path.join(cacheDir, file);
-      fs.stat(filePath, (err, stats) => {
-        if (err) {
-          console.error('Ошибка stat файла:', err);
-          return;
+  </style>
+</head>
+<body class="hold-transition sidebar-mini">
+<div class="wrapper">
+
+  <!-- Навигационная панель сверху -->
+  <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+    <!-- Левая часть -->
+    <ul class="navbar-nav">
+      <li class="nav-item">
+        <a class="nav-link" data-widget="pushmenu" href="#" role="button" title="Меню"><i class="fas fa-bars"></i></a>
+      </li>
+      <li class="nav-item d-none d-sm-inline-block">
+        <a href="/dashboard" class="nav-link">Главная</a>
+      </li>
+    </ul>
+    <!-- Правая часть -->
+    <ul class="navbar-nav ml-auto">
+      <li class="nav-item">
+        <a href="/logout" class="nav-link" title="Выйти"><i class="fas fa-sign-out-alt"></i></a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Боковая панель -->
+  <aside class="main-sidebar sidebar-dark-primary elevation-4">
+    <!-- Логотип -->
+    <a href="/dashboard" class="brand-link">
+      <i class="fas fa-music ml-2"></i>
+      <span class="brand-text font-weight-light ml-2">BAZA Admin</span>
+    </a>
+
+    <!-- Меню -->
+    <div class="sidebar">
+      <nav class="mt-2">
+        <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
+          <li class="nav-item">
+            <a href="/dashboard" class="nav-link <%= page === 'dashboard' ? 'active' : '' %>">
+              <i class="nav-icon fas fa-tachometer-alt"></i>
+              <p>Панель управления</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/users" class="nav-link <%= page === 'users' ? 'active' : '' %>">
+              <i class="nav-icon fas fa-users"></i>
+              <p>Пользователи</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/broadcast" class="nav-link <%= page === 'broadcast' ? 'active' : '' %>">
+              <i class="nav-icon fas fa-bullhorn"></i>
+              <p>Массовая рассылка</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings" class="nav-link <%= page === 'settings' ? 'active' : '' %>">
+              <i class="nav-icon fas fa-cogs"></i>
+              <p>Настройки</p>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- Основной контент -->
+  <div class="content-wrapper">
+    <!-- Заголовок страницы -->
+    <section class="content-header">
+      <div class="container-fluid">
+        <div class="row mb-2">
+          <div class="col-sm-6">
+            <h1>📊 Админка</h1>
+          </div>
+          <div class="col-sm-6 text-right">
+            <small>Пользователь: <%= user ? user.username || user.first_name : 'Гость' %></small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Основной блок контента -->
+    <section class="content">
+      <div class="container-fluid">
+        <!-- Вкладки -->
+        <ul class="nav nav-tabs" id="dashboardTabs" role="tablist">
+          <li class="nav-item">
+            <a class="nav-link active" id="stats-tab" data-toggle="tab" href="#stats" role="tab" aria-controls="stats" aria-selected="true">Статистика</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" id="users-tab" data-toggle="tab" href="#usersTab" role="tab" aria-controls="usersTab" aria-selected="false">Пользователи</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" id="broadcast-tab" data-toggle="tab" href="#broadcastTab" role="tab" aria-controls="broadcastTab" aria-selected="false">Рассылка</a>
+          </li>
+        </ul>
+
+        <div class="tab-content" id="dashboardTabsContent" style="margin-top:20px;">
+          <!-- Вкладка Статистика -->
+          <div class="tab-pane fade show active" id="stats" role="tabpanel" aria-labelledby="stats-tab">
+
+            <form method="GET" action="/dashboard" class="form-inline mb-3">
+              <div class="form-check mr-3">
+                <input class="form-check-input" type="checkbox" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
+                <label class="form-check-label" for="showInactive">Показать неактивных</label>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm">Обновить</button>
+              <a href="/export" class="btn btn-secondary btn-sm ml-3">📁 Экспорт в CSV</a>
+            </form>
+
+            <div class="row mb-3">
+              <div class="col-md-4">
+                <div class="info-box bg-info">
+                  <span class="info-box-icon"><i class="fas fa-users"></i></span>
+                  <div class="info-box-content">
+                    <span class="info-box-text">Всего пользователей</span>
+                    <span class="info-box-number"><%= stats.totalUsers %></span>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="info-box bg-success">
+                  <span class="info-box-icon"><i class="fas fa-download"></i></span>
+                  <div class="info-box-content">
+                    <span class="info-box-text">Всего загрузок</span>
+                    <span class="info-box-number"><%= stats.totalDownloads %></span>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="info-box bg-warning">
+                  <span class="info-box-icon"><i class="fas fa-star"></i></span>
+                  <div class="info-box-content">
+                    <span class="info-box-text">Тарифы (Free/Plus/Pro/Unlim)</span>
+                    <span class="info-box-number">
+                      Free: <%= stats.free %>, Plus: <%= stats.plus %>, Pro: <%= stats.pro %>, Unlim: <%= stats.unlimited %>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Графики -->
+            <div class="card card-primary card-outline">
+              <div class="card-header">
+                <h3 class="card-title">Регистрации, Загрузки, Активные</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="combinedChart" style="height: 250px;"></canvas>
+              </div>
+            </div>
+
+            <div class="row mt-3">
+              <div class="col-md-6">
+                <div class="card card-info card-outline">
+                  <div class="card-header">
+                    <h3 class="card-title">Активность по часам</h3>
+                  </div>
+                  <div class="card-body">
+                    <canvas id="hourActivityChart" style="height: 250px;"></canvas>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="card card-info card-outline">
+                  <div class="card-header">
+                    <h3 class="card-title">Активность по дням недели</h3>
+                  </div>
+                  <div class="card-body">
+                    <canvas id="weekdayActivityChart" style="height: 250px;"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Тепловая карта -->
+            <div class="card card-secondary card-outline mt-3">
+              <div class="card-header">
+                <h3 class="card-title">Активность по дате и часу (тепловая карта)</h3>
+              </div>
+              <div class="card-body" style="height: 400px;">
+                <canvas id="heatmapChart"></canvas>
+              </div>
+              <details class="mt-3">
+                <summary>Показать данные активности по дате и часу (JSON)</summary>
+                <pre><%= JSON.stringify(stats.activityByDayHour || {}, null, 2) %></pre>
+              </details>
+            </div>
+
+            <!-- С тарифом, истекающим в ближайшие 3 дня -->
+            <div class="card card-danger card-outline mt-3">
+              <div class="card-header">
+                <h3 class="card-title">С тарифом, истекающим в ближайшие 3 дня</h3>
+              </div>
+              <div class="card-body">
+                <% if (expiringSoon.length === 0) { %>
+                  <p>Нет таких пользователей</p>
+                <% } else { %>
+                  <ul class="list-group">
+                    <% expiringSoon.forEach(u => { %>
+                      <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><%= u.first_name %> (<%= u.username ? '@' + u.username : '—' %>)</span>
+                        <span>До <%= new Date(u.premium_until).toLocaleDateString() %></span>
+                      </li>
+                    <% }) %>
+                  </ul>
+
+                  <nav aria-label="Page navigation example" class="mt-3">
+                    <ul class="pagination justify-content-center">
+                      <% if (expiringOffset > 0) { %>
+                        <li class="page-item">
+                          <button class="page-link" onclick="changePage(-1)">← Назад</button>
+                        </li>
+                      <% } %>
+                      <% if (expiringOffset + expiringLimit < expiringCount) { %>
+                        <li class="page-item">
+                          <button class="page-link" onclick="changePage(1)">Вперёд →</button>
+                        </li>
+                      <% } %>
+                    </ul>
+                    <p class="text-center text-muted">Показано <%= expiringOffset + 1 %>–<%= Math.min(expiringOffset + expiringLimit, expiringCount) %> из <%= expiringCount %></p>
+                  </nav>
+                <% } %>
+              </div>
+            </div>
+
+            <!-- Источники трафика -->
+            <div class="card card-light card-outline mt-3">
+              <div class="card-header">
+                <h3 class="card-title">Источники трафика</h3>
+              </div>
+              <div class="card-body p-0">
+                <table class="table table-striped table-hover mb-0">
+                  <thead class="thead-light">
+                    <tr>
+                      <th>Источник</th>
+                      <th>Кол-во</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <% referralStats.forEach(source => { %>
+                      <tr>
+                        <td><%= source.source || '—' %></td>
+                        <td><%= source.count %></td>
+                      </tr>
+                    <% }) %>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Вкладка Пользователи -->
+          <div class="tab-pane fade" id="usersTab" role="tabpanel" aria-labelledby="users-tab">
+
+            <table id="usersTable" class="table table-bordered table-hover" style="width:100%;">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
+                  <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% users.forEach(user => { %>
+                  <tr class="<%= !user.active ? 'table-secondary' : '' %>">
+                    <td><%= user.id %></td>
+                    <td><%= user.username ? '@' + user.username : '' %></td>
+                    <td>
+                      <%= user.first_name %> 
+                      <% if (new Date(user.created_at) > Date.now() - 24 * 60 * 60 * 1000) { %> <span class="badge badge-info">🆕</span> <% } %>
+                    </td>
+                    <td><%= user.total_downloads || 0 %></td>
+                    <td><%= user.premium_limit %></td>
+                    <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
+                    <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
+                    <td>
+                      <% if (!user.last_active) { %>🔴
+                      <% } else if (new Date(user.last_active) > Date.now() - 24 * 60 * 60 * 1000) { %>🟢
+                      <% } else { %>🟡<% } %>
+                    </td>
+                    <td><%= user.referral_source || '—' %></td>
+                    <td>
+                      <form method="POST" action="/set-tariff" class="form-inline m-0">
+                        <input type="hidden" name="userId" value="<%= user.id %>">
+                        <select name="limit" class="form-control form-control-sm mr-2">
+                          <option value="10" <%= user.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                          <option value="50" <%= user.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                          <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                          <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary btn-sm">Сохранить</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Вкладка Рассылка -->
+          <div class="tab-pane fade" id="broadcastTab" role="tabpanel" aria-labelledby="broadcast-tab">
+            <form method="POST" action="/broadcast" enctype="multipart/form-data">
+              <div class="form-group">
+                <label for="broadcastMessage">Сообщение</label>
+                <textarea id="broadcastMessage" name="message" class="form-control" rows="4" required placeholder="Введите текст"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="broadcastAudio">Аудиофайл (mp3)</label>
+                <input type="file" id="broadcastAudio" name="audio" accept="audio/mp3,audio/mpeg" class="form-control-file" />
+              </div>
+              <button type="submit" class="btn btn-success">Отправить</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Футер -->
+  <footer class="main-footer text-sm text-center">
+    <strong>© 2025 BAZA</strong> — админка Telegram-бота
+  </footer>
+
+</div>
+
+<script>
+  $(function () {
+    // Инициализация тултипов (всплывающих подсказок)
+    $('[data-toggle="tooltip"]').tooltip();
+
+    // Инициализация DataTables
+    $('#usersTable').DataTable({
+      order: [[5, 'desc']],
+      language: {
+        search: "Поиск:",
+        lengthMenu: "Показать _MENU_ записей",
+        info: "Показано _START_ - _END_ из _TOTAL_",
+        paginate: {
+          first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая"
+        },
+        zeroRecords: "Нет данных"
+      }
+    });
+
+    // Данные для графиков
+    const combinedLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
+    const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
+    const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
+    const activeUsersData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
+
+    new Chart(document.getElementById('combinedChart'), {
+      type: 'line',
+      data: {
+        labels: combinedLabels,
+        datasets: [
+          {
+            label: 'Регистрарации',
+            data: registrationsData,
+            borderColor: '#007bff',
+            backgroundColor: 'rgba(0, 123, 255, 0.3)',
+            fill: true,
+            tension: 0.3,
+          },
+          {
+            label: 'Загрузки',
+            data: downloadsData,
+            borderColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.3)',
+            fill: true,
+            tension: 0.3,
+          },
+          {
+            label: 'Активные пользователи',
+            data: activeUsersData,
+            borderColor: '#ffc107',
+            backgroundColor: 'rgba(255, 193, 7, 0.3)',
+            fill: true,
+            tension: 0.3,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        stacked: false,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Активность по часам
+    const hoursLabels = Array.from({length:24}, (_,i) => i + ':00');
+    const activityByHour = <%- JSON.stringify(stats.activityByHour || Array(24).fill(0)) %>;
+
+    new Chart(document.getElementById('hourActivityChart'), {
+      type: 'bar',
+      data: {
+        labels: hoursLabels,
+        datasets: [{
+          label: 'Активность по часам',
+          data: activityByHour,
+          backgroundColor: 'rgba(0, 123, 255, 0.7)',
+          borderColor: 'rgba(0, 123, 255, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true },
+          x: { title: { display: true, text: 'Часы' } }
         }
-        if (stats.mtimeMs < cutoff) {
-          fs.unlink(filePath, err => {
-            if (err) console.error('Ошибка удаления файла кеша:', err);
-            else console.log(`🗑 Удалён кеш: ${file}`);
-          });
+      }
+    });
+
+    // Активность по дням недели
+    const weekdaysLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const activityByWeekday = <%- JSON.stringify(stats.activityByWeekday || Array(7).fill(0)) %>;
+
+    new Chart(document.getElementById('weekdayActivityChart'), {
+      type: 'bar',
+      data: {
+        labels: weekdaysLabels,
+        datasets: [{
+          label: 'Активность по дням недели',
+          data: activityByWeekday,
+          backgroundColor: 'rgba(40, 167, 69, 0.7)',
+          borderColor: 'rgba(40, 167, 69, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true },
+          x: { title: { display: true, text: 'Дни недели' } }
         }
-      });
+      }
     });
+
+    // Тепловая карта активности по дате и часу
+    const activityByDayHour = <%- JSON.stringify(stats.activityByDayHour || {}) %>;
+    const days = Object.keys(activityByDayHour).sort();
+    const hours = Array.from({length: 24}, (_, i) => i);
+
+    const heatmapDatasets = hours.map(hour => ({
+      label: hour + ':00',
+      data: days.map(day => (activityByDayHour[day] ? activityByDayHour[day][hour] || 0 : 0)),
+      backgroundColor: function(context) {
+        const value = context.dataset.data[context.dataIndex];
+        const alpha = Math.min(value / 3, 1);
+        return `rgba(54, 162, 235, ${alpha})`;
+      },
+      borderWidth: 0
+    }));
+
+    const ctxHeatmap = document.getElementById('heatmapChart').getContext('2d');
+    new Chart(ctxHeatmap, {
+      type: 'bar',
+      data: {
+        labels: days,
+        datasets: heatmapDatasets
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        scales: {
+          x: {
+            stacked: true,
+            beginAtZero: true,
+            title: { display: true, text: 'Активность' }
+          },
+          y: {
+            stacked: true,
+            title: { display: true, text: 'Дата' },
+            ticks: { autoSkip: true, maxTicksLimit: 10 }
+          }
+        },
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.x}`
+            }
+          }
+        }
+      }
+    });
+
+    // Пагинация для истекающих тарифов
+    function changePage(delta) {
+      const offsetInput = document.getElementById('expiringOffset');
+      let offset = parseInt(offsetInput.value, 10) || 0;
+      const limit = parseInt(document.getElementById('expiringLimit').value, 10) || 10;
+      offset += delta * limit;
+      if (offset < 0) offset = 0;
+      offsetInput.value = offset;
+      document.getElementById('paginationForm').submit();
+    }
   });
-}, 3600 * 1000);
-
-// Сброс статистики раз в сутки
-setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-
-const MAX_CONCURRENT_DOWNLOADS = 5; // можно подстроить под возможности сервера
-let globalQueue = [];
-let activeDownloadsCount = 0;
-// const queues = {};
-// const processing = {};
-// const userStates = {};// для флага остановки загрузки
-
-const texts = {
-  start: '👋 Пришли ссылку на трек с SoundCloud.',
-  menu: '📋 Меню',
-  upgrade: '🔓 Расширить лимит',
-  mytracks: '🎵 Мои треки',
-  help: 'ℹ️ Помощь',
-  downloading: '🎧 Загружаю...',
-  error: '❌ Ошибка',
-  noTracks: 'Сегодня нет треков.',
-  limitReached: `🚫 Лимит достигнут ❌
-
-🔔 Получи 7 дней Plus!
-Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
-  upgradeInfo: `🚀 Хочешь больше треков?
-
-🆓 Free — 10 🟢
-Plus — 50 🎯 (59₽)
-Pro — 100 💪 (119₽)
-Unlimited — 💎 (199₽)
-
-👉 Донат: https://boosty.to/anatoly_bone/donate
-✉️ После оплаты напиши: @anatolybone
-
-👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
-  helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
-  queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
-  adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
-};
-
-const kb = () =>
-  Markup.keyboard([
-    [texts.menu, texts.upgrade],
-    [texts.mytracks, texts.help]
-  ]).resize();
-
-const isSubscribed = async userId => {
-  try {
-    const res = await bot.telegram.getChatMember('@BAZAproject', userId);
-    return ['member', 'creator', 'administrator'].includes(res.status);
-  } catch {
-    return false;
-  }
-};
-
-async function sendAudioSafe(ctx, userId, filePath, filename) {
-  try {
-    await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(filePath), filename });
-  } catch (e) {
-    console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
-  }
-}
-  
-// --- Функция для скачивания и отправки одного трека ---
-async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
-  const start = Date.now();
-  try {
-    const info = await ytdl(url, { dumpSingleJson: true });
-    // Обработка названия трека
-    let name = info.title || 'track';
-    name = name.replace(/[\\/:*?"<>|]+/g, ''); // убираем опасные символы
-    name = name.trim().replace(/\s+/g, '_');   // пробелы в _
-    name = name.replace(/__+/g, '_');          // двойные подчёркивания в одиночные
-    if (name.length > 64) name = name.slice(0, 64);
-
-    // Путь к кешу
-    const fp = path.join(cacheDir, `${name}.mp3`);
-
-    if (!fs.existsSync(fp)) {
-      // Скачиваем аудио
-      await ytdl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: fp,
-        preferFreeFormats: true,
-        noCheckCertificates: true
-      });
-    }
-
-    // Обновляем статистику
-    await incrementDownloads(userId, name);
-    await saveTrackForUser(userId, name);
-await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
-    // Отправляем аудио пользователю
-    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
-
-    const duration = ((Date.now() - start) / 1000).toFixed(1);
-    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
-const playlistKey = playlistUrl ? `${userId}:${playlistUrl}` : null;
-if (playlistKey && playlistTracker.has(playlistKey)) {
-  let remaining = playlistTracker.get(playlistKey) - 1;
-  if (remaining <= 0) {
-    await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
-    playlistTracker.delete(playlistKey);
-  } else {
-    playlistTracker.set(playlistKey, remaining);
-  }
-}
-  } catch (e) {
-    console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
-  }
-}
-
-// --- Функция управления очередью загрузок ---
-function addToGlobalQueue(task) {
-  globalQueue.push(task);
-  // Сортируем по приоритету (чем выше premium_limit — тем выше приоритет)
-  globalQueue.sort((a, b) => b.priority - a.priority);
-}
-
-async function processNextInQueue() {
-  while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
-    const task = globalQueue.shift();
-    activeDownloadsCount++;
-    const { ctx, userId, url, playlistUrl } = task;
-    try {
-      await processTrackByUrl(ctx, userId, url, playlistUrl);
-    } catch (e) {
-    console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-    try {
-      await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
-    } catch {}
-  }
-
-  activeDownloadsCount--;
-    processNextInQueue();
-  }
-} 
-
-    // Важно: здесь не вызываем createUser/getUser, т.к. уже сделано в обработчике
-
-   async function enqueue(ctx, userId, url) {
-  try {
-    await logUserActivity(userId)
-    const user = await getUser(userId);
-    const remainingLimit = user.premium_limit - user.downloads_today;
-
-    if (remainingLimit <= 0) {
-      return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
-        Markup.button.callback('✅ Я подписался', 'check_subscription')
-      ]));
-    }
-
-    const info = await ytdl(url, { dumpSingleJson: true });
-    const isPlaylist = Array.isArray(info.entries);
-
-    let entries = [];
-
-    if (isPlaylist) {
-      entries = info.entries
-        .filter(e => e && e.webpage_url)
-        .map(e => e.webpage_url);
-const playlistKey = `${user.id}:${url}`;
-playlistTracker.set(playlistKey, entries.length);
-      if (entries.length > remainingLimit) {
-        await ctx.telegram.sendMessage(userId,
-          `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
-        entries = entries.slice(0, remainingLimit);
-      }
-    } else {
-      entries = [url];
-    }
-
-   for (const entryUrl of entries) {
-  addToGlobalQueue({
-    ctx,
-    userId,
-    url: entryUrl,
-    playlistUrl: isPlaylist ? url : null,
-    priority: user.premium_limit
-  });
-} // ← ЭТОТ ЗАКРЫВАЮЩИЙ `}` ОБЯЗАТЕЛЕН
-
-// Отправляем одно сообщение
-await ctx.telegram.sendMessage(userId, texts.queuePosition(
-  globalQueue.filter(task => task.userId === userId).length
-));
-
-    processNextInQueue();
-  } catch (e) {
-    console.error('Ошибка в enqueue:', e);
-    await ctx.telegram.sendMessage(userId, texts.error);
-  }
-}
-
-async function broadcastMessage(bot, pool, message) {
-  const users = await getAllUsers();
-  let successCount = 0;
-  let errorCount = 0;
-
-  for (const user of users) {
-    if (!user.active) continue;
-
-    try {
-      await bot.telegram.sendMessage(user.id, message);
-      successCount++;
-      await new Promise(r => setTimeout(r, 150));
-    } catch (e) {
-      console.log(`Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
-      errorCount++;
-      try {
-        await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
-      } catch (err) {
-        console.error('Ошибка при обновлении статуса пользователя:', err);
-      }
-    }
-  }
-
-  return { successCount, errorCount };
-}
-async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
-  if (!id) return;
-  if (!supabase) {
-    console.error('Supabase клиент не инициализирован');
-    return;
-  }
-  try {
-    const { error } = await supabase
-      .from('users')
-      .upsert([{ id, first_name, username, referred_by: referralSource || null }]);
-    if (error) {
-      console.error('Ошибка upsert в Supabase:', error);
-    }
-  } catch (e) {
-    console.error('Ошибка Supabase:', e);
-  }
-}
-bot.start(async ctx => {
-  const referralSource = ctx.startPayload || null; // вытаскиваем параметр из ссылки /start ref_id
-  
-  // Добавляем/обновляем пользователя в Supabase с рефералом
-  await addOrUpdateUserInSupabase(ctx.from.id, ctx.from.first_name, ctx.from.username, referralSource);
-
-  // Создаём пользователя в Postgres (если нужна твоя текущая логика)
-  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-
-  await ctx.replyWithMarkdown(`👋 Добро пожаловать, *${ctx.from.first_name}*!
-
-🎵 Этот бот качает **треки и плейлисты** с SoundCloud в MP3.
-
-📌 Просто пришли ссылку — и получи MP3.
-
-🎁 Подпишись на канал @BAZAproject — получи *7 дней тарифа Plus бесплатно*.
-
-📋 Нажми кнопку «Меню», чтобы:
-— узнать свой тариф и лимит,
-— посмотреть треки за сегодня,
-— получить реферальную ссылку,
-— расширить лимит.`, kb());
-});
-// Хендлеры бота
-
-bot.hears(texts.menu, async ctx => {
-  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-  const user = await getUser(ctx.from.id);
-
-  const now = new Date();
-  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
-  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
-
-  if (user.referred_count > 0 && daysLeft <= 0 && user.premium_limit < 50) {
-    await setPremium(ctx.from.id, 50, user.referred_count);
-  }
-
-  // Формируем сообщение
-  const message = formatMenuMessage(user);
-
-  // Отправляем его с кнопкой
-  await ctx.reply(message, Markup.inlineKeyboard([
-    Markup.button.callback('✅ Я подписался', 'check_subscription')
-  ]));
-});
-
-bot.action('check_subscription', async ctx => {
-  const user = await getUser(ctx.from.id);
-
-  if (user.subscribed_bonus_used) {
-    return ctx.answerCbQuery('⚠️ Бонус уже был активирован ранее.', { show_alert: true });
-  }
-
-  if (await isSubscribed(ctx.from.id)) {
-    await setPremium(ctx.from.id, 50, 7);
-    await markSubscribedBonusUsed(ctx.from.id);
-
-    await ctx.editMessageReplyMarkup(); // убирает кнопку
-    return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
-  } else {
-    return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
-  }
-});
-  function formatMenuMessage(user) {
-  const now = new Date();
-  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
-  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
-
-  const tariffName =
-    user.premium_limit === 10 ? 'Free (10/день)' :
-    user.premium_limit === 50 ? 'Plus (50/день)' :
-    user.premium_limit === 100 ? 'Pro (100/день)' :
-    'Unlimited';
-
-  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
-
-
-return `
-👋 Привет, ${user.first_name}!
-
-📥 Бот качает треки и целые плейлисты с SoundCloud в MP3.  
-Просто пришли ссылку — и всё 🧙‍♂️
-
-🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
-🎯 Платные тарифы (Plus / Pro / Unlimited) идут с приоритетом — их треки загружаются первыми.  
-📥 Бесплатные пользователи тоже получают треки — просто чуть позже. Всё честно.
-
-💼 Тариф: ${tariffName}  
-⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}
-
-🎧 Сегодня скачано: ${user.downloads_today || 0} из ${user.premium_limit}
-
-🎁 Хочешь больше?
-
-Подпишись на канал @BAZAproject — получи 7 дней тарифа Plus бесплатно.
-
-Нажми «✅ Я подписался», чтобы получить бонус.
-
-👫 Приглашено: ${user.referred_count || 0}  
-🎁 Получено дней Plus по рефералам: ${user.referred_count || 0}
-
-🔗 Твоя реферальная ссылка:  
-${refLink}
-`;
-}
-
-bot.hears(texts.upgrade, ctx => ctx.reply(texts.upgradeInfo));
-bot.hears(texts.help, ctx => ctx.reply(texts.helpInfo));
-
-bot.command('admin', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
-  const users = await getAllUsers();
-  const downloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-  ctx.reply(`📊 Пользователей: ${users.length}\n📥 Загрузок: ${downloads}${texts.adminCommands}`);
-});
-bot.command('testdb', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
-  const user = await getUser(ctx.from.id);
-  ctx.reply(JSON.stringify(user, null, 2));
-});
-bot.command('reviews', async ctx => {
-  if (ctx.from.id !== ADMIN_ID) return;
-  const reviews = await getLatestReviews(10);
-  for (const r of reviews) {
-    await ctx.reply(`📝 ${r.text}\n🕒 ${r.time}`);
-  }
-});
-
-bot.action('check_subscription', async ctx => {
-  const user = await getUser(ctx.from.id);
-
-  if (user.subscribed_bonus_used) {
-    return ctx.answerCbQuery('⚠️ Бонус уже был активирован ранее.', { show_alert: true });
-  }
-
-  if (await isSubscribed(ctx.from.id)) {
-    // Активируем тариф Plus на 7 дней и лимит 50 треков
-    await setPremium(ctx.from.id, 50, 7);
-    await markSubscribedBonusUsed(ctx.from.id);
-
-    await ctx.editMessageReplyMarkup(); // убираем кнопку
-    return ctx.reply('✅ Подписка подтверждена! Тариф Plus активирован на 7 дней.', kb());
-  } else {
-    return ctx.answerCbQuery('❌ Сначала подпишись на канал', { show_alert: true });
-  }
-});
-
-
-bot.hears(texts.mytracks, async ctx => {
-  const u = await getUser(ctx.from.id);
-  const list = u.tracks_today?.split(',').filter(Boolean) || [];
-  if (!list.length) return ctx.reply(texts.noTracks);
-  const media = list.map(name => {
-    const fp = path.join(cacheDir, `${name}.mp3`);
-    return fs.existsSync(fp) ? { type: 'audio', media: { source: fp } } : null;
-  }).filter(Boolean);
-  for (let i = 0; i < media.length; i += 5) {
-    const chunk = media.slice(i, i + 5);
-    try {
-      await ctx.replyWithMediaGroup(chunk);
-    } catch (error) {
-      console.error('Ошибка при отправке части треков:', error);
-      await ctx.reply('❌ Не удалось отправить часть треков. Возможно, один из файлов повреждён.');
-    }
-  }
-});
-
-function extractUrl(text) {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const matches = text.match(urlRegex);
-  if (!matches) return null;
-  return matches.find(u => u.includes('soundcloud.com')) || null;
-}
-
-bot.on('text', async ctx => {
-  if (ctx.message.text.startsWith('/')) return;
-
-  const url = extractUrl(ctx.message.text);
-  if (!url) return;
-  
-await logUserActivity(ctx.from.id);
-  await resetDailyLimitIfNeeded(ctx.from.id);
-  await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-  const u = await getUser(ctx.from.id);
-
-  if (u.downloads_today >= u.premium_limit) {
-    return ctx.reply(texts.limitReached, Markup.inlineKeyboard([
-      Markup.button.callback('✅ Я подписался', 'check_subscription')
-    ]));
-  }
-
-  ctx.reply('⏳ Загрузка началась. Это может занять до 5 минут...');
-  await enqueue(ctx, ctx.from.id, url).catch(e => {
-    console.error('Ошибка в enqueue:', e);
-    ctx.telegram.sendMessage(ctx.from.id, '❌ Произошла ошибка при загрузке.');
-  });
-});
-
-// Webhook
-app.post(WEBHOOK_PATH, express.json(), (req, res) => {
-  res.sendStatus(200);
-  bot.handleUpdate(req.body).catch(err => console.error('Ошибка в handleUpdate:', err));
-});
-
-app.use(express.urlencoded({ extended: true }));
-app.use(compression());
-
-app.use(session({
-  store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-  secret: process.env.SESSION_SECRET || 'secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
-}));
-
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-
-function requireAuth(req, res, next) {
-  if (req.session.authenticated) return next();
-  res.redirect('/admin');
-}
-app.get('/dashboard', requireAuth, async (req, res) => {
-  try {
-    const showInactive = req.query.showInactive === 'true';
-    const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
-    const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
-
-    const expiringSoon = await getExpiringUsers();
-    const expiringCount = expiringSoon.length;
-    const users = await getAllUsers(showInactive);
-
-    const stats = {
-      totalUsers: users.length,
-      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-      free: users.filter(u => u.premium_limit === 10).length,
-      plus: users.filter(u => u.premium_limit === 50).length,
-      pro: users.filter(u => u.premium_limit === 100).length,
-      unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: await getRegistrationsByDate(),
-      downloadsByDate: await getDownloadsByDate(),
-      activeByDate: await getActiveUsersByDate()
-    };
-
-    const referralStats = await getReferralSourcesStats();
-    const activityByDayHour = await getUserActivityByDayHour();
-
-    res.render('dashboard', {
-      users,
-      stats,
-      expiringSoon,
-      showInactive,
-      referralStats,
-      activityByDayHour,
-      expiringLimit,
-      expiringOffset,
-      expiringCount
-    });
-  } catch (e) {
-    console.error('Ошибка при загрузке dashboard:', e);
-    res.status(500).send('Внутренняя ошибка сервера');
-  }
-});
-app.get('/broadcast', requireAuth, (req, res) => {
-  res.render('broadcast-form'); // Просто отображаем форму
-});
-
-app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
-  const { message } = req.body;
-  const audio = req.file;
-
-  if (!message && !audio) {
-    return res.status(400).send('Сообщение или файл обязательно');
-  }
-
-  const users = await getAllUsers();
-
-  let success = 0, error = 0;
-  for (const u of users) {
-    try {
-      if (audio) {
-        await bot.telegram.sendAudio(u.id, {
-          source: fs.createReadStream(audio.path),
-          filename: audio.originalname
-        }, { caption: message || '' });
-      } else {
-        await bot.telegram.sendMessage(u.id, message);
-      }
-      success++;
-    } catch (e) {
-      error++;
-      try {
-        await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [u.id]);
-      } catch (err) {
-        console.error(`Ошибка при обновлении статуса пользователя ${u.id}:`, err);
-      }
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  if (audio) {
-    fs.unlink(audio.path, err => {
-      if (err) console.error('Ошибка удаления файла аудио рассылки:', err);
-    });
-  }
-
-  res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
-});
-app.get('/export', requireAuth, async (req, res) => {
-  try {
-    const users = await getAllUsers(true); // получаем всех (включая неактивных)
-
-    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
-    const opts = { fields };
-    const parser = new Parser(opts);
-    const csv = parser.parse(users);
-
-    res.header('Content-Type', 'text/csv');
-    res.attachment('users.csv');
-    return res.send(csv);
-  } catch (err) {
-    console.error('Ошибка экспорта CSV:', err);
-    res.status(500).send('Ошибка сервера');
-  }
-});
-app.get('', requireAuth, async (req, res) => {
-  try {
-    const showInactive = req.query.showInactive === 'true';
-
-    // Парсим параметры
-    const expiringLimit = req.query.expiringLimit ? parseInt(req.query.expiringLimit, 10) : 10;
-    const expiringOffset = req.query.expiringOffset ? parseInt(req.query.expiringOffset, 10) : 0;
-
-    // Сначала получаем expiringSoon из базы
-    const expiringSoon = await getExpiringUsers();
-
-    // Теперь можно получить количество
-    const expiringCount = expiringSoon.length;
-
-    // Получаем всех пользователей (уже после)
-    const users = await getAllUsers(showInactive);
-
-    const stats = {
-      totalUsers: users.length,
-      totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-      free: users.filter(u => u.premium_limit === 10).length,
-      plus: users.filter(u => u.premium_limit === 50).length,
-      pro: users.filter(u => u.premium_limit === 100).length,
-      unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: await getRegistrationsByDate(),
-      downloadsByDate: await getDownloadsByDate(),
-      activeByDate: await getActiveUsersByDate()
-    };
-
-    const referralStats = await getReferralSourcesStats();
-    const activityByDayHour = await getUserActivityByDayHour();
-
-    res.render('dashboard', {
-      users,
-      stats,
-      expiringSoon,
-      showInactive,
-      referralStats,
-      activityByDayHour,
-      expiringLimit,
-      expiringOffset,
-      expiringCount
-    });
-  } catch (e) {
-    console.error('Ошибка при загрузке :', e);
-    res.status(500).send('Внутренняя ошибка сервера');
-  }
-});
-
-app.get('/expiring-users', requireAuth, async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const perPage = parseInt(req.query.perPage) || 10;
-
-  try {
-    const total = await getExpiringUsersCount();
-    const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
-
-    const totalPages = Math.ceil(total / perPage);
-
-    res.render('expiring-users', {
-      users,
-      page,
-      perPage,
-      totalPages
-    });
-  } catch (e) {
-    console.error('Ошибка загрузки expiring-users:', e);
-    res.status(500).send('Внутренняя ошибка сервера');
-  }
-});
-app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, async (req, res) => {
-  const { userId, limit } = req.body;
-
-  if (!userId || !limit) {
-    return res.status(400).send('Missing parameters');
-  }
-
-  let limitNum;
-  switch(limit) {
-    case '10': limitNum = 10; break;
-    case '50': limitNum = 50; break;
-    case '100': limitNum = 100; break;
-    case '1000': limitNum = 1000; break;
-    default:
-      return res.status(400).send('Unknown tariff');
-  }
-
-  try {
-    await setPremium(parseInt(userId), limitNum, 0);
-    res.redirect('');
-  } catch (e) {
-    console.error('Ошибка при смене тарифа:', e);
-    res.status(500).send('Ошибка сервера');
-  }
-});
-// Запуск сервера и бота
-bot.catch((err, ctx) => {
-  console.error(`Error for ${ctx.updateType}`, err);
-});
-(async () => {
-  try {
-    await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-    app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
-    console.log('🤖 Бот ожидает обновления...');
-  } catch (e) {
-    console.error('Ошибка при старте:', e);
-    process.exit(1);
-  }
-})();
+</script>
+</body>
+</html>
