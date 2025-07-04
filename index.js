@@ -472,20 +472,22 @@ const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 const referralStats = await getReferralSourcesStats();
 
     res.render('dashboard', {
-      users,
-      stats,
-      expiringSoon,
-      showInactive,
-      referralStats,
-      activityByDayHour,
-      expiringLimit,
-      expiringOffset,
-      expiringCount: expiringSoon.length,
-      user: req.user,
-      page: 'dashboard',
-      activityByHour,
-      activityByWeekday
-    });
+  title: 'Админка',
+  page: 'dashboard',
+  user: req.user,
+  stats,
+  users,
+  referralStats,
+  expiringSoon,
+  expiringCount,
+  expiringOffset,
+  expiringLimit,
+  activityByHour,
+  activityByWeekday,
+  showInactive,
+  customStyles: '',
+  customScripts: '',
+});
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
