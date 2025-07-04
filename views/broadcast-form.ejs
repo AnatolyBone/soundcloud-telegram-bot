@@ -1,0 +1,21 @@
+<% layout('layout') %>
+
+<h1>Рассылка</h1>
+
+<% if (error) { %>
+  <div class="alert alert-danger"><%= error %></div>
+<% } %>
+
+<form action="/broadcast" method="POST" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label for="message" class="form-label">Сообщение (текст)</label>
+    <textarea name="message" id="message" rows="4" class="form-control"></textarea>
+  </div>
+
+  <div class="mb-3">
+    <label for="audio" class="form-label">Аудио (mp3)</label>
+    <input type="file" name="audio" id="audio" accept="audio/*" class="form-control" />
+  </div>
+
+  <button type="submit" class="btn btn-primary">Отправить</button>
+</form>
