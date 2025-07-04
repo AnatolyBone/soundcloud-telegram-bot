@@ -571,24 +571,6 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 
-// Telegram webhook
-app.post(WEBHOOK_PATH, express.json(), (req, res) => {
-  res.sendStatus(200);
-  bot.handleUpdate(req.body).catch(err => console.error('Ошибка handleUpdate:', err));
-});
-
-// Запуск сервера и webhook бота
-(async () => {
-  try {
-    await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-    app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
-    console.log('🤖 Бот запущен и ожидает обновлений...');
-  } catch (e) {
-    console.error('Ошибка при старте:', e);
-    process.exit(1);
-  }
-})();
-
 // === Telegraf бот ===
 
 // Команды бота
@@ -649,3 +631,20 @@ bot.on('text', async ctx => {
   }
   await enqueue(ctx, ctx.from.id, url);
 });
+// Telegram webhook
+app.post(WEBHOOK_PATH, express.json(), (req, res) => {
+  res.sendStatus(200);
+  bot.handleUpdate(req.body).catch(err => console.error('Ошибка handleUpdate:', err));
+});
+
+// Запуск сервера и webhook бота
+(async () => {
+  try {
+    await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+    app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+    console.log('🤖 Бот запущен и ожидает обновлений...');
+  } catch (e) {
+    console.error('Ошибка при старте:', e);
+    process.exit(1);
+  }
+})();
