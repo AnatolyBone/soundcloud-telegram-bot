@@ -451,6 +451,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
     const expiringSoon = await getExpiringUsers();
+    const expiringCount = expiringSoon.length;  // <-- добавлено!
+
     const users = await getAllUsers(showInactive);
     const stats = {
       totalUsers: users.length,
@@ -464,30 +466,29 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activeByDate: await getActiveUsersByDate()
     };
 
-   const activityByDayHour = await getUserActivityByDayHour(); // сначала получаем данные
+    const activityByDayHour = await getUserActivityByDayHour();
+    const activityByHour = computeActivityByHour(activityByDayHour);
+    const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
-const activityByHour = computeActivityByHour(activityByDayHour);     // теперь вычисляем массив из 24 чисел
-const activityByWeekday = computeActivityByWeekday(activityByDayHour);
-
-const referralStats = await getReferralSourcesStats();
+    const referralStats = await getReferralSourcesStats();
 
     res.render('dashboard', {
-  title: 'Админка',
-  page: 'dashboard',
-  user: req.user,
-  stats,
-  users,
-  referralStats,
-  expiringSoon,
-  expiringCount,
-  expiringOffset,
-  expiringLimit,
-  activityByHour,
-  activityByWeekday,
-  showInactive,
-  customStyles: '',
-  customScripts: '',
-});
+      title: 'Админка',
+      page: 'dashboard',
+      user: req.user,
+      stats,
+      users,
+      referralStats,
+      expiringSoon,
+      expiringCount,   // теперь определена
+      expiringOffset,
+      expiringLimit,
+      activityByHour,
+      activityByWeekday,
+      showInactive,
+      customStyles: '',
+      customScripts: '',
+    });
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
