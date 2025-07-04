@@ -440,8 +440,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activeByDate: await getActiveUsersByDate()
     };
 
-    const activityByHour = await getActivityByHour(); // <– ВСТАВИЛИ СЮДА
-    const activityByWeekday = await getActivityByWeekday(); // <– И ЭТО
+    const activityByHour = await getActivityByHour();     // массив из 24 чисел
+    const activityByWeekday = await getActivityByWeekday(); // массив из 7 чисел
 
     const referralStats = await getReferralSourcesStats();
     const activityByDayHour = await getUserActivityByDayHour();
@@ -457,7 +457,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       expiringOffset,
       expiringCount: expiringSoon.length,
       user: req.user,
-      page: 'dashboard'
+      page: 'dashboard',
+      activityByHour,
+      activityByWeekday
     });
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
