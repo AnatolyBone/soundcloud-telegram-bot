@@ -3,126 +3,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Админка - Dashboard</title>
-  <!-- Bootstrap 5 CSS Dark Theme -->
+  <title>Вход в админку</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     body {
       background-color: #121212;
       color: #e0e0e0;
       min-height: 100vh;
-    }
-    .table thead {
-      background-color: #212121;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .card {
       background-color: #1e1e1e;
-      border: none;
+      padding: 2rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+      width: 100%;
+      max-width: 400px;
     }
-    .navbar, .navbar-brand {
-      color: #e0e0e0;
-    }
-    .btn-outline-light {
-      border-color: #e0e0e0;
-      color: #e0e0e0;
-    }
-    .btn-outline-light:hover {
-      background-color: #e0e0e0;
-      color: #121212;
-    }
-    a {
-      color: #90caf9;
-      text-decoration: none;
-    }
-    a:hover {
-      color: #64b5f6;
-      text-decoration: underline;
+    .form-control, .btn {
+      border-radius: 0.25rem;
     }
   </style>
 </head>
 <body>
-
-<nav class="navbar navbar-dark bg-dark px-3">
-  <a class="navbar-brand fs-4" href="#">🎛 Админ-панель</a>
-  <form method="post" action="/logout" class="mb-0">
-    <button class="btn btn-outline-light btn-sm">Выйти</button>
-  </form>
-</nav>
-
-<div class="container my-4">
-
-  <!-- Статистика в карточках -->
-  <div class="row g-3">
-    <div class="col-md-3">
-      <div class="card p-3 text-center">
-        <h6>Всего пользователей</h6>
+  <div class="card">
+    <h4 class="text-center mb-4">🔐 Вход в админку</h4>
+    <% if (error) { %>
+      <div class="alert alert-danger" role="alert">
+        <%= error %>
       </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card p-3 text-center">
-        <h6>Активных сегодня</h6>
-        <p class="fs-3 fw-bold mb-0"><%= stats.activeToday %></p>
+    <% } %>
+    <form method="POST" action="/admin">
+      <div class="mb-3">
+        <label for="username" class="form-label">Логин</label>
+        <input type="text" class="form-control" id="username" name="username" required />
       </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card p-3 text-center">
-        <h6>Новых за 24ч</h6>
-        <p class="fs-3 fw-bold mb-0"><%= stats.newUsers24h %></p>
+      <div class="mb-3">
+        <label for="password" class="form-label">Пароль</label>
+        <input type="password" class="form-control" id="password" name="password" required />
       </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card p-3 text-center">
-        <h6>Всего загрузок</h6>
-        <p class="fs-3 fw-bold mb-0"><%= stats.totalDownloads %></p>
+      <div class="d-grid">
+        <button type="submit" class="btn btn-outline-light">Войти</button>
       </div>
-    </div>
+    </form>
   </div>
 
-  <!-- Таблица пользователей -->
-  <div class="mt-4">
-    <h5>Пользователи</h5>
-    <div class="table-responsive">
-      <table class="table table-hover table-bordered align-middle text-white">
-        <thead>
-          <tr>
-            <th>Имя</th>
-            <th>Логин</th>
-            <th>Тариф</th>
-            <th>Загрузки</th>
-            <th>Активность</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% users.forEach(user => { %>
-            <tr>
-              <td><%= user.first_name %> <%= user.last_name || '' %></td>
-              <td>@<%= user.username %></td>
-              <td><%= user.premium_until && new Date(user.premium_until) > new Date() ? "Plus" : "Free" %></td>
-              <td><%= user.total_downloads %></td>
-              <td>
-                <% 
-                  const lastActive = new Date(user.last_active);
-                  const now = new Date();
-                  const diffDays = (now - lastActive) / (1000*60*60*24);
-                  if(diffDays < 1) { %>
-                    🟢
-                <% } else if(diffDays < 7) { %>
-                    🟡
-                <% } else { %>
-                    🔴
-                <% } %>
-              </td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Добавь сюда остальные блоки (графики, рассылки и т.п.) -->
-
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
