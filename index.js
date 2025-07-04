@@ -630,7 +630,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activityByDayHour,
       expiringLimit,
       expiringOffset,
-      expiringCount
+      expiringCount,
+      page: 'dashboard
     });
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
