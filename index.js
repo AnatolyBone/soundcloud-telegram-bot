@@ -418,7 +418,29 @@ app.post('/admin', (req, res) => {
     res.render('login', { error: 'Неверный логин или пароль' });
   }
 });
+// activityByDayHour — объект вида { "2025-07-01": {0: 5, 1: 3, ...}, "2025-07-02": {...} }
+function computeActivityByHour(activityByDayHour) {
+  const hours = Array(24).fill(0);
+  for (const day in activityByDayHour) {
+    const hoursData = activityByDayHour[day];
+    for (let h = 0; h < 24; h++) {
+      hours[h] += hoursData[h] || 0;
+    }
+  }
+  return hours;
+}
 
+function computeActivityByWeekday(activityByDayHour) {
+  const weekdays = Array(7).fill(0); // Воскресенье = 0, понедельник = 1 и т.д.
+  for (const dayStr in activityByDayHour) {
+    const date = new Date(dayStr);
+    const weekday = date.getDay();
+    const hoursData = activityByDayHour[dayStr];
+    const dayTotal = Object.values(hoursData).reduce((a,b) => a+b, 0);
+    weekdays[weekday] += dayTotal;
+  }
+  return weekdays;
+}
 // Дашборд
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
@@ -441,8 +463,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     };
 
     const activityByHour = await getActivityByHour();     // массив из 24 чисел
-    const activityByWeekday = await getActivityByWeekday(); // массив из 7 чисел
-
+    const activityByWeekday = await getActivityByWeekday(); // массив из 7 чиселconst activityByHour = computeActivityByHour(activityByDayHour);
+const activityByWeekday = computeActivityByWeekday(activityByDayHour);
     const referralStats = await getReferralSourcesStats();
     const activityByDayHour = await getUserActivityByDayHour();
 
