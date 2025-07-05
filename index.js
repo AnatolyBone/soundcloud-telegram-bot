@@ -112,7 +112,7 @@ Unlimited — 💎 (199₽)
 👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
   helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — смена языка.',
   queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
-  adminCommands: '\n\n📋 Команды админа:\n/admin — статистика\n/testdb — мои данные\n/backup — резервная копия\n/reviews — отзывы'
+adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
 };
 
 const kb = () =>
@@ -638,7 +638,19 @@ bot.command('admin', async (ctx) => {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
   }
 
-  await ctx.reply('Добро пожаловать в админ-меню.');
+  try {
+    const users = await getAllUsers();
+    const totalUsers = users.length;
+    const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+
+    await ctx.reply(
+      `📊 Пользователей: ${totalUsers}\n📥 Загрузок: ${totalDownloads}\n` +
+      texts.adminCommands
+    );
+  } catch (e) {
+    console.error('Ошибка в /admin:', e);
+    await ctx.reply('❌ Ошибка при получении статистики.');
+  }
 });
 bot.action('check_subscription', async ctx => {
   const subscribed = await isSubscribed(ctx.from.id);
