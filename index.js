@@ -363,7 +363,6 @@ function extractUrl(text) {
   if (!matches) return null;
   return matches.find(url => url.includes('soundcloud.com')) || matches[0];
 }
-const expressLayouts = require('express-ejs-layouts');
 // // === Настройка Express ===
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
