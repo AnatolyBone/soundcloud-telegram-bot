@@ -365,7 +365,10 @@ function extractUrl(text) {
 }
 
 // === Настройка Express ===
-
+app.use((req, res, next) => {
+  res.locals.title = 'Админка';
+  next();
+});
 app.use(compression());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -403,12 +406,11 @@ async function requireAuth(req, res, next) {
 
 // Вход в админку
 app.get('/admin', (req, res) => {
-  // Если уже авторизован - редирект на /dashboard
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
     return res.redirect('/dashboard');
   }
-  res.render('login', { error: null });
-  });
+  res.render('login', { title: 'Вход в админку', error: null });
+});
 
 app.post('/admin', (req, res) => {
   const { username, password } = req.body;
@@ -417,7 +419,7 @@ app.post('/admin', (req, res) => {
     req.session.userId = ADMIN_ID;
     res.redirect('/dashboard');
   } else {
-    res.render('login', { error: 'Неверный логин или пароль' });
+    res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
   }
 });
 // activityByDayHour — объект вида { "2025-07-01": {0: 5, 1: 3, ...}, "2025-07-02": {...} }
@@ -452,7 +454,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
     const expiringSoon = await getExpiringUsers();
-    const expiringCount = expiringSoon.length;  // <-- добавлено!
+    const expiringCount = expiringSoon.length;
 
     const users = await getAllUsers(showInactive);
     const stats = {
@@ -474,7 +476,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const referralStats = await getReferralSourcesStats();
 
     res.render('dashboard', {
-      title: 'Админка',
+      title: 'Панель управления',
       page: 'dashboard',
       user: req.user,
       stats,
@@ -505,7 +507,7 @@ app.get('/logout', (req, res) => {
 });
 // Рассылка
 app.get('/broadcast', requireAuth, (req, res) => {
-  res.render('broadcast-form', { error: null });
+  res.render('broadcast-form', { title: 'Рассылка', error: null });
 });
 
 app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
@@ -578,6 +580,7 @@ app.get('/expiring-users', requireAuth, async (req, res) => {
     const totalPages = Math.ceil(total / perPage);
 
     res.render('expiring-users', {
+      title: 'Истекающие подписки',
       users,
       page,
       perPage,
