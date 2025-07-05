@@ -381,11 +381,17 @@ app.use(session({
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 app.use(async (req, res, next) => {
-  if (req.session.userId) {
+  if (req.session.authenticated && req.session.userId === ADMIN_ID) {
     try {
       const user = await getUserById(req.session.userId);
-      res.locals.user = user || null;
+      if (user) {
+        req.user = user;
+        res.locals.user = user;  // важно для ejs partials
+      } else {
+        res.locals.user = null;
+      }
     } catch (e) {
+      console.error('Ошибка загрузки пользователя для шаблонов:', e);
       res.locals.user = null;
     }
   } else {
@@ -393,6 +399,7 @@ app.use(async (req, res, next) => {
   }
   next();
 });
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.set('layout', 'layout');
@@ -400,16 +407,8 @@ app.use(expressLayouts);
 
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
-  if (req.session.authenticated && req.session.userId) {
-    try {
-      const user = await getUserById(req.session.userId);
-      if (user) {
-        req.user = user;
-        return next();
-      }
-    } catch (e) {
-      console.error('Ошибка в requireAuth:', e);
-    }
+  if (req.session.authenticated && req.session.userId === ADMIN_ID) {
+    return next();
   }
   res.redirect('/admin');
 }
@@ -490,7 +489,6 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     res.render('dashboard', {
       title: 'Панель управления',
       page: 'dashboard',
-      user: req.user,
       stats,
       users,
       referralStats,
