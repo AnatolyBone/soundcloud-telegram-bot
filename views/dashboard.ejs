@@ -23,6 +23,9 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="broadcast-tab" data-bs-toggle="tab" data-bs-target="#broadcastTab" type="button" role="tab" aria-controls="broadcastTab" aria-selected="false">Рассылка</button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab" aria-controls="analyticsTab" aria-selected="false">Аналитика</button>
+      </li>
     </ul>
 
     <div class="tab-content mt-3" id="dashboardTabsContent">
@@ -35,6 +38,16 @@
             <input class="form-check-input" type="checkbox" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
             <label class="form-check-label" for="showInactive">Показать неактивных</label>
           </div>
+
+          <div>
+            <label for="periodSelect" class="form-label mb-0 me-2">Период:</label>
+            <select id="periodSelect" name="period" class="form-select form-select-sm">
+              <option value="7" <%= period == '7' ? 'selected' : '' %>>7 дней</option>
+              <option value="30" <%= period == '30' ? 'selected' : '' %>>30 дней</option>
+              <option value="all" <%= period == 'all' ? 'selected' : '' %>>Все время</option>
+            </select>
+          </div>
+
           <button type="submit" class="btn btn-primary btn-sm">Обновить</button>
           <a href="/export" class="btn btn-secondary btn-sm">📁 Экспорт в CSV</a>
         </form>
@@ -71,7 +84,7 @@
           </div>
         </div>
 
-        <!-- Графики -->
+        <!-- Графики (Используем period для фильтрации на бекенде) -->
         <div class="card card-primary card-outline">
           <div class="card-header">
             <h3 class="card-title">Регистрации, Загрузки, Активные</h3>
@@ -104,7 +117,6 @@
           </div>
         </div>
 
-        <!-- Тепловая карта -->
         <div class="card card-secondary card-outline mt-3">
           <div class="card-header">
             <h3 class="card-title">Активность по дате и часу (тепловая карта)</h3>
@@ -135,7 +147,6 @@
                   </li>
                 <% }) %>
               </ul>
-
               <nav aria-label="Пагинация" class="mt-3 d-flex justify-content-center">
                 <ul class="pagination mb-0">
                   <% if (expiringOffset > 0) { %>
@@ -256,6 +267,60 @@
         </form>
       </div>
 
+      <!-- Вкладка Аналитика -->
+      <div class="tab-pane fade" id="analyticsTab" role="tabpanel" aria-labelledby="analytics-tab">
+        <div class="row">
+
+          <!-- Retention таблица -->
+          <div class="col-12 col-lg-6 mb-4">
+            <div class="card card-info card-outline h-100">
+              <div class="card-header">
+                <h3 class="card-title">Удержание пользователей (Retention)</h3>
+              </div>
+              <div class="card-body table-responsive" style="max-height: 400px; overflow-y:auto;">
+                <table class="table table-sm table-bordered table-hover mb-0 text-center align-middle">
+                  <thead>
+                    <tr>
+                      <th>Дата регистрации</th>
+                      <% for(let day=0; day<=7; day++) { %>
+                        <th>D<%= day %></th>
+                      <% } %>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <% if (retentionData && retentionData.length > 0) { %>
+                      <% retentionData.forEach(row => { %>
+                        <tr>
+                          <td><%= row.date %></td>
+                          <% for(let day=0; day<=7; day++) { %>
+                            <td><%= row[`d${day}`] != null ? (row[`d${day}`] + '%') : '-' %></td>
+                          <% } %>
+                        </tr>
+                      <% }) %>
+                    <% } else { %>
+                      <tr><td colspan="9">Нет данных</td></tr>
+                    <% } %>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Воронка -->
+          <div class="col-12 col-lg-6 mb-4">
+            <div class="card card-warning card-outline h-100">
+              <div class="card-header">
+                <h3 class="card-title">Воронка: регистрация → загрузка → тариф</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="funnelChart" style="height: 300px;"></canvas>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -281,7 +346,7 @@
       }
     });
 
-    // Данные графиков
+    // Область статистики — данные графиков
     const combinedLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
     const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
     const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
@@ -409,6 +474,36 @@
         }
       }
     });
+
+    // Воронка
+    const funnelLabels = ['Зарегистрировались', 'Скачали', 'Оформили тариф'];
+    const funnelData = <%- JSON.stringify(funnelData || [0,0,0]) %>;
+
+    new Chart(document.getElementById('funnelChart'), {
+      type: 'bar',
+      data: {
+        labels: funnelLabels,
+        datasets: [{
+          label: 'Пользователи',
+          data: funnelData,
+          backgroundColor: ['#0d6efd', '#198754', '#ffc107'],
+          borderColor: ['#0a58ca', '#146c43', '#d39e00'],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        scales: {
+          x: { beginAtZero: true },
+          y: { beginAtZero: true }
+        },
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+
   });
 
   function changePage(delta) {
