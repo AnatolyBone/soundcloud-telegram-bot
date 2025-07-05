@@ -447,6 +447,7 @@ function computeActivityByWeekday(activityByDayHour) {
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const showInactive = req.query.showInactive === 'true';
+    const period = req.query.period || '7';
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
@@ -480,12 +481,13 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       users,
       referralStats,
       expiringSoon,
-      expiringCount,   // теперь определена
+      expiringCount,
       expiringOffset,
       expiringLimit,
       activityByHour,
       activityByWeekday,
       showInactive,
+      period,
       customStyles: '',
       customScripts: '',
     });
