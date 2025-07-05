@@ -643,13 +643,26 @@ bot.command('admin', async (ctx) => {
     const totalUsers = users.length;
     const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
+    const activeToday = users.filter(u => {
+      if (!u.last_active) return false;
+      const last = new Date(u.last_active);
+      const now = new Date();
+      return last.toDateString() === now.toDateString();
+    }).length;
+
     await ctx.reply(
-      `📊 Пользователей: ${totalUsers}\n📥 Загрузок: ${totalDownloads}\n` +
-      texts.adminCommands
+`📊 Статистика бота:
+
+👤 Пользователей: ${totalUsers}
+📥 Всего загрузок: ${totalDownloads}
+🟢 Активных сегодня: ${activeToday}
+
+🤖 Бот работает.
+🧭 Панель: https://soundcloud-telegram-bot.onrender.com/dashboard`
     );
   } catch (e) {
     console.error('Ошибка в /admin:', e);
-    await ctx.reply('❌ Ошибка при получении статистики.');
+    await ctx.reply('⚠️ Ошибка получения статистики');
   }
 });
 bot.action('check_subscription', async ctx => {
