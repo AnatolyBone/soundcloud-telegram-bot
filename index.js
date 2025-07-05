@@ -488,6 +488,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activityByWeekday,
       showInactive,
       period,
+      retentionData: [],
+      funnelData: [],
       customStyles: '',
       customScripts: '',
     });
