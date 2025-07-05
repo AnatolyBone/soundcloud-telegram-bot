@@ -26,6 +26,9 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab" aria-controls="analyticsTab" aria-selected="false">Аналитика</button>
       </li>
+<li class="nav-item" role="presentation">
+  <button class="nav-link" id="retention-tab" data-bs-toggle="tab" data-bs-target="#retentionTab" type="button" role="tab" aria-controls="retentionTab" aria-selected="false">Удержание и Воронка</button>
+</li>
     </ul>
 
     <div class="tab-content mt-3" id="dashboardTabsContent">
@@ -51,7 +54,20 @@
           <button type="submit" class="btn btn-primary btn-sm">Обновить</button>
           <a href="/export" class="btn btn-secondary btn-sm">📁 Экспорт в CSV</a>
         </form>
-
+<div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
+  <div class="card mb-3">
+    <div class="card-header">Удержание (Retention)</div>
+    <div class="card-body">
+      <canvas id="retentionChart" style="height: 250px;"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">Воронка (Funnel)</div>
+    <div class="card-body">
+      <canvas id="funnelChart" style="height: 250px;"></canvas>
+    </div>
+  </div>
+</div>
         <div class="row mb-3">
           <div class="col-md-4">
             <div class="info-box bg-info">
