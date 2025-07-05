@@ -363,7 +363,7 @@ function extractUrl(text) {
   if (!matches) return null;
   return matches.find(url => url.includes('soundcloud.com')) || matches[0];
 }
-
+const expressLayouts = require('express-ejs-layouts');
 // // === Настройка Express ===
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
@@ -375,6 +375,10 @@ app.use((req, res, next) => {
 app.use(compression());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(expressLayouts); // Используем layout
+app.set('view engine', 'ejs'); // Указываем движок шаблонов
+app.set('views', path.join(__dirname, 'views')); // Папка с шаблонами
+app.set('layout', 'layout');
 
 app.use(session({
   store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
