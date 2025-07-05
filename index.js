@@ -364,11 +364,14 @@ function extractUrl(text) {
   return matches.find(url => url.includes('soundcloud.com')) || matches[0];
 }
 
-// === Настройка Express ===
+// // === Настройка Express ===
 app.use((req, res, next) => {
+  res.locals.user = req.user || null;
+  res.locals.page = null;        // по умолчанию пусто
   res.locals.title = 'Админка';
   next();
 });
+
 app.use(compression());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -380,6 +383,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
+
 app.use(async (req, res, next) => {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
     try {
@@ -400,11 +404,6 @@ app.use(async (req, res, next) => {
   next();
 });
 
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-app.set('layout', 'layout');
-app.use(expressLayouts);
-
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
@@ -420,6 +419,7 @@ app.get('/admin', (req, res) => {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
     return res.redirect('/dashboard');
   }
+  res.locals.page = 'admin';
   res.render('login', { title: 'Вход в админку', error: null });
 });
 
@@ -430,35 +430,16 @@ app.post('/admin', (req, res) => {
     req.session.userId = ADMIN_ID;
     res.redirect('/dashboard');
   } else {
+    res.locals.page = 'admin';
     res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
   }
 });
-// activityByDayHour — объект вида { "2025-07-01": {0: 5, 1: 3, ...}, "2025-07-02": {...} }
-function computeActivityByHour(activityByDayHour) {
-  const hours = Array(24).fill(0);
-  for (const day in activityByDayHour) {
-    const hoursData = activityByDayHour[day];
-    for (let h = 0; h < 24; h++) {
-      hours[h] += hoursData[h] || 0;
-    }
-  }
-  return hours;
-}
 
-function computeActivityByWeekday(activityByDayHour) {
-  const weekdays = Array(7).fill(0); // Воскресенье = 0, понедельник = 1 и т.д.
-  for (const dayStr in activityByDayHour) {
-    const date = new Date(dayStr);
-    const weekday = date.getDay();
-    const hoursData = activityByDayHour[dayStr];
-    const dayTotal = Object.values(hoursData).reduce((a,b) => a+b, 0);
-    weekdays[weekday] += dayTotal;
-  }
-  return weekdays;
-}
 // Дашборд
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
+    res.locals.page = 'dashboard';
+
     const showInactive = req.query.showInactive === 'true';
     const period = req.query.period || '7';
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
@@ -488,7 +469,6 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
     res.render('dashboard', {
       title: 'Панель управления',
-      page: 'dashboard',
       stats,
       users,
       referralStats,
@@ -510,13 +490,17 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
+
+// Выход
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
     res.redirect('/admin');
   });
 });
+
 // Рассылка
 app.get('/broadcast', requireAuth, (req, res) => {
+  res.locals.page = 'broadcast';
   res.render('broadcast-form', { title: 'Рассылка', error: null });
 });
 
@@ -566,6 +550,7 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 // Экспорт пользователей CSV
 app.get('/export', requireAuth, async (req, res) => {
   try {
+    res.locals.page = 'export';
     const users = await getAllUsers(true);
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
     const parser = new Parser({ fields });
@@ -581,6 +566,7 @@ app.get('/export', requireAuth, async (req, res) => {
 
 // Пользователи с истекающим тарифом
 app.get('/expiring-users', requireAuth, async (req, res) => {
+  res.locals.page = 'expiring-users';
   const page = parseInt(req.query.page) || 1;
   const perPage = parseInt(req.query.perPage) || 10;
 
@@ -620,7 +606,6 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
     res.status(500).send('Ошибка сервера');
   }
 });
-
 // === Telegraf бот ===
 
 // Команды бота
