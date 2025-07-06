@@ -837,26 +837,34 @@ bot.hears(texts.upgrade, async ctx => {
 });
 
 bot.hears(texts.mytracks, async ctx => {
-  const userId = ctx.from.id;
-  const user = await getUser(userId);
+  const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Пользователь не найден');
 
-  const limit = user.premium_limit || 10;
-  const tracksRaw = user.tracks_today || '';
-  const tracks = tracksRaw
-    .split(',')
-    .map(t => t.trim())
-    .filter(t => t.length > 0);
+  let tracks = [];
+  try {
+    tracks = user.tracks_today ? JSON.parse(user.tracks_today) : [];
+  } catch (e) {
+    console.warn('⚠️ Ошибка парсинга tracks_today:', e);
+    tracks = [];
+  }
 
-  await ctx.reply(`Скачано сегодня ${tracks.length} из ${limit}`);
+  if (tracks.length === 0) {
+    return ctx.reply('Сегодня ты ещё ничего не скачивал.');
+  }
 
-  if (tracks.length === 0) return;
+  await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit}`);
 
-  // Отправляем треки по 5 в сообщении
+  // Отправляем пачками по 5 треков
   for (let i = 0; i < tracks.length; i += 5) {
-    const chunk = tracks.slice(i, i + 5);
-    const message = chunk.join('\n');
-    await ctx.reply(message);
+    const batch = tracks.slice(i, i + 5);
+    for (const track of batch) {
+      try {
+        await ctx.replyWithAudio(track.fileId, { caption: track.title });
+      } catch (e) {
+        console.error('❌ Не удалось отправить трек:', track, e);
+        await ctx.reply(`⚠️ Не удалось отправить: ${track.title}`);
+      }
+    }
   }
 });
 
