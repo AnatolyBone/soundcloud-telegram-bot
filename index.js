@@ -147,16 +147,13 @@ const isSubscribed = async userId => {
   }
 };
 
-// Отправка аудио с защитой и возврат fileId
-async function sendAudioSafe(ctx, userId, filePath, caption) {
+async function sendAudioSafe(ctx, userId, filePath, title) {
   try {
-    const opts = {};
-    if (caption && caption.trim() !== '') {
-      opts.caption = caption;
-    }
     const message = await ctx.telegram.sendAudio(userId, {
       source: fs.createReadStream(filePath),
-    }, opts);
+      title: title,
+      performer: 'SoundCloud', // можешь указать пустую строку или другое
+    });
     return message.audio.file_id;
   } catch (e) {
     console.error(`Ошибка отправки аудио пользователю ${userId}:`, e);
@@ -189,7 +186,7 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     }
 
     await incrementDownloads(userId, name);
-const fileId = await sendAudioSafe(ctx, userId, fp);
+const fileId = await sendAudioSafe(ctx, userId, fp, name);
 
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
