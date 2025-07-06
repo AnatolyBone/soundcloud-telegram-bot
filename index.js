@@ -8,6 +8,8 @@ const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
 const axios = require('axios');
+const util = require('util');
+const writeID3 = util.promisify(NodeID3.write);
 const NodeID3 = require('node-id3');
 const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
@@ -167,7 +169,7 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   try {
-    url = await resolveRedirect(url); // 🔁 Разворачиваем короткую ссылку
+    url = await resolveRedirect(url);
 
     const info = await ytdl(url, { dumpSingleJson: true });
 
@@ -186,18 +188,18 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         noCheckCertificates: true,
       });
 
-      // 🏷️ Записываем ID3-теги
-      NodeID3.write({
-        title: name,
-        artist: 'SoundCloud'
-      }, fp, err => {
-        if (err) console.warn(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
-        else console.log(`🎵 ID3 теги записаны для ${name}`);
-      });
+      // Ждём, пока запишутся ID3-теги
+      try {
+        await writeID3({ title: name, artist: 'SoundCloud' }, fp);
+        console.log(`🎵 ID3 теги записаны для ${name}`);
+      } catch (err) {
+        console.warn(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
+      }
     }
 
     await incrementDownloads(userId, name);
-const fileId = await sendAudioSafe(ctx, userId, fp);
+
+    const fileId = await sendAudioSafe(ctx, userId, fp);
 
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
