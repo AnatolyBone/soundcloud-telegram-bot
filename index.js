@@ -717,7 +717,13 @@ bot.on('text', async ctx => {
     await ctx.reply('Пожалуйста, отправь ссылку на трек или плейлист SoundCloud.');
     return;
   }
-  await enqueue(ctx, ctx.from.id, url);
+  ctx.reply('🔄 Загружаю трек... Это может занять пару минут.');
+
+  // Асинхронная обработка — не ждем выполнения
+  enqueue(ctx, ctx.from.id, url).catch(e => {
+    console.error('Ошибка в enqueue:', e);
+    ctx.reply('❌ Ошибка при обработке ссылки.');
+  });
 });
 // Telegram webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
