@@ -618,8 +618,31 @@ app.get('/export', requireAuth, async (req, res) => {
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
     const parser = new Parser({ fields });
     const csv = parser.parse(users);
+    const period = req.query.period || 'all';
+
+    const users = await getAllUsers(true);
+    // Тут можно реализовать фильтрацию users по дате регистрации и т.п.
+    // Или, если экспорт только пользователей, то фильтрация по регистрации:
+
+    // Фильтр по дате регистрации:
+    const filteredUsers = users.filter(user => {
+      if (period === 'all') return true;
+      if (period === '7' || period === '30') {
+        const from = new Date(Date.now() - parseInt(period) * 86400000);
+        return new Date(user.created_at) >= from;
+      }
+      if (period.startsWith('month:')) {
+        const ym = period.split(':')[1]; // 'YYYY-MM'
+        return user.created_at.startsWith(ym);
+      }
+      return true;
+    });
+
+    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
+    const parser = new Parser({ fields });
+    const csv = parser.parse(filteredUsers);
     res.header('Content-Type', 'text/csv');
-    res.attachment('users.csv');
+    res.attachment(`users_${period}.csv`);
     res.send(csv);
   } catch (e) {
     console.error('Ошибка экспорта CSV:', e);
