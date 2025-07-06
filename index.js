@@ -150,15 +150,16 @@ const isSubscribed = async userId => {
 };
 
 // Отправка аудио с защитой и возврат fileId
-async function sendAudioSafe(ctx, userId, filePath, filename) {
+async function sendAudioSafe(ctx, userId, filePath, caption) {
   try {
     const message = await ctx.telegram.sendAudio(userId, {
       source: fs.createReadStream(filePath),
-      filename,
+    }, {
+      caption,
     });
     return message.audio.file_id;
   } catch (e) {
-    console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
+    console.error(`Ошибка отправки аудио пользователю ${userId}:`, e);
     await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
     return null;
   }
