@@ -471,17 +471,16 @@ app.post('/admin', (req, res) => {
   }
 });
 // ===== Утилиты для фильтрации статистики =====
-const toYMD = date => date.toISOString().split('T')[0]; // '2025-07-05'
 function filterStatsByPeriod(data, period) {
   if (!Array.isArray(data)) return [];
 
   const now = new Date();
-  let from;
+  let fromYMD;
 
   if (period === '7') {
-    from = new Date(now - 7 * 86400000);
+    fromYMD = toYMD(new Date(now - 7 * 86400000));
   } else if (period === '30') {
-    from = new Date(now - 30 * 86400000);
+    fromYMD = toYMD(new Date(now - 30 * 86400000));
   } else if (period.startsWith('month:')) {
     const [_, ym] = period.split(':'); // например, '2025-06'
     return data.filter(item => item.date && item.date.startsWith(ym));
@@ -489,7 +488,7 @@ function filterStatsByPeriod(data, period) {
     return data; // весь период
   }
 
-  return data.filter(item => new Date(item.date) >= from);
+  return data.filter(item => item.date >= fromYMD);
 }
 
 // Дашборд
