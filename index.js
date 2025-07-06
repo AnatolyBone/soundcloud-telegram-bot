@@ -660,7 +660,8 @@ res.render('dashboard', {
   customScripts: '',
   chartDataHeatmap: {},
   chartDataFunnel: {},
-  chartDataRetention: {},
+  chartDataRetention: {},     // чтобы убрать предыдущую ошибку
+  chartDataUserFunnel: {},
   lastMonths
 });
   } catch (e) {
