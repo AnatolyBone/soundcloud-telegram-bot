@@ -660,6 +660,7 @@ res.render('dashboard', {
   customScripts: '',
   chartDataHeatmap: {},
   chartDataFunnel: {},
+  chartDataRetention: {},
   lastMonths
 });
   } catch (e) {
