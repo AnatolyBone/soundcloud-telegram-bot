@@ -13,6 +13,7 @@ const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 const playlistTracker = new Map();
 const { supabase } = require('./db');
+const { getUser, saveTrackForUser, incrementDownloads } = require('./db');
 const expressLayouts = require('express-ejs-layouts');
 const {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
@@ -849,12 +850,13 @@ bot.hears(texts.upgrade, async ctx => {
 
 bot.hears(texts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
-  let tracks = [];
+  if (!user) return ctx.reply('Ошибка получения данных пользователя.');
 
+  let tracks = [];
   try {
-    tracks = JSON.parse(user.tracks_today || '[]');
+    tracks = user.tracks_today ? JSON.parse(user.tracks_today) : [];
   } catch (e) {
-    console.warn('⚠️ Ошибка парсинга tracks_today:', e.message);
+    console.warn('Ошибка парсинга tracks_today:', e);
     return ctx.reply('❌ Ошибка чтения треков. Попробуй позже.');
   }
 
@@ -864,20 +866,21 @@ bot.hears(texts.mytracks, async ctx => {
 
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-    const media = chunk.map(t => ({
+    const mediaGroup = chunk.map(t => ({
       type: 'audio',
       media: t.fileId,
-      caption: t.title
+      caption: t.title,
     }));
 
     try {
-      await ctx.replyWithMediaGroup(media);
+      await ctx.replyWithMediaGroup(mediaGroup);
     } catch (e) {
-      console.error('❌ Не удалось отправить аудио-пачку:', e.message);
+      console.error('Ошибка отправки аудио-пачки:', e);
       await ctx.reply('⚠️ Ошибка при отправке треков. Возможно, один из них не найден.');
     }
   }
 });
+
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
