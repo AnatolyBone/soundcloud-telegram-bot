@@ -407,6 +407,17 @@ app.use(async (req, res, next) => {
   next();
 });
 
+function getLastMonths(n = 6) {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = d.toISOString().slice(0, 7); // 'YYYY-MM'
+    const display = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    months.push({ value: `month:${ym}`, label: display });
+  }
+  return months;
+}
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
@@ -459,14 +470,36 @@ app.post('/admin', (req, res) => {
     res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
   }
 });
+// ===== Утилиты для фильтрации статистики =====
+const toYMD = date => date.toISOString().split('T')[0]; // '2025-07-05'
+function filterStatsByPeriod(data, period) {
+  if (!Array.isArray(data)) return [];
 
+  const now = new Date();
+  let from;
+
+  if (period === '7') {
+    from = new Date(now - 7 * 86400000);
+  } else if (period === '30') {
+    from = new Date(now - 30 * 86400000);
+  } else if (period.startsWith('month:')) {
+    const [_, ym] = period.split(':'); // например, '2025-06'
+    return data.filter(item => item.date && item.date.startsWith(ym));
+  } else {
+    return data; // весь период
+  }
+
+  return data.filter(item => new Date(item.date) >= from);
+}
+console.log('Фильтрация по периоду:', period);
+console.log('Дата item:', data.map(i => i.date));
 // Дашборд
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'dashboard';
 
     const showInactive = req.query.showInactive === 'true';
-    const period = req.query.period || '7';
+    const period = req.query.period || '30';
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
@@ -474,6 +507,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringCount = expiringSoon.length;
 
     const users = await getAllUsers(showInactive);
+
+    const downloadsByDateRaw = await getDownloadsByDate();
+    const registrationsByDateRaw = await getRegistrationsByDate();
+    const activeByDateRaw = await getActiveUsersByDate();
+
     const stats = {
       totalUsers: users.length,
       totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
@@ -481,9 +519,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       plus: users.filter(u => u.premium_limit === 50).length,
       pro: users.filter(u => u.premium_limit === 100).length,
       unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: await getRegistrationsByDate(),
-      downloadsByDate: await getDownloadsByDate(),
-      activeByDate: await getActiveUsersByDate()
+      registrationsByDate: filterStatsByPeriod(registrationsByDateRaw, period),
+      downloadsByDate: filterStatsByPeriod(downloadsByDateRaw, period),
+      activeByDate: filterStatsByPeriod(activeByDateRaw, period)
     };
 
     const activityByDayHour = await getUserActivityByDayHour();
