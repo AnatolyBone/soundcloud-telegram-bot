@@ -151,8 +151,10 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
   try {
     const message = await ctx.telegram.sendAudio(userId, {
       source: fs.createReadStream(filePath),
-      title: title,
-      performer: 'SoundCloud', // можешь указать пустую строку или другое
+      filename: `${title}.mp3`
+    }, {
+      title,
+      performer: 'SoundCloud'
     });
     return message.audio.file_id;
   } catch (e) {
