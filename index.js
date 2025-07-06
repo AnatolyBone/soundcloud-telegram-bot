@@ -131,18 +131,23 @@ const isSubscribed = async userId => {
   }
 };
 
-// Отправка аудио с защитой
+// Отправка аудио с защитой и возврат fileId
 async function sendAudioSafe(ctx, userId, filePath, filename) {
   try {
-    await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(filePath), filename });
+    const message = await ctx.telegram.sendAudio(userId, {
+      source: fs.createReadStream(filePath),
+      filename
+    });
+    // Возвращаем file_id для сохранения
+    return message.audio.file_id;
   } catch (e) {
     console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
     await ctx.telegram.sendMessage(userId, texts.error);
+    return null;
   }
 }
 
-// Основная функция загрузки и отправки трека
-async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
+  async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
@@ -164,10 +169,16 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     }
 
     await incrementDownloads(userId, name);
-    await saveTrackForUser(userId, name);
-    await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
+    // Отправляем трек, получаем file_id
+    const fileId = await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
 
-    await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+    if (!fileId) {
+      console.warn(`Не удалось получить fileId для трека ${name}`);
+    } else {
+      // Сохраняем название и fileId в базе (Supabase/ Postgres)
+      await saveTrackForUser(userId, name, fileId);
+      await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
+    }
 
     const duration = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
