@@ -491,8 +491,7 @@ function filterStatsByPeriod(data, period) {
 
   return data.filter(item => new Date(item.date) >= from);
 }
-console.log('Фильтрация по периоду:', period);
-console.log('Дата item:', data.map(i => i.date));
+
 // Дашборд
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
@@ -500,6 +499,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
     const showInactive = req.query.showInactive === 'true';
     const period = req.query.period || '30';
+    console.log('Фильтрация по периоду:', period);
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
