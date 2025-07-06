@@ -638,6 +638,8 @@ const chartDataWeekdayActivity = {
   }],
 };
 
+console.log('chartDataDownloads:', chartDataDownloads);
+
 res.render('dashboard', {
   title: 'Панель управления',
   stats,
