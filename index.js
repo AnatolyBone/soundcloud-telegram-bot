@@ -584,7 +584,19 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
     const referralStats = await getReferralSourcesStats();
+    function getLastMonths(count = 6) {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
+    const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    months.push({ value, label });
+  }
+  return months;
+}
 
+const lastMonths = getLastMonths(6);
     res.render('dashboard', {
       title: 'Панель управления',
       stats,
@@ -602,7 +614,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       funnelData: [],
       customStyles: '',
       customScripts: '',
-      chartDataCombined // Передаём данные графика в шаблон
+      chartDataCombined,
+      lastMonths
     });
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
