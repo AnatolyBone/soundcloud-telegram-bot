@@ -658,6 +658,7 @@ res.render('dashboard', {
   funnelData: [],
   customStyles: '',
   customScripts: '',
+  chartDataHeatmap: {},
   lastMonths
 });
   } catch (e) {
