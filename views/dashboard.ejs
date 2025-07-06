@@ -354,6 +354,7 @@
 <script src="/static/js/chart.min.js"></script>
 <script src="/static/js/jquery.min.js"></script>
 <script src="/static/js/datatables.min.js"></script>
+
 <script>
   // Инициализация таблицы пользователей
   $(document).ready(function() {
@@ -367,34 +368,93 @@
         url: '/static/js/datatables-ru.json'
       }
     });
-  });
 
-  // Пример инициализации графика (заполни данными с сервера)
-  const combinedCtx = document.getElementById('combinedChart').getContext('2d');
-  const combinedChart = new Chart(combinedCtx, {
-    type: 'line',
-    data: <%- JSON.stringify(chartDataCombined || {}) %>,
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' }
-      },
-      scales: {
-        y: { beginAtZero: true }
+    // График: Регистрации, Загрузки, Активные пользователи (combinedChart)
+    const combinedCtx = document.getElementById('combinedChart').getContext('2d');
+    const combinedChart = new Chart(combinedCtx, {
+      type: 'line',
+      data: <%- JSON.stringify(chartDataCombined || {}) %>,
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'top' } },
+        scales: { y: { beginAtZero: true } }
       }
-    }
+    });
+
+    // График: Активность по часам
+    const hourCtx = document.getElementById('hourActivityChart').getContext('2d');
+    const hourActivityChart = new Chart(hourCtx, {
+      type: 'bar',
+      data: <%- JSON.stringify(chartDataHourActivity || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // График: Активность по дням недели
+    const weekdayCtx = document.getElementById('weekdayActivityChart').getContext('2d');
+    const weekdayActivityChart = new Chart(weekdayCtx, {
+      type: 'bar',
+      data: <%- JSON.stringify(chartDataWeekdayActivity || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Тепловая карта (если используешь плагин, иначе поменяй тип)
+    const heatmapCtx = document.getElementById('heatmapChart').getContext('2d');
+    const heatmapChart = new Chart(heatmapCtx, {
+      type: 'bar', // или 'matrix' если есть плагин
+      data: <%- JSON.stringify(chartDataHeatmap || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Воронка
+    const funnelCtx = document.getElementById('funnelChart').getContext('2d');
+    const funnelChart = new Chart(funnelCtx, {
+      type: 'bar',
+      data: <%- JSON.stringify(chartDataFunnel || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Retention
+    const retentionCtx = document.getElementById('retentionChart').getContext('2d');
+    const retentionChart = new Chart(retentionCtx, {
+      type: 'line',
+      data: <%- JSON.stringify(chartDataRetention || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // User funnel
+    const userFunnelCtx = document.getElementById('userFunnelChart').getContext('2d');
+    const userFunnelChart = new Chart(userFunnelCtx, {
+      type: 'bar',
+      data: <%- JSON.stringify(chartDataUserFunnel || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    // Функция смены страницы для пагинации
+    window.changePage = function(dir) {
+      const url = new URL(window.location.href);
+      let offset = parseInt(url.searchParams.get('expiringOffset')) || 0;
+      offset += dir * <%= expiringLimit %>;
+      if (offset < 0) offset = 0;
+      url.searchParams.set('expiringOffset', offset);
+      window.location.href = url.toString();
+    };
   });
-
-  // Другие графики: hourActivityChart, weekdayActivityChart, heatmapChart, funnelChart, retentionChart и userFunnelChart
-  // Тебе нужно заполнить их данными из переменных, которые ты передаёшь при рендере
-
-  // Функция смены страницы для пагинации (примитив)
-  function changePage(dir) {
-    const url = new URL(window.location.href);
-    let offset = parseInt(url.searchParams.get('expiringOffset')) || 0;
-    offset += dir * <%= expiringLimit %>;
-    if (offset < 0) offset = 0;
-    url.searchParams.set('expiringOffset', offset);
-    window.location.href = url.toString();
-  }
 </script>
