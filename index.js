@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
+const axios = require('axios');
 const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
@@ -14,6 +15,20 @@ const { Parser } = require('json2csv');
 const playlistTracker = new Map();
 const { supabase } = require('./db');
 const expressLayouts = require('express-ejs-layouts');
+const https = require('https');
+
+async function resolveRedirect(url) {
+  try {
+    const response = await axios.head(url, {
+      maxRedirects: 5,
+      validateStatus: status => status >= 200 && status < 400
+    });
+    return response.request?.res?.responseUrl || url;
+  } catch (err) {
+    console.warn('Ошибка при разворачивании ссылки:', err.message);
+    return url;
+  }
+}
 function sanitizeFilename(name) {
   return name.replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_').replace(/__+/g, '_');
 }
@@ -152,11 +167,13 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   try {
+    url = await resolveRedirect(url); // 🔁 Разворачиваем короткую ссылку
+
     const info = await ytdl(url, { dumpSingleJson: true });
 
     let name = info.title || 'track';
-name = sanitizeFilename(name);
-if (name.length > 64) name = name.slice(0, 64);
+    name = sanitizeFilename(name);
+    if (name.length > 64) name = name.slice(0, 64);
 
     const fp = path.join(cacheDir, `${name}.mp3`);
 
@@ -229,6 +246,7 @@ async function processNextInQueue() {
 
 // Добавление задачи загрузки в очередь с проверками лимита
 async function enqueue(ctx, userId, url) {
+  url = await resolveFinalUrl(url);
   try {
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
