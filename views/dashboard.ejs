@@ -7,6 +7,25 @@
     <small>Пользователь: <%= user ? (user.username || user.first_name) : 'Гость' %></small>
   </div>
 </section>
+<form method="get" class="mb-3 d-flex gap-2 align-items-center">
+  <label class="form-label mb-0">Период:</label>
+  <select name="period" class="form-select form-select-sm" onchange="this.form.submit()">
+    <option value="7" <%= period === '7' ? 'selected' : '' %>>Последние 7 дней</option>
+    <option value="30" <%= period === '30' ? 'selected' : '' %>>Последние 30 дней</option>
+    <% const currentMonth = new Date().toISOString().slice(0,7); %>
+    <% for (let i = 0; i < 6; i++) {
+         const d = new Date();
+         d.setMonth(d.getMonth() - i);
+         const ym = d.toISOString().slice(0, 7);
+         const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    %>
+      <option value="month:<%= ym %>" <%= period === `month:${ym}` ? 'selected' : '' %>>
+        <%= label.charAt(0).toUpperCase() + label.slice(1) %>
+      </option>
+    <% } %>
+    <option value="all" <%= period === 'all' ? 'selected' : '' %>>Весь период</option>
+  </select>
+</form>
 
 <!-- Основной контент -->
 <section class="content">
@@ -32,7 +51,19 @@
     </ul>
 
     <div class="tab-content mt-3" id="dashboardTabsContent">
-
+<form method="get" action="/dashboard" class="mb-3 d-flex align-items-center gap-2">
+  <label for="periodSelect">Период:</label>
+  <select id="periodSelect" name="period" class="form-select" style="width: auto;">
+    <option value="7" <%= period === '7' ? 'selected' : '' %>>7 дней</option>
+    <option value="30" <%= period === '30' ? 'selected' : '' %>>30 дней</option>
+    <% lastMonths.forEach(m => { %>
+      <option value="<%= m.value %>" <%= period === m.value ? 'selected' : '' %>><%= m.label %></option>
+    <% }) %>
+    <option value="all" <%= period === 'all' ? 'selected' : '' %>>Весь период</option>
+  </select>
+  <button type="submit" class="btn btn-primary">Обновить</button>
+  <a href="/export?period=<%= encodeURIComponent(period) %>" class="btn btn-outline-secondary ms-2">Выгрузить CSV</a>
+</form>
       <!-- Вкладка Статистика -->
       <div class="tab-pane fade show active" id="stats" role="tabpanel" aria-labelledby="stats-tab">
 
