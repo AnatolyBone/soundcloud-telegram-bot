@@ -98,18 +98,18 @@ async function incrementDownloads(id, trackTitle) {
 
 async function saveTrackForUser(id, title, fileId) {
   const user = await getUser(id);
-  let updated = [];
+  let current = [];
 
   try {
-    updated = user.tracks_today ? JSON.parse(user.tracks_today) : [];
+    if (user.tracks_today) current = JSON.parse(user.tracks_today);
   } catch (e) {
-    console.warn('⚠️ Невалидный JSON в tracks_today:', e);
-    updated = [];
+    console.warn('⚠️ Невалидный JSON в tracks_today, сбрасываем:', e.message);
+    current = [];
   }
 
-  updated.push({ title, fileId });
+  current.push({ title, fileId });
 
-  await query('UPDATE users SET tracks_today = $1 WHERE id = $2', [JSON.stringify(updated), id]);
+  await query('UPDATE users SET tracks_today = $1 WHERE id = $2', [JSON.stringify(current), id]);
 }
 
 async function setPremium(id, limit, days = null) {
