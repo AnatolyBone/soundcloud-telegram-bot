@@ -14,6 +14,9 @@ const { Parser } = require('json2csv');
 const playlistTracker = new Map();
 const { supabase } = require('./db');
 const expressLayouts = require('express-ejs-layouts');
+function sanitizeFilename(name) {
+  return name.replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_').replace(/__+/g, '_');
+}
 const {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
   getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
@@ -152,8 +155,8 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     const info = await ytdl(url, { dumpSingleJson: true });
 
     let name = info.title || 'track';
-    name = name.replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_').replace(/__+/g, '_');
-    if (name.length > 64) name = name.slice(0, 64);
+name = sanitizeFilename(name);
+if (name.length > 64) name = name.slice(0, 64);
 
     const fp = path.join(cacheDir, `${name}.mp3`);
 
@@ -862,17 +865,48 @@ bot.hears(texts.mytracks, async ctx => {
 
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-    const mediaGroup = chunk.map(t => ({
-      type: 'audio',
-      media: t.fileId,
-      caption: t.title,
-    }));
+
+    // Массив для медиа с проверкой и обновлением fileId
+    const mediaGroup = [];
+
+    for (let t of chunk) {
+      mediaGroup.push({
+        type: 'audio',
+        media: t.fileId,  // сначала пробуем отправить fileId
+        caption: t.title,
+        trackObj: t      // сохраним объект для возможности обновления
+      });
+    }
 
     try {
       await ctx.replyWithMediaGroup(mediaGroup);
     } catch (e) {
       console.error('Ошибка отправки аудио-пачки:', e);
-      await ctx.reply('⚠️ Ошибка при отправке треков. Возможно, один из них не найден.');
+
+      // Попытка отправить треки по одному заново с обновлением fileId
+      for (let t of chunk) {
+        try {
+          // Попытка отправить по fileId
+          await ctx.replyWithAudio(t.fileId, { caption: t.title });
+        } catch {
+          // Если не получилось — отправляем заново с локального файла
+          // Здесь нужен путь к файлу, например, cacheDir + название
+          const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
+
+          if (fs.existsSync(filePath)) {
+            const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) }, { caption: t.title });
+            const newFileId = msg.audio.file_id;
+
+            // Обновляем базу, чтобы в следующий раз использовать новый fileId
+            await saveTrackForUser(ctx.from.id, t.title, newFileId);
+
+            console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
+          } else {
+            console.warn(`Файл для трека "${t.title}" не найден на диске. Невозможно обновить fileId.`);
+            await ctx.reply(`⚠️ Не удалось отправить трек "${t.title}". Файл не найден.`);
+          }
+        }
+      }
     }
   }
 });
