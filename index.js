@@ -170,7 +170,8 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
 
     await incrementDownloads(userId, name);
     // Отправляем трек, получаем file_id
-    const fileId = await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+const fileId = await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
+console.log('Получен fileId:', fileId);
 
     if (!fileId) {
       console.warn(`Не удалось получить fileId для трека ${name}`);
