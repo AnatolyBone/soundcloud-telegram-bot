@@ -497,7 +497,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     res.locals.page = 'dashboard';
 
     const showInactive = req.query.showInactive === 'true';
-    const period = req.query.period || '30';
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const period = `${year}-${month.toString().padStart(2, '0')}`;
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
