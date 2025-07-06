@@ -557,8 +557,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
           {
             label: 'Регистрации',
             data: regData,
-            borderColor: 'rgba(54, 162, 235, 1)',
-            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
             fill: false,
           },
           {
