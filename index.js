@@ -530,6 +530,14 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
     const referralStats = await getReferralSourcesStats();
 
+    const lastMonths = Array.from({ length: 6 }).map((_, i) => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const value = date.toISOString().slice(0, 7); // 'YYYY-MM'
+      const label = date.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+      return { value, label };
+    });
+
     res.render('dashboard', {
       title: 'Панель управления',
       stats,
@@ -543,6 +551,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activityByWeekday,
       showInactive,
       period,
+      lastMonths,
       retentionData: [],
       funnelData: [],
       customStyles: '',
