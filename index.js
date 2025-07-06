@@ -639,7 +639,13 @@ const chartDataWeekdayActivity = {
 };
 const chartDataDownloads = {
     labels: ['2025-07-01', '2025-07-02', '2025-07-03'],
-    datasets: [{ label: 'Загрузки', data: [81, 281, 243], ... }]
+datasets: [{
+  label: 'Загрузки',
+  data: [81, 281, 243],
+  backgroundColor: 'rgba(75, 192, 192, 0.2)',
+  borderColor: 'rgba(75, 192, 192, 1)',
+  borderWidth: 1
+}]
   };
 console.log('chartDataDownloads:', chartDataDownloads);
 
