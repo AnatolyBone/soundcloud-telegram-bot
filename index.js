@@ -499,27 +499,37 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 
     const showInactive = req.query.showInactive === 'true';
     const period = req.query.period || '30';
-    console.log('Фильтрация по периоду:', period);
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
+    console.log('📌 Параметры запроса:', { period, showInactive, expiringLimit, expiringOffset });
+
     const expiringSoon = await getExpiringUsers();
     const expiringCount = expiringSoon.length;
+    console.log('🕓 expiringSoon:', expiringSoon.length);
 
     const users = await getAllUsers(showInactive);
+    console.log('👥 Всего пользователей:', users.length);
 
     const downloadsByDateRaw = await getDownloadsByDate();
     const registrationsByDateRaw = await getRegistrationsByDate();
     const activeByDateRaw = await getActiveUsersByDate();
 
-    // Фильтруем данные по периоду (у тебя уже есть такая функция)
+    console.log('📊 Сырые данные:');
+    console.log('Загрузки:', downloadsByDateRaw);
+    console.log('Регистрации:', registrationsByDateRaw);
+    console.log('Активные:', activeByDateRaw);
+
     const filteredRegistrations = filterStatsByPeriod(registrationsByDateRaw, period);
     const filteredDownloads = filterStatsByPeriod(downloadsByDateRaw, period);
     const filteredActive = filterStatsByPeriod(activeByDateRaw, period);
 
-    // Формируем данные для комбинированного графика
+    console.log('📅 После фильтрации:');
+    console.log('Регистрации:', filteredRegistrations);
+    console.log('Загрузки:', filteredDownloads);
+    console.log('Активные:', filteredActive);
+
     function prepareChartData(registrations, downloads, active) {
-      // Собираем уникальные даты
       const dateSet = new Set([
         ...registrations.map(r => r.date),
         ...downloads.map(d => d.date),
@@ -527,12 +537,10 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       ]);
       const dates = Array.from(dateSet).sort();
 
-      // Мапы для быстрого поиска по дате
       const regMap = new Map(registrations.map(r => [r.date, r.count]));
       const dlMap = new Map(downloads.map(d => [d.date, d.count]));
       const actMap = new Map(active.map(a => [a.date, a.count]));
 
-      // Массивы значений с нулями там, где данных нет
       const regData = dates.map(date => regMap.get(date) || 0);
       const dlData = dates.map(date => dlMap.get(date) || 0);
       const actData = dates.map(date => actMap.get(date) || 0);
@@ -566,6 +574,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     }
 
     const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+    console.log('📈 chartDataCombined:', chartDataCombined);
 
     const stats = {
       totalUsers: users.length,
@@ -578,25 +587,33 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       downloadsByDate: filteredDownloads,
       activeByDate: filteredActive
     };
+    console.log('📦 stats:', stats);
 
     const activityByDayHour = await getUserActivityByDayHour();
     const activityByHour = computeActivityByHour(activityByDayHour);
     const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
-    const referralStats = await getReferralSourcesStats();
-    function getLastMonths(count = 6) {
-  const months = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
-    const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-    months.push({ value, label });
-  }
-  return months;
-}
+    console.log('⏱ activityByHour:', activityByHour);
+    console.log('📅 activityByWeekday:', activityByWeekday);
 
-const lastMonths = getLastMonths(6);
+    const referralStats = await getReferralSourcesStats();
+    console.log('🔗 referralStats:', referralStats);
+
+    function getLastMonths(count = 6) {
+      const months = [];
+      const now = new Date();
+      for (let i = 0; i < count; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
+        const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+        months.push({ value, label });
+      }
+      return months;
+    }
+
+    const lastMonths = getLastMonths(6);
+    console.log('📆 lastMonths:', lastMonths);
+
     res.render('dashboard', {
       title: 'Панель управления',
       stats,
@@ -618,7 +635,7 @@ const lastMonths = getLastMonths(6);
       lastMonths
     });
   } catch (e) {
-    console.error('Ошибка при загрузке dashboard:', e);
+    console.error('❌ Ошибка при загрузке dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
