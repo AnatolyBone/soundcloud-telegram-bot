@@ -395,16 +395,7 @@ function formatMenuMessage(user) {
 ${refLink}
 `;
 }
-await ctx.reply(message, kb());
 
-  if (remaining <= 0 && !user.subscribed_bonus_used) {
-    await ctx.reply(texts.limitReached, {
-      reply_markup: Markup.inlineKeyboard([
-        Markup.button.callback('✅ Я подписался', 'check_subscription')
-      ])
-    });
-  }
-});
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
   const regex = /(https?:\/\/[^\s]+)/g;
@@ -874,7 +865,21 @@ bot.start(async ctx => {
 });
 
 bot.hears(texts.menu, async ctx => {
-  await ctx.reply(formatMenuMessage(await getUser(ctx.from.id)), kb());
+  const userId = ctx.from.id;
+  const user = await getUser(userId);
+  await logUserActivity(userId);
+
+  const remaining = user.premium_limit - user.downloads_today;
+
+  await ctx.reply(formatMenuMessage(user), kb());
+
+  if (remaining <= 0 && !user.subscribed_bonus_used) {
+    await ctx.reply(texts.limitReached, {
+      reply_markup: Markup.inlineKeyboard([
+        Markup.button.callback('✅ Я подписался', 'check_subscription')
+      ])
+    });
+  }
 });
 
 bot.hears(texts.help, async ctx => {
