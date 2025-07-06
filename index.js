@@ -8,6 +8,7 @@ const path = require('path');
 const ytdl = require('youtube-dl-exec');
 const multer = require('multer');
 const axios = require('axios');
+const NodeID3 = require('node-id3');
 const upload = multer({ dest: 'uploads/' });
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
@@ -163,7 +164,6 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
     return null;
   }
 }
-
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   try {
@@ -185,10 +185,19 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         preferFreeFormats: true,
         noCheckCertificates: true,
       });
+
+      // 🏷️ Записываем ID3-теги
+      NodeID3.write({
+        title: name,
+        artist: 'SoundCloud'
+      }, fp, err => {
+        if (err) console.warn(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
+        else console.log(`🎵 ID3 теги записаны для ${name}`);
+      });
     }
 
     await incrementDownloads(userId, name);
-const fileId = await sendAudioSafe(ctx, userId, fp, name);
+const fileId = await sendAudioSafe(ctx, userId, fp);
 
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
