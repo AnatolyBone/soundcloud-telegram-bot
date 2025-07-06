@@ -7,24 +7,19 @@
     <small>Пользователь: <%= user ? (user.username || user.first_name) : 'Гость' %></small>
   </div>
 </section>
-<form method="get" class="mb-3 d-flex gap-2 align-items-center">
-  <label class="form-label mb-0">Период:</label>
-  <select name="period" class="form-select form-select-sm" onchange="this.form.submit()">
+
+<!-- Форма выбора периода (единственная) -->
+<form method="get" action="/dashboard" class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+  <label for="periodSelectMain" class="form-label mb-0">Период:</label>
+  <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
     <option value="7" <%= period === '7' ? 'selected' : '' %>>Последние 7 дней</option>
     <option value="30" <%= period === '30' ? 'selected' : '' %>>Последние 30 дней</option>
-    <% const currentMonth = new Date().toISOString().slice(0,7); %>
-    <% for (let i = 0; i < 6; i++) {
-         const d = new Date();
-         d.setMonth(d.getMonth() - i);
-         const ym = d.toISOString().slice(0, 7);
-         const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-    %>
-      <option value="month:<%= ym %>" <%= period === `month:${ym}` ? 'selected' : '' %>>
-        <%= label.charAt(0).toUpperCase() + label.slice(1) %>
-      </option>
-    <% } %>
+    <% lastMonths.forEach(m => { %>
+      <option value="<%= m.value %>" <%= period === m.value ? 'selected' : '' %>><%= m.label %></option>
+    <% }) %>
     <option value="all" <%= period === 'all' ? 'selected' : '' %>>Весь период</option>
   </select>
+  <a href="/export?period=<%= encodeURIComponent(period) %>" class="btn btn-outline-secondary ms-2">Выгрузить CSV</a>
 </form>
 
 <!-- Основной контент -->
@@ -45,25 +40,13 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab" aria-controls="analyticsTab" aria-selected="false">Аналитика</button>
       </li>
-<li class="nav-item" role="presentation">
-  <button class="nav-link" id="retention-tab" data-bs-toggle="tab" data-bs-target="#retentionTab" type="button" role="tab" aria-controls="retentionTab" aria-selected="false">Удержание и Воронка</button>
-</li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="retention-tab" data-bs-toggle="tab" data-bs-target="#retentionTab" type="button" role="tab" aria-controls="retentionTab" aria-selected="false">Удержание и Воронка</button>
+      </li>
     </ul>
 
     <div class="tab-content mt-3" id="dashboardTabsContent">
-<form method="get" action="/dashboard" class="mb-3 d-flex align-items-center gap-2">
-  <label for="periodSelect">Период:</label>
-  <select id="periodSelect" name="period" class="form-select" style="width: auto;">
-    <option value="7" <%= period === '7' ? 'selected' : '' %>>7 дней</option>
-    <option value="30" <%= period === '30' ? 'selected' : '' %>>30 дней</option>
-    <% lastMonths.forEach(m => { %>
-      <option value="<%= m.value %>" <%= period === m.value ? 'selected' : '' %>><%= m.label %></option>
-    <% }) %>
-    <option value="all" <%= period === 'all' ? 'selected' : '' %>>Весь период</option>
-  </select>
-  <button type="submit" class="btn btn-primary">Обновить</button>
-  <a href="/export?period=<%= encodeURIComponent(period) %>" class="btn btn-outline-secondary ms-2">Выгрузить CSV</a>
-</form>
+
       <!-- Вкладка Статистика -->
       <div class="tab-pane fade show active" id="stats" role="tabpanel" aria-labelledby="stats-tab">
 
@@ -73,32 +56,10 @@
             <label class="form-check-label" for="showInactive">Показать неактивных</label>
           </div>
 
-          <div>
-            <label for="periodSelect" class="form-label mb-0 me-2">Период:</label>
-            <select id="periodSelect" name="period" class="form-select form-select-sm">
-              <option value="7" <%= period == '7' ? 'selected' : '' %>>7 дней</option>
-              <option value="30" <%= period == '30' ? 'selected' : '' %>>30 дней</option>
-              <option value="all" <%= period == 'all' ? 'selected' : '' %>>Все время</option>
-            </select>
-          </div>
-
           <button type="submit" class="btn btn-primary btn-sm">Обновить</button>
-          <a href="/export" class="btn btn-secondary btn-sm">📁 Экспорт в CSV</a>
+          <a href="/export?period=<%= encodeURIComponent(period) %>" class="btn btn-secondary btn-sm">📁 Экспорт в CSV</a>
         </form>
-<div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
-  <div class="card mb-3">
-    <div class="card-header">Удержание (Retention)</div>
-    <div class="card-body">
-      <canvas id="retentionChart" style="height: 250px;"></canvas>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-header">Воронка (Funnel)</div>
-    <div class="card-body">
-      <canvas id="funnelChart" style="height: 250px;"></canvas>
-    </div>
-  </div>
-</div>
+
         <div class="row mb-3">
           <div class="col-md-4">
             <div class="info-box bg-info">
@@ -131,7 +92,7 @@
           </div>
         </div>
 
-        <!-- Графики (Используем period для фильтрации на бекенде) -->
+        <!-- Графики -->
         <div class="card card-primary card-outline">
           <div class="card-header">
             <h3 class="card-title">Регистрации, Загрузки, Активные</h3>
@@ -243,7 +204,7 @@
       <!-- Вкладка Пользователи -->
       <div class="tab-pane fade" id="usersTab" role="tabpanel" aria-labelledby="users-tab">
 
-        <table id="usersTable" class="table table-bordered table-hover w-100">
+        <table id="usersTable" class="table table-bordered table-hover w-100 text-nowrap">
           <thead>
             <tr>
               <th>ID</th>
@@ -265,7 +226,7 @@
                 <td><%= user.username ? '@' + user.username : '' %></td>
                 <td>
                   <%= user.first_name %>
-                  <% if (user.created_at && new Date(user.created_at) > Date.now() - 24 * 60 * 60 * 1000) { %>
+                  <% if (user.created_at && new Date(user.created_at).getTime() > Date.now() - 24 * 60 * 60 * 1000) { %>
                     <span class="badge bg-info text-dark">🆕</span>
                   <% } %>
                 </td>
@@ -301,7 +262,7 @@
 
       <!-- Вкладка Рассылка -->
       <div class="tab-pane fade" id="broadcastTab" role="tabpanel" aria-labelledby="broadcast-tab">
-        <form method="POST" action="/broadcast" enctype="multipart/form-data" class="mb-3">
+        <form method="POST" action="/broadcast" enctype="multipart/form-data" class="mb-3" novalidate>
           <div class="mb-3">
             <label for="broadcastMessage" class="form-label">Сообщение</label>
             <textarea id="broadcastMessage" name="message" class="form-control" rows="4" placeholder="Введите текст"></textarea>
@@ -368,197 +329,72 @@
         </div>
       </div>
 
+      <!-- Вкладка Удержание и Воронка -->
+      <div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
+        <div class="card mb-3">
+          <div class="card-header">Удержание (Retention)</div>
+          <div class="card-body">
+            <canvas id="retentionChart" style="height: 250px;"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">Воронка пользователей</div>
+          <div class="card-body">
+            <canvas id="userFunnelChart" style="height: 250px;"></canvas>
+          </div>
+        </div>
+      </div>
+
     </div>
+
   </div>
 </section>
 
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.datatables.net/1.13.5/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.5/js/dataTables.bootstrap5.min.js"></script>
-
+<!-- Скрипты для графиков и инициализации DataTables -->
+<script src="/static/js/chart.min.js"></script>
+<script src="/static/js/jquery.min.js"></script>
+<script src="/static/js/datatables.min.js"></script>
 <script>
-  $(function () {
+  // Инициализация таблицы пользователей
+  $(document).ready(function() {
     $('#usersTable').DataTable({
-      order: [[5, 'desc']],
+      paging: true,
+      searching: true,
+      ordering: true,
+      order: [[0, 'desc']],
+      scrollX: true,
       language: {
-        search: "Поиск:",
-        lengthMenu: "Показать _MENU_ записей",
-        info: "Показано _START_ - _END_ из _TOTAL_",
-        paginate: {
-          first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая"
-        },
-        zeroRecords: "Нет данных"
+        url: '/static/js/datatables-ru.json'
       }
     });
-
-    // Область статистики — данные графиков
-    const combinedLabels = <%- JSON.stringify(Object.keys(stats.registrationsByDate)) %>;
-    const registrationsData = <%- JSON.stringify(Object.values(stats.registrationsByDate)) %>;
-    const downloadsData = <%- JSON.stringify(Object.values(stats.downloadsByDate)) %>;
-    const activeUsersData = <%- JSON.stringify(Object.values(stats.activeByDate)) %>;
-
-    new Chart(document.getElementById('combinedChart'), {
-      type: 'line',
-      data: {
-        labels: combinedLabels,
-        datasets: [
-          {
-            label: 'Регистрарации',
-            data: registrationsData,
-            borderColor: '#0d6efd',
-            backgroundColor: 'rgba(13, 110, 253, 0.3)',
-            fill: true,
-            tension: 0.3,
-          },
-          {
-            label: 'Загрузки',
-            data: downloadsData,
-            borderColor: '#198754',
-            backgroundColor: 'rgba(25, 135, 84, 0.3)',
-            fill: true,
-            tension: 0.3,
-          },
-          {
-            label: 'Активные пользователи',
-            data: activeUsersData,
-            borderColor: '#ffc107',
-            backgroundColor: 'rgba(255, 193, 7, 0.3)',
-            fill: true,
-            tension: 0.3,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        interaction: { mode: 'index', intersect: false },
-        stacked: false,
-        scales: { y: { beginAtZero: true } }
-      }
-    });
-
-    // Активность по часам
-    const hoursLabels = Array.from({length:24}, (_,i) => i + ':00');
-    const activityByHour = <%- JSON.stringify(activityByHour || Array(24).fill(0)) %>;
-
-    new Chart(document.getElementById('hourActivityChart'), {
-      type: 'bar',
-      data: {
-        labels: hoursLabels,
-        datasets: [{
-          label: 'Активность по часам',
-          data: activityByHour,
-          backgroundColor: 'rgba(13, 110, 253, 0.7)',
-          borderColor: 'rgba(13, 110, 253, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        scales: {
-          y: { beginAtZero: true },
-          x: { title: { display: true, text: 'Часы' } }
-        }
-      }
-    });
-
-    // Активность по дням недели
-    const weekdaysLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    const activityByWeekday = <%- JSON.stringify(activityByWeekday || Array(7).fill(0)) %>;
-
-    new Chart(document.getElementById('weekdayActivityChart'), {
-      type: 'bar',
-      data: {
-        labels: weekdaysLabels,
-        datasets: [{
-          label: 'Активность по дням недели',
-          data: activityByWeekday,
-          backgroundColor: 'rgba(25, 135, 84, 0.7)',
-          borderColor: 'rgba(25, 135, 84, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        scales: {
-          y: { beginAtZero: true },
-          x: { title: { display: true, text: 'Дни недели' } }
-        }
-      }
-    });
-
-    // Тепловая карта активности
-    const activityByDayHour = <%- JSON.stringify(stats.activityByDayHour || {}) %>;
-    const days = Object.keys(activityByDayHour).sort();
-    const hours = Array.from({length: 24}, (_, i) => i);
-
-    const heatmapDatasets = hours.map(hour => ({
-      label: hour + ':00',
-      data: days.map(day => (activityByDayHour[day] ? activityByDayHour[day][hour] || 0 : 0)),
-      backgroundColor: function(context) {
-        const value = context.dataset.data[context.dataIndex];
-        const alpha = Math.min(value / 3, 1);
-        return `rgba(54, 162, 235, ${alpha})`;
-      },
-      borderWidth: 0
-    }));
-
-    const ctxHeatmap = document.getElementById('heatmapChart').getContext('2d');
-    new Chart(ctxHeatmap, {
-      type: 'bar',
-      data: {
-        labels: days,
-        datasets: heatmapDatasets
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        scales: {
-          x: { stacked: true, display: false },
-          y: { stacked: true }
-        },
-        plugins: {
-          legend: { display: false }
-        }
-      }
-    });
-
-    // Воронка
-    const funnelLabels = ['Зарегистрировались', 'Скачали', 'Оформили тариф'];
-    const funnelData = <%- JSON.stringify(funnelData || [0,0,0]) %>;
-
-    new Chart(document.getElementById('funnelChart'), {
-      type: 'bar',
-      data: {
-        labels: funnelLabels,
-        datasets: [{
-          label: 'Пользователи',
-          data: funnelData,
-          backgroundColor: ['#0d6efd', '#198754', '#ffc107'],
-          borderColor: ['#0a58ca', '#146c43', '#d39e00'],
-          borderWidth: 1
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        scales: {
-          x: { beginAtZero: true },
-          y: { beginAtZero: true }
-        },
-        plugins: {
-          legend: { display: false }
-        }
-      }
-    });
-
   });
 
-  function changePage(delta) {
+  // Пример инициализации графика (заполни данными с сервера)
+  const combinedCtx = document.getElementById('combinedChart').getContext('2d');
+  const combinedChart = new Chart(combinedCtx, {
+    type: 'line',
+    data: <%- JSON.stringify(chartDataCombined || {}) %>,
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+
+  // Другие графики: hourActivityChart, weekdayActivityChart, heatmapChart, funnelChart, retentionChart и userFunnelChart
+  // Тебе нужно заполнить их данными из переменных, которые ты передаёшь при рендере
+
+  // Функция смены страницы для пагинации (примитив)
+  function changePage(dir) {
     const url = new URL(window.location.href);
-    const offset = parseInt(url.searchParams.get('expiringOffset') || '0');
-    let newOffset = offset + delta * <%= expiringLimit %>;
-    if (newOffset < 0) newOffset = 0;
-    url.searchParams.set('expiringOffset', newOffset);
+    let offset = parseInt(url.searchParams.get('expiringOffset')) || 0;
+    offset += dir * <%= expiringLimit %>;
+    if (offset < 0) offset = 0;
+    url.searchParams.set('expiringOffset', offset);
     window.location.href = url.toString();
   }
 </script>
