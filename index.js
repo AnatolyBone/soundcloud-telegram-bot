@@ -614,18 +614,10 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 app.get('/export', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'export';
-    const users = await getAllUsers(true);
-    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
-    const parser = new Parser({ fields });
-    const csv = parser.parse(users);
+    const allUsers = await getAllUsers(true);
     const period = req.query.period || 'all';
 
-    const users = await getAllUsers(true);
-    // Тут можно реализовать фильтрацию users по дате регистрации и т.п.
-    // Или, если экспорт только пользователей, то фильтрация по регистрации:
-
-    // Фильтр по дате регистрации:
-    const filteredUsers = users.filter(user => {
+    const filteredUsers = allUsers.filter(user => {
       if (period === 'all') return true;
       if (period === '7' || period === '30') {
         const from = new Date(Date.now() - parseInt(period) * 86400000);
@@ -641,6 +633,7 @@ app.get('/export', requireAuth, async (req, res) => {
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
     const parser = new Parser({ fields });
     const csv = parser.parse(filteredUsers);
+
     res.header('Content-Type', 'text/csv');
     res.attachment(`users_${period}.csv`);
     res.send(csv);
@@ -649,7 +642,6 @@ app.get('/export', requireAuth, async (req, res) => {
     res.status(500).send('Ошибка сервера');
   }
 });
-
 // Пользователи с истекающим тарифом
 app.get('/expiring-users', requireAuth, async (req, res) => {
   res.locals.page = 'expiring-users';
