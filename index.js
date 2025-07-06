@@ -471,6 +471,10 @@ app.post('/admin', (req, res) => {
   }
 });
 // ===== Утилиты для фильтрации статистики =====
+function toYMD(date) {
+  return date.toISOString().split('T')[0];
+}
+
 function filterStatsByPeriod(data, period) {
   if (!Array.isArray(data)) return [];
 
@@ -488,7 +492,6 @@ function filterStatsByPeriod(data, period) {
 
   return data; // если ничего не подошло — вернуть все данные
 }
-
 // Дашборд
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
