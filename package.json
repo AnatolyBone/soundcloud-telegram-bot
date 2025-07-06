@@ -12,6 +12,7 @@
   "compression": "^1.7.4",
   "connect-pg-simple": "^8.0.0",
   "ejs": "^3.1.9",
+  "node-id3": "^0.2.0",
   "express": "^4.19.2",
   "express-session": "^1.17.3",
   "googleapis": "^118.0.0",
