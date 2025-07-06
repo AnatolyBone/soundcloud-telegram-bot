@@ -838,36 +838,35 @@ bot.hears(texts.upgrade, async ctx => {
 
 bot.hears(texts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
-  if (!user) return ctx.reply('Пользователь не найден');
-
   let tracks = [];
+
   try {
-    tracks = user.tracks_today ? JSON.parse(user.tracks_today) : [];
+    tracks = JSON.parse(user.tracks_today || '[]');
   } catch (e) {
-    console.warn('⚠️ Ошибка парсинга tracks_today:', e);
-    tracks = [];
+    console.warn('⚠️ Ошибка парсинга tracks_today:', e.message);
+    return ctx.reply('❌ Ошибка чтения треков. Попробуй позже.');
   }
 
-  if (tracks.length === 0) {
-    return ctx.reply('Сегодня ты ещё ничего не скачивал.');
-  }
+  if (!tracks.length) return ctx.reply('Сегодня ты ещё ничего не скачивал.');
 
-  await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit}`);
+  await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit || 10}`);
 
-  // Отправляем пачками по 5 треков
   for (let i = 0; i < tracks.length; i += 5) {
-    const batch = tracks.slice(i, i + 5);
-    for (const track of batch) {
-      try {
-        await ctx.replyWithAudio(track.fileId, { caption: track.title });
-      } catch (e) {
-        console.error('❌ Не удалось отправить трек:', track, e);
-        await ctx.reply(`⚠️ Не удалось отправить: ${track.title}`);
-      }
+    const chunk = tracks.slice(i, i + 5);
+    const media = chunk.map(t => ({
+      type: 'audio',
+      media: t.fileId,
+      caption: t.title
+    }));
+
+    try {
+      await ctx.replyWithMediaGroup(media);
+    } catch (e) {
+      console.error('❌ Не удалось отправить аудио-пачку:', e.message);
+      await ctx.reply('⚠️ Ошибка при отправке треков. Возможно, один из них не найден.');
     }
   }
 });
-
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
