@@ -841,20 +841,20 @@ bot.hears(texts.mytracks, async ctx => {
   const user = await getUser(userId);
   if (!user) return ctx.reply('Пользователь не найден');
 
-  const tracks = await getTodayDownloads(userId);
-  const limit = user.premium_limit || 20;
+  // Получаем список треков из поля tracks_today
+  const tracksRaw = user.tracks_today || '';
+  const tracks = tracksRaw ? tracksRaw.split(',').filter(t => t.trim() !== '') : [];
+
+  const limit = user.premium_limit || 10; // например, лимит из пользователя
 
   await ctx.reply(`Скачано сегодня ${tracks.length} из ${limit}`);
 
   if (tracks.length === 0) return;
 
-  // Разбиваем на блоки по 5 треков
+  // Отправляем треки по 5 в одном сообщении
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-    const message = chunk
-      .map((t, idx) => `${i + idx + 1}. ${t.title || 'Без названия'}\n${t.url || ''}`)
-      .join('\n\n');
-
+    const message = chunk.map(t => t.trim()).join('\n');
     await ctx.reply(message);
   }
 });
