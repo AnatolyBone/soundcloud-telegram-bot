@@ -132,22 +132,24 @@ const isSubscribed = async userId => {
 };
 
 // Отправка аудио с защитой и возврат fileId
+const fs = require('fs');
+const path = require('path');
+
 async function sendAudioSafe(ctx, userId, filePath, filename) {
   try {
     const message = await ctx.telegram.sendAudio(userId, {
       source: fs.createReadStream(filePath),
-      filename
+      filename,
     });
-    // Возвращаем file_id для сохранения
     return message.audio.file_id;
   } catch (e) {
     console.error(`Ошибка отправки аудио ${filename} пользователю ${userId}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
+    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
     return null;
   }
 }
 
-  async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
+async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   try {
     const info = await ytdl(url, { dumpSingleJson: true });
@@ -164,21 +166,18 @@ async function sendAudioSafe(ctx, userId, filePath, filename) {
         audioFormat: 'mp3',
         output: fp,
         preferFreeFormats: true,
-        noCheckCertificates: true
+        noCheckCertificates: true,
       });
     }
 
     await incrementDownloads(userId, name);
-    // Отправляем трек, получаем file_id
-const fileId = await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
-console.log('Получен fileId:', fileId);
+    const fileId = await sendAudioSafe(ctx, userId, fp, `${name}.mp3`);
 
-    if (!fileId) {
-      console.warn(`Не удалось получить fileId для трека ${name}`);
-    } else {
-      // Сохраняем название и fileId в базе (Supabase/ Postgres)
+    if (fileId) {
       await saveTrackForUser(userId, name, fileId);
       await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
+    } else {
+      console.warn(`Не удалось получить fileId для трека ${name}`);
     }
 
     const duration = ((Date.now() - start) / 1000).toFixed(1);
@@ -198,7 +197,7 @@ console.log('Получен fileId:', fileId);
     }
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, texts.error);
+    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
   }
 }
 
