@@ -865,20 +865,17 @@ bot.start(async ctx => {
 });
 
 bot.hears(texts.menu, async ctx => {
-  const userId = ctx.from.id;
-  const user = await getUser(userId);
-  await logUserActivity(userId);
-
-  const remaining = user.premium_limit - user.downloads_today;
-
+  const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
 
-  if (remaining <= 0 && !user.subscribed_bonus_used) {
-    await ctx.reply(texts.limitReached, {
-      reply_markup: Markup.inlineKeyboard([
+  // Добавляем inline-кнопку, если бонус ещё не использован
+  if (!user.subscribed_bonus_used) {
+    await ctx.reply(
+      'Нажми кнопку ниже, чтобы получить бонус после подписки:',
+      Markup.inlineKeyboard([
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ])
-    });
+    );
   }
 });
 
