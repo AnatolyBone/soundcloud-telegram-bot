@@ -29,9 +29,7 @@ async function resolveRedirect(url) {
     return url;
   }
 }
-function sanitizeFilename(name) {
-  return name.replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '_').replace(/__+/g, '_');
-}
+
 const {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
   getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
@@ -247,7 +245,7 @@ async function processNextInQueue() {
 
 // Добавление задачи загрузки в очередь с проверками лимита
 async function enqueue(ctx, userId, url) {
-  url = await resolveFinalUrl(url);
+url = await resolveRedirect(url);
   try {
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
