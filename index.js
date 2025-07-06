@@ -519,9 +519,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     console.log('Регистрации:', registrationsByDateRaw);
     console.log('Активные:', activeByDateRaw);
 
-    const filteredRegistrations = filterStatsByPeriod(registrationsByDateRaw, period);
-    const filteredDownloads = filterStatsByPeriod(downloadsByDateRaw, period);
-    const filteredActive = filterStatsByPeriod(activeByDateRaw, period);
+    // Функция для конвертации объекта { 'date': count, ... } в массив [{date, count}, ...]
+    function convertObjToArray(dataObj) {
+      if (!dataObj) return [];
+      return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
+    }
+
+    // Конвертируем сырые данные в массивы перед фильтрацией
+    const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+    const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+    const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
 
     console.log('📅 После фильтрации:');
     console.log('Регистрации:', filteredRegistrations);
@@ -631,7 +638,6 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       funnelData: [],
       customStyles: '',
       customScripts: '',
-      chartDataCombined,
       lastMonths
     });
   } catch (e) {
