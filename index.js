@@ -659,6 +659,7 @@ res.render('dashboard', {
   customStyles: '',
   customScripts: '',
   chartDataHeatmap: {},
+  chartDataFunnel: {},
   lastMonths
 });
   } catch (e) {
