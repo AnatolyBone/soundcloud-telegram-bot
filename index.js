@@ -495,16 +495,14 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     res.locals.page = 'dashboard';
 
     const showInactive = req.query.showInactive === 'true';
-    const year = parseInt(req.query.year) || new Date().getFullYear();
-    const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
-    const period = `${year}-${month.toString().padStart(2, '0')}`;
+    const period = req.query.period || '30';
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
     console.log('📌 Параметры запроса:', { period, showInactive, expiringLimit, expiringOffset });
 
-    const expiringSoon = await getExpiringUsers();
-    const expiringCount = expiringSoon.length;
+    const expiringSoon = await getExpiringUsersPaginated(expiringLimit, expiringOffset);
+    const expiringCount = await getExpiringUsersCount();
     console.log('🕓 expiringSoon:', expiringSoon.length);
 
     const users = await getAllUsers(showInactive);
