@@ -837,10 +837,26 @@ bot.hears(texts.upgrade, async ctx => {
 });
 
 bot.hears(texts.mytracks, async ctx => {
-  const user = await getUser(ctx.from.id);
+  const userId = ctx.from.id;
+  const user = await getUser(userId);
   if (!user) return ctx.reply('Пользователь не найден');
-  // Загрузка списка треков, здесь пример простого ответа:
-  await ctx.reply(`Твои треки сегодня: ${user.total_downloads || 0}`);
+
+  const tracks = await getTodayDownloads(userId);
+  const limit = user.premium_limit || 20;
+
+  await ctx.reply(`Скачано сегодня ${tracks.length} из ${limit}`);
+
+  if (tracks.length === 0) return;
+
+  // Разбиваем на блоки по 5 треков
+  for (let i = 0; i < tracks.length; i += 5) {
+    const chunk = tracks.slice(i, i + 5);
+    const message = chunk
+      .map((t, idx) => `${i + idx + 1}. ${t.title || 'Без названия'}\n${t.url || ''}`)
+      .join('\n\n');
+
+    await ctx.reply(message);
+  }
 });
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
