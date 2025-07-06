@@ -350,11 +350,41 @@
 
   </div>
 </section>
+<pre style="color: red; background: #eee; padding: 10px;">
+combined: <%= JSON.stringify(chartDataCombined) %>
+hourActivity: <%= JSON.stringify(chartDataHourActivity) %>
+weekdayActivity: <%= JSON.stringify(chartDataWeekdayActivity) %>
+heatmap: <%= JSON.stringify(chartDataHeatmap) %>
+funnel: <%= JSON.stringify(chartDataFunnel) %>
+retention: <%= JSON.stringify(chartDataRetention) %>
+userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
+</pre>
+
+<canvas id="testChart" width="400" height="200"></canvas>
 
 <!-- Скрипты для графиков и инициализации DataTables -->
 <script src="/static/js/chart.min.js"></script>
 <script src="/static/js/jquery.min.js"></script>
 <script src="/static/js/datatables.min.js"></script>
+<script>
+  // Тестовый график - теперь Chart уже определён
+  const ctx = document.getElementById('testChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Red', 'Blue', 'Yellow'],
+      datasets: [{
+        label: 'Test dataset',
+        data: [12, 19, 3],
+        backgroundColor: ['red', 'blue', 'yellow'],
+      }]
+    },
+    options: {
+      responsive: false,
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+</script>
 
 <script>
   // Инициализация таблицы пользователей
