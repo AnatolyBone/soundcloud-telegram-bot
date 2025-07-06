@@ -132,9 +132,6 @@ const isSubscribed = async userId => {
 };
 
 // Отправка аудио с защитой и возврат fileId
-const fs = require('fs');
-const path = require('path');
-
 async function sendAudioSafe(ctx, userId, filePath, filename) {
   try {
     const message = await ctx.telegram.sendAudio(userId, {
