@@ -474,21 +474,19 @@ app.post('/admin', (req, res) => {
 function filterStatsByPeriod(data, period) {
   if (!Array.isArray(data)) return [];
 
-  const now = new Date();
-  let fromYMD;
-
   if (period === '7') {
-    fromYMD = toYMD(new Date(now - 7 * 86400000));
-  } else if (period === '30') {
-    fromYMD = toYMD(new Date(now - 30 * 86400000));
-  } else if (period.startsWith('month:')) {
-    const [_, ym] = period.split(':'); // например, '2025-06'
-    return data.filter(item => item.date && item.date.startsWith(ym));
-  } else {
-    return data; // весь период
+    const fromYMD = toYMD(new Date(Date.now() - 7 * 86400000));
+    return data.filter(item => item.date >= fromYMD);
+  } 
+  if (period === '30') {
+    const fromYMD = toYMD(new Date(Date.now() - 30 * 86400000));
+    return data.filter(item => item.date >= fromYMD);
+  } 
+  if (/^\d{4}-\d{2}$/.test(period)) {  // формат 'YYYY-MM'
+    return data.filter(item => item.date && item.date.startsWith(period));
   }
 
-  return data.filter(item => item.date >= fromYMD);
+  return data; // если ничего не подошло — вернуть все данные
 }
 
 // Дашборд
