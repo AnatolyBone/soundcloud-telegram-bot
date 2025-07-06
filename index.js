@@ -395,7 +395,16 @@ function formatMenuMessage(user) {
 ${refLink}
 `;
 }
+await ctx.reply(message, kb());
 
+  if (remaining <= 0 && !user.subscribed_bonus_used) {
+    await ctx.reply(texts.limitReached, {
+      reply_markup: Markup.inlineKeyboard([
+        Markup.button.callback('✅ Я подписался', 'check_subscription')
+      ])
+    });
+  }
+});
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
   const regex = /(https?:\/\/[^\s]+)/g;
