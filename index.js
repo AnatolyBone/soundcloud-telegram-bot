@@ -637,7 +637,10 @@ const chartDataWeekdayActivity = {
     backgroundColor: 'rgba(255, 206, 86, 0.7)',
   }],
 };
-
+const chartDataDownloads = {
+    labels: ['2025-07-01', '2025-07-02', '2025-07-03'],
+    datasets: [{ label: 'Загрузки', data: [81, 281, 243], ... }]
+  };
 console.log('chartDataDownloads:', chartDataDownloads);
 
 res.render('dashboard', {
@@ -664,6 +667,7 @@ res.render('dashboard', {
   chartDataFunnel: {},
   chartDataRetention: {},     // чтобы убрать предыдущую ошибку
   chartDataUserFunnel: {},
+  chartDataDownloads,
   lastMonths
 });
   } catch (e) {
