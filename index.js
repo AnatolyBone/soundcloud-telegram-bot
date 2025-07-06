@@ -554,6 +554,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       lastMonths,
       retentionData: [],
       funnelData: [],
+      chartDataCombined,
       customStyles: '',
       customScripts: '',
     });
