@@ -512,6 +512,61 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const registrationsByDateRaw = await getRegistrationsByDate();
     const activeByDateRaw = await getActiveUsersByDate();
 
+    // Фильтруем данные по периоду (у тебя уже есть такая функция)
+    const filteredRegistrations = filterStatsByPeriod(registrationsByDateRaw, period);
+    const filteredDownloads = filterStatsByPeriod(downloadsByDateRaw, period);
+    const filteredActive = filterStatsByPeriod(activeByDateRaw, period);
+
+    // Формируем данные для комбинированного графика
+    function prepareChartData(registrations, downloads, active) {
+      // Собираем уникальные даты
+      const dateSet = new Set([
+        ...registrations.map(r => r.date),
+        ...downloads.map(d => d.date),
+        ...active.map(a => a.date)
+      ]);
+      const dates = Array.from(dateSet).sort();
+
+      // Мапы для быстрого поиска по дате
+      const regMap = new Map(registrations.map(r => [r.date, r.count]));
+      const dlMap = new Map(downloads.map(d => [d.date, d.count]));
+      const actMap = new Map(active.map(a => [a.date, a.count]));
+
+      // Массивы значений с нулями там, где данных нет
+      const regData = dates.map(date => regMap.get(date) || 0);
+      const dlData = dates.map(date => dlMap.get(date) || 0);
+      const actData = dates.map(date => actMap.get(date) || 0);
+
+      return {
+        labels: dates,
+        datasets: [
+          {
+            label: 'Регистрации',
+            data: regData,
+            borderColor: 'rgba(54, 162, 235, 1)',
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            fill: false,
+          },
+          {
+            label: 'Загрузки',
+            data: dlData,
+            borderColor: 'rgba(255, 99, 132, 1)',
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            fill: false,
+          },
+          {
+            label: 'Активные пользователи',
+            data: actData,
+            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            fill: false,
+          }
+        ]
+      };
+    }
+
+    const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+
     const stats = {
       totalUsers: users.length,
       totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
@@ -519,9 +574,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       plus: users.filter(u => u.premium_limit === 50).length,
       pro: users.filter(u => u.premium_limit === 100).length,
       unlimited: users.filter(u => u.premium_limit >= 1000).length,
-      registrationsByDate: filterStatsByPeriod(registrationsByDateRaw, period),
-      downloadsByDate: filterStatsByPeriod(downloadsByDateRaw, period),
-      activeByDate: filterStatsByPeriod(activeByDateRaw, period)
+      registrationsByDate: filteredRegistrations,
+      downloadsByDate: filteredDownloads,
+      activeByDate: filteredActive
     };
 
     const activityByDayHour = await getUserActivityByDayHour();
@@ -529,14 +584,6 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
     const referralStats = await getReferralSourcesStats();
-
-    const lastMonths = Array.from({ length: 6 }).map((_, i) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      const value = date.toISOString().slice(0, 7); // 'YYYY-MM'
-      const label = date.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-      return { value, label };
-    });
 
     res.render('dashboard', {
       title: 'Панель управления',
@@ -551,12 +598,11 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       activityByWeekday,
       showInactive,
       period,
-      lastMonths,
       retentionData: [],
       funnelData: [],
-      chartDataCombined,
       customStyles: '',
       customScripts: '',
+      chartDataCombined // Передаём данные графика в шаблон
     });
   } catch (e) {
     console.error('Ошибка при загрузке dashboard:', e);
