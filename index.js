@@ -620,26 +620,46 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const lastMonths = getLastMonths(6);
     console.log('📆 lastMonths:', lastMonths);
 
-    res.render('dashboard', {
-      title: 'Панель управления',
-      stats,
-      users,
-      referralStats,
-      expiringSoon,
-      expiringCount,
-      expiringOffset,
-      expiringLimit,
-      activityByHour,
-      activityByWeekday,
-      chartDataCombined,
-      showInactive,
-      period,
-      retentionData: [],
-      funnelData: [],
-      customStyles: '',
-      customScripts: '',
-      lastMonths
-    });
+    const chartDataHourActivity = {
+  labels: [...Array(24).keys()].map(h => `${h}:00`),
+  datasets: [{
+    label: 'Активность по часам',
+    data: activityByHour,
+    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+  }],
+};
+
+const chartDataWeekdayActivity = {
+  labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+  datasets: [{
+    label: 'Активность по дням недели',
+    data: activityByWeekday,
+    backgroundColor: 'rgba(255, 206, 86, 0.7)',
+  }],
+};
+
+res.render('dashboard', {
+  title: 'Панель управления',
+  stats,
+  users,
+  referralStats,
+  expiringSoon,
+  expiringCount,
+  expiringOffset,
+  expiringLimit,
+  activityByHour,
+  activityByWeekday,
+  chartDataCombined,
+  chartDataHourActivity,       // <--- вот они добавлены
+  chartDataWeekdayActivity,    // <--- вот они добавлены
+  showInactive,
+  period,
+  retentionData: [],
+  funnelData: [],
+  customStyles: '',
+  customScripts: '',
+  lastMonths
+});
   } catch (e) {
     console.error('❌ Ошибка при загрузке dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
