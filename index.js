@@ -624,6 +624,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       expiringLimit,
       activityByHour,
       activityByWeekday,
+      chartDataCombined,
       showInactive,
       period,
       retentionData: [],
