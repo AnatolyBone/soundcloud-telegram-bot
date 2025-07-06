@@ -841,23 +841,25 @@ bot.hears(texts.mytracks, async ctx => {
   const user = await getUser(userId);
   if (!user) return ctx.reply('Пользователь не найден');
 
-  // Получаем список треков из поля tracks_today
+  const limit = user.premium_limit || 10;
   const tracksRaw = user.tracks_today || '';
-  const tracks = tracksRaw ? tracksRaw.split(',').filter(t => t.trim() !== '') : [];
-
-  const limit = user.premium_limit || 10; // например, лимит из пользователя
+  const tracks = tracksRaw
+    .split(',')
+    .map(t => t.trim())
+    .filter(t => t.length > 0);
 
   await ctx.reply(`Скачано сегодня ${tracks.length} из ${limit}`);
 
   if (tracks.length === 0) return;
 
-  // Отправляем треки по 5 в одном сообщении
+  // Отправляем треки по 5 в сообщении
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-    const message = chunk.map(t => t.trim()).join('\n');
+    const message = chunk.join('\n');
     await ctx.reply(message);
   }
 });
+
 bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
