@@ -114,10 +114,13 @@ async function saveTrackForUser(id, title, fileId) {
 
 async function setPremium(id, limit, days = null) {
   await query('UPDATE users SET premium_limit = $1 WHERE id = $2', [limit, id]);
+
   if (typeof days === 'number' && days > 0) {
     const until = new Date(Date.now() + days * 86400000).toISOString();
     await query('UPDATE users SET premium_until = $1 WHERE id = $2', [until, id]);
-  } else if (days !== null) {
+  } else if (days === null) {
+    await query('UPDATE users SET premium_until = NULL WHERE id = $1', [id]);
+  } else {
     console.warn(`setPremium: неверное значение days=${days} для пользователя ${id}`);
   }
 }
