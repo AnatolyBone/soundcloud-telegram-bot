@@ -219,7 +219,6 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
-      await logEvent(userId, 'download');
       await pool.query(
         'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
         [userId, name]
@@ -781,7 +780,14 @@ res.render('dashboard', {
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
-
+const funnelData = {
+  labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
+  datasets: [{
+    label: 'Воронка пользователей',
+    data: [123, 95, 12],
+    backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
+  }]
+};
 // Выход
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
