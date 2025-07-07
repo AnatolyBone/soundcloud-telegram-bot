@@ -101,6 +101,19 @@ setInterval(cleanCache, 3600 * 1000);
 // Сброс статистики раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
+async function logEvent(userId, event) {
+  try {
+    await supabase.from('events').insert([
+      {
+        user_id: userId,
+        event,
+        created_at: new Date().toISOString()
+      }
+    ]);
+  } catch (error) {
+    console.error('Ошибка при логировании события:', error);
+  }
+}
 // Константы и тексты
 const MAX_CONCURRENT_DOWNLOADS = 5;
 
@@ -901,15 +914,20 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
 // Команды бота
 bot.start(async ctx => {
   const user = ctx.from;
+
+  // Создание и обновление пользователя
   await createUser(user.id, user.first_name, user.username);
   await addOrUpdateUserInSupabase(user.id, user.first_name, user.username);
+
+  // Логируем событие "регистрация"
+  await logEvent(user.id, 'registered');
 
   const fullUser = await getUser(user.id);
 
   await ctx.reply(getPersonalMessage(fullUser));
 
   // ⏳ Добавляем задержку ~1.5 секунды
-  await ctx.replyWithChatAction('typing'); // эффект "печатает"
+  await ctx.replyWithChatAction('typing');
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   await ctx.reply(formatMenuMessage(fullUser), kb());
