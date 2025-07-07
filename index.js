@@ -910,7 +910,6 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
     console.error('Ошибка установки тарифа:', e);
     res.status(500).send('Ошибка сервера');
   }
-  await logEvent(userId, 'tariff');
 });
 // === Telegraf бот ===
 
