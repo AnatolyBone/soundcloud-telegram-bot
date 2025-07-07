@@ -61,7 +61,25 @@ async function logUserActivity(userId) {
     [userId]
   );
 }
-
+// Возвращает количество уникальных пользователей, совершивших событие eventType в период с fromDate по toDate
+async function getUniqueUsersByEvent(eventType, fromDate, toDate) {
+  const sql = `
+    SELECT COUNT(DISTINCT user_id) AS count
+    FROM events
+    WHERE event = $1
+      AND created_at >= $2
+      AND created_at < $3
+      AND user_id IS NOT NULL
+  `;
+  const res = await query(sql, [eventType, fromDate, toDate]);
+  return parseInt(res.rows[0].count, 10);
+}
+async function getFunnelData(fromDate, toDate) {
+  const registrationCount = await getUniqueUsersByEvent('registration', fromDate, toDate);
+  const firstDownloadCount = await getUniqueUsersByEvent('first_download', fromDate, toDate);
+  const subscriptionCount = await getUniqueUsersByEvent('subscription', fromDate, toDate);
+  return { registrationCount, firstDownloadCount, subscriptionCount };
+}
 const allowedFields = new Set([
   'premium_limit',
   'downloads_today',
