@@ -90,7 +90,31 @@ async function updateUserField(id, field, value) {
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
 }
+async function getFunnelData(from, to) {
+  const registrations = await query(`
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE created_at BETWEEN $1 AND $2
+  `, [from, to]);
 
+  const firstDownloads = await query(`
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE total_downloads > 0 AND created_at BETWEEN $1 AND $2
+  `, [from, to]);
+
+  const subscriptions = await query(`
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE premium_limit >= 20 AND created_at BETWEEN $1 AND $2
+  `, [from, to]);
+
+  return {
+    registrationCount: parseInt(registrations.rows[0].count, 10),
+    firstDownloadCount: parseInt(firstDownloads.rows[0].count, 10),
+    subscriptionCount: parseInt(subscriptions.rows[0].count, 10)
+  };
+}
 async function incrementDownloads(id) {
   await query(`
     UPDATE users SET 
@@ -389,5 +413,6 @@ export {
   exportUsersToCSV,
   getReferralSourcesStats,
   markSubscribedBonusUsed,
+  getFunnelData,
   logUserActivity
 };
