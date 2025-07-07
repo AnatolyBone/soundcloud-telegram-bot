@@ -327,6 +327,7 @@ url = await resolveRedirect(url);
         playlistUrl: isPlaylist ? url : null,
         priority: user.premium_limit
       });
+      await logEvent(userId, 'download');
     }
 
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
