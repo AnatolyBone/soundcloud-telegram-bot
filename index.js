@@ -1,24 +1,34 @@
-const { Telegraf, Markup } = require('telegraf');
-const compression = require('compression');
-const express = require('express');
-const session = require('express-session');
-const ejs = require('ejs');
-const fs = require('fs');
-const path = require('path');
-const ytdl = require('youtube-dl-exec');
-const multer = require('multer');
-const axios = require('axios');
-const util = require('util');
-const NodeID3 = require('node-id3');
-const writeID3 = util.promisify(NodeID3.write);
+// ESM
+import { Telegraf, Markup } from 'telegraf';
+import compression from 'compression';
+import express from 'express';
+import session from 'express-session';
+import ejs from 'ejs';
+import fs from 'fs';
+import path from 'path';
+import ytdl from 'youtube-dl-exec';
+import multer from 'multer';
+import axios from 'axios';
+import util from 'util';
+import NodeID3 from 'node-id3';
+import pgSessionFactory from 'connect-pg-simple';
+import pkg from 'pg';
+import { Parser } from 'json2csv';
+import { supabase } from './db.js'; // указывай расширение!
+import expressLayouts from 'express-ejs-layouts';
+import https from 'https';
+
+// Инициализация сессии для pg
+const pgSession = pgSessionFactory(session);
+
+const { Pool } = pkg;
+
 const upload = multer({ dest: 'uploads/' });
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
-const { Parser } = require('json2csv');
+
 const playlistTracker = new Map();
-const { supabase } = require('./db');
-const expressLayouts = require('express-ejs-layouts');
-const https = require('https');
+
+// Утилиты
+const writeID3 = util.promisify(NodeID3.write);
 
 async function resolveRedirect(url) {
   try {
@@ -43,10 +53,10 @@ const {
 } = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = parseInt(process.env.ADMIN_ID, 10);
+const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PATH = '/telegram';
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ?? 3000;
 
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Отсутствуют необходимые переменные окружения!');
@@ -66,11 +76,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Кеш треков
+// Кеш треков — для ESM используем import.meta.url
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-// Очистка кеша старше 7 дней
 async function cleanCache() {
   const cutoff = Date.now() - 7 * 86400 * 1000;
   
@@ -95,10 +108,7 @@ async function cleanCache() {
   }
 }
 
-// Запуск каждые 60 минут
 setInterval(cleanCache, 3600 * 1000);
-
-// Сброс статистики раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
 async function logEvent(userId, event) {
@@ -114,11 +124,6 @@ async function logEvent(userId, event) {
     console.error('Ошибка при логировании события:', error);
   }
 }
-// Константы и тексты
-const MAX_CONCURRENT_DOWNLOADS = 5;
-
-let globalQueue = [];
-let activeDownloadsCount = 0;
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
@@ -146,7 +151,7 @@ Unlimited — 💎 (199₽)
 👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
   helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — текущий тариф, лимиты, рефералы.',
   queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
-adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
+  adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
 };
 
 const kb = () =>
@@ -155,7 +160,6 @@ const kb = () =>
     [texts.mytracks, texts.help]
   ]).resize();
 
-// Проверка подписки на канал
 const isSubscribed = async userId => {
   try {
     const res = await bot.telegram.getChatMember('@BAZAproject', userId);
