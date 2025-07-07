@@ -120,9 +120,9 @@ const texts = {
 Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
-🆓 Free — 10 🟢
-Plus — 50 🎯 (59₽)
-Pro — 100 💪 (119₽)
+🆓 Free — 5 🟢
+Plus — 20 🎯 (59₽)
+Pro — 50 💪 (119₽)
 Unlimited — 💎 (199₽)
 
 👉 Донат: https://boosty.to/anatoly_bone/donate
@@ -359,11 +359,11 @@ function formatMenuMessage(user) {
   const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
   const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
 
-  const tariffName =
-    user.premium_limit === 10 ? 'Free (10/день)' :
-    user.premium_limit === 50 ? 'Plus (50/день)' :
-    user.premium_limit === 100 ? 'Pro (100/день)' :
-    'Unlimited';
+const tariffName =
+  user.premium_limit === 5 ? 'Free (5/день)' :
+  user.premium_limit === 20 ? 'Plus (20/день)' :
+  user.premium_limit === 50 ? 'Pro (50/день)' :
+  'Unlimited';
 
   const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
 
@@ -626,9 +626,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const stats = {
       totalUsers: users.length,
       totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-      free: users.filter(u => u.premium_limit === 10).length,
-      plus: users.filter(u => u.premium_limit === 50).length,
-      pro: users.filter(u => u.premium_limit === 100).length,
+      free: users.filter(u => u.premium_limit === 5).length,
+      plus: users.filter(u => u.premium_limit === 25).length,
+      pro: users.filter(u => u.premium_limit === 50).length,
       unlimited: users.filter(u => u.premium_limit >= 1000).length,
       registrationsByDate: filteredRegistrations,
       downloadsByDate: filteredDownloads,
