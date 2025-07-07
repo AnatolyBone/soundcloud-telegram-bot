@@ -123,6 +123,10 @@ async function setPremium(id, limit, days = null) {
   } else {
     console.warn(`setPremium: неверное значение days=${days} для пользователя ${id}`);
   }
+}try {
+  await logEvent(id, 'tariff');
+} catch (e) {
+  console.error('Ошибка при логировании события "tariff":', e);
 }
 
 async function markSubscribedBonusUsed(userId) {
