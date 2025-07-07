@@ -575,28 +575,134 @@ app.post('/admin', (req, res) => {
   }
 });
 // ===== Утилиты для фильтрации статистики =====
-function toYMD(date) {
-  return date.toISOString().split('T')[0];
+
+// Конвертация объекта {date: count, ...} в массив [{date, count}, ...]
+function convertObjToArray(dataObj) {
+  if (!dataObj) return [];
+  return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
 }
 
+// Фильтрация массива статистики по периоду (число дней или 'YYYY-MM')
 function filterStatsByPeriod(data, period) {
   if (!Array.isArray(data)) return [];
 
-  if (period === '7') {
-    const fromYMD = toYMD(new Date(Date.now() - 7 * 86400000));
-    return data.filter(item => item.date >= fromYMD);
-  } 
-  if (period === '30') {
-    const fromYMD = toYMD(new Date(Date.now() - 30 * 86400000));
-    return data.filter(item => item.date >= fromYMD);
-  } 
-  if (/^\d{4}-\d{2}$/.test(period)) {  // формат 'YYYY-MM'
+  const now = new Date();
+
+  // Если period — число дней
+  if (!isNaN(period)) {
+    const days = parseInt(period);
+    const cutoff = new Date(now.getTime() - days * 86400000);
+    return data.filter(item => new Date(item.date) >= cutoff);
+  }
+
+  // Если period — формат 'YYYY-MM'
+  if (/^\d{4}-\d{2}$/.test(period)) {
     return data.filter(item => item.date && item.date.startsWith(period));
   }
 
-  return data; // если ничего не подошло — вернуть все данные
+  // Иначе возвращаем все данные
+  return data;
+}
+
+// Подготовка данных для графиков Chart.js из трёх массивов с датами и значениями
+function prepareChartData(registrations, downloads, active) {
+  const dateSet = new Set([
+    ...registrations.map(r => r.date),
+    ...downloads.map(d => d.date),
+    ...active.map(a => a.date)
+  ]);
+  const dates = Array.from(dateSet).sort();
+
+  const regMap = new Map(registrations.map(r => [r.date, r.count]));
+  const dlMap = new Map(downloads.map(d => [d.date, d.count]));
+  const actMap = new Map(active.map(a => [a.date, a.count]));
+
+  return {
+    labels: dates,
+    datasets: [
+      {
+        label: 'Регистрации',
+        data: dates.map(d => regMap.get(d) || 0),
+        borderColor: 'rgba(75, 192, 192, 1)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        fill: false,
+      },
+      {
+        label: 'Загрузки',
+        data: dates.map(d => dlMap.get(d) || 0),
+        borderColor: 'rgba(255, 99, 132, 1)',
+        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+        fill: false,
+      },
+      {
+        label: 'Активные пользователи',
+        data: dates.map(d => actMap.get(d) || 0),
+        borderColor: 'rgba(54, 162, 235, 1)',
+        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+        fill: false,
+      }
+    ]
+  };
+}
+
+// Получение последних N месяцев в виде [{value: 'YYYY-MM', label: 'Месяц Год'}, ...]
+function getLastMonths(count = 6) {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
+    const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    months.push({ value, label });
+  }
+  return months;
+}
+
+// Получение диапазона дат по периоду (число дней или 'YYYY-MM')
+function getFromToByPeriod(period) {
+  const now = new Date();
+  if (!isNaN(period)) {
+    const days = parseInt(period);
+    return {
+      from: new Date(now.getTime() - days * 86400000),
+      to: now
+    };
+  } else if (/^\d{4}-\d{2}$/.test(period)) {
+    const [year, month] = period.split('-').map(Number);
+    const from = new Date(year, month - 1, 1);
+    const to = new Date(year, month, 1);
+    return { from, to };
+  } else {
+    throw new Error('Некорректный формат периода');
+  }
 }
 // Дашборд
+import {
+  getAllUsers,
+  getExpiringUsersPaginated,
+  getExpiringUsersCount,
+  getDownloadsByDate,
+  getRegistrationsByDate,
+  getActiveUsersByDate,
+  getReferralSourcesStats,
+  getUserActivityByDayHour,
+  getFunnelData
+} from './db.js';
+
+import { requireAuth } from './middleware.js';
+import {
+  computeActivityByHour,
+  computeActivityByWeekday
+} from './utils/analytics.js';
+
+import {
+  convertObjToArray,
+  filterStatsByPeriod,
+  prepareChartData,
+  getLastMonths,
+  getFromToByPeriod
+} from './utils/stats.js';
+
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'dashboard';
@@ -606,86 +712,19 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
-    console.log('📌 Параметры запроса:', { period, showInactive, expiringLimit, expiringOffset });
-
     const expiringSoon = await getExpiringUsersPaginated(expiringLimit, expiringOffset);
     const expiringCount = await getExpiringUsersCount();
-    console.log('🕓 expiringSoon:', expiringSoon.length);
-
     const users = await getAllUsers(showInactive);
-    console.log('👥 Всего пользователей:', users.length);
 
     const downloadsByDateRaw = await getDownloadsByDate();
     const registrationsByDateRaw = await getRegistrationsByDate();
     const activeByDateRaw = await getActiveUsersByDate();
 
-    console.log('📊 Сырые данные:');
-    console.log('Загрузки:', downloadsByDateRaw);
-    console.log('Регистрации:', registrationsByDateRaw);
-    console.log('Активные:', activeByDateRaw);
-
-    // Функция для конвертации объекта { 'date': count, ... } в массив [{date, count}, ...]
-    function convertObjToArray(dataObj) {
-      if (!dataObj) return [];
-      return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
-    }
-
-    // Конвертируем сырые данные в массивы перед фильтрацией
     const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
     const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
     const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
 
-    console.log('📅 После фильтрации:');
-    console.log('Регистрации:', filteredRegistrations);
-    console.log('Загрузки:', filteredDownloads);
-    console.log('Активные:', filteredActive);
-
-    function prepareChartData(registrations, downloads, active) {
-      const dateSet = new Set([
-        ...registrations.map(r => r.date),
-        ...downloads.map(d => d.date),
-        ...active.map(a => a.date)
-      ]);
-      const dates = Array.from(dateSet).sort();
-
-      const regMap = new Map(registrations.map(r => [r.date, r.count]));
-      const dlMap = new Map(downloads.map(d => [d.date, d.count]));
-      const actMap = new Map(active.map(a => [a.date, a.count]));
-
-      const regData = dates.map(date => regMap.get(date) || 0);
-      const dlData = dates.map(date => dlMap.get(date) || 0);
-      const actData = dates.map(date => actMap.get(date) || 0);
-
-      return {
-        labels: dates,
-        datasets: [
-          {
-            label: 'Регистрации',
-            data: regData,
-            borderColor: 'rgba(75, 192, 192, 1)',
-            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-            fill: false,
-          },
-          {
-            label: 'Загрузки',
-            data: dlData,
-            borderColor: 'rgba(255, 99, 132, 1)',
-            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-            fill: false,
-          },
-          {
-            label: 'Активные пользователи',
-            data: actData,
-            borderColor: 'rgba(75, 192, 192, 1)',
-            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-            fill: false,
-          }
-        ]
-      };
-    }
-
     const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
-    console.log('📈 chartDataCombined:', chartDataCombined);
 
     const stats = {
       totalUsers: users.length,
@@ -698,34 +737,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       downloadsByDate: filteredDownloads,
       activeByDate: filteredActive
     };
-    console.log('📦 stats:', stats);
 
     const activityByDayHour = await getUserActivityByDayHour();
     const activityByHour = computeActivityByHour(activityByDayHour);
     const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
-    console.log('⏱ activityByHour:', activityByHour);
-    console.log('📅 activityByWeekday:', activityByWeekday);
-
     const referralStats = await getReferralSourcesStats();
-    console.log('🔗 referralStats:', referralStats);
 
-    function getLastMonths(count = 6) {
-      const months = [];
-      const now = new Date();
-      for (let i = 0; i < count; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
-        const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-        months.push({ value, label });
-      }
-      return months;
-    }
-const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - parseInt(period, 10)); // период из параметра
-    const toDate = new Date();
-
+    const { from: fromDate, to: toDate } = getFromToByPeriod(period);
     const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+
     const chartDataFunnel = {
       labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
       datasets: [{
@@ -738,39 +759,33 @@ const fromDate = new Date();
         backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
       }]
     };
-    const lastMonths = getLastMonths(6);
-    console.log('📆 lastMonths:', lastMonths);
 
     const chartDataHourActivity = {
-  labels: [...Array(24).keys()].map(h => `${h}:00`),
-  datasets: [{
-    label: 'Активность по часам',
-    data: activityByHour,
-    backgroundColor: 'rgba(54, 162, 235, 0.7)',
-  }],
-};
+      labels: [...Array(24).keys()].map(h => `${h}:00`),
+      datasets: [{
+        label: 'Активность по часам',
+        data: activityByHour,
+        backgroundColor: 'rgba(54, 162, 235, 0.7)',
+      }]
+    };
 
-const chartDataWeekdayActivity = {
-  labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-  datasets: [{
-    label: 'Активность по дням недели',
-    data: activityByWeekday,
-    backgroundColor: 'rgba(255, 206, 86, 0.7)',
-  }],
-};
-const chartDataDownloads = {
-    labels: ['2025-07-01', '2025-07-02', '2025-07-03'],
-datasets: [{
-  label: 'Загрузки',
-  data: [81, 281, 243],
-  backgroundColor: 'rgba(75, 192, 192, 0.2)',
-  borderColor: 'rgba(75, 192, 192, 1)',
-  borderWidth: 1
-}]
-  };
-console.log('chartDataDownloads:', chartDataDownloads);
+    const chartDataWeekdayActivity = {
+      labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+      datasets: [{
+        label: 'Активность по дням недели',
+        data: activityByWeekday,
+        backgroundColor: 'rgba(255, 206, 86, 0.7)',
+      }]
+    };
 
-res.render('dashboard', {
+    const chartDataDownloads = {
+      labels: chartDataCombined.labels,
+      datasets: [chartDataCombined.datasets[1]] // Только "Загрузки"
+    };
+
+    const lastMonths = getLastMonths(6);
+
+    res.render('dashboard', {
       title: 'Панель управления',
       stats,
       users,
@@ -787,9 +802,9 @@ res.render('dashboard', {
       showInactive,
       period,
       retentionData: [],
-      funnelData: funnelCounts,        // можно оставить сырые цифры
-      chartDataFunnel,                 // сюда подставляем подготовленный объект для Chart.js
-      chartDataRetention: {},          // чтобы убрать ошибку, если еще нет
+      funnelData: funnelCounts,
+      chartDataFunnel,
+      chartDataRetention: {},
       chartDataUserFunnel: {},
       chartDataDownloads,
       lastMonths,
