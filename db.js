@@ -1,7 +1,8 @@
-const { Pool } = require('pg');
-const { createClient } = require('@supabase/supabase-js');
-const { Parser } = require('json2csv');
+import { Pool } from 'pg';
+import { createClient } from '@supabase/supabase-js';
+import { Parser } from 'json2csv';
 
+// Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
@@ -12,11 +13,13 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// PostgreSQL pool
+// PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
 });
+
+// ==================== Базовые функции ====================
 
 async function query(text, params) {
   try {
@@ -27,13 +30,14 @@ async function query(text, params) {
     throw e;
   }
 }
+
 async function getUserById(id) {
   const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
   if (error) throw error;
   return data;
 }
+
 async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
-  console.log(`DEBUG createUser: id=${id}, name=${first_name}, username=${username}, referral_source=${referral_source}, referrer_id=${referrer_id}`);
   await query(`
     INSERT INTO users (
       id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date,
@@ -61,25 +65,7 @@ async function logUserActivity(userId) {
     [userId]
   );
 }
-// Возвращает количество уникальных пользователей, совершивших событие eventType в период с fromDate по toDate
-async function getUniqueUsersByEvent(eventType, fromDate, toDate) {
-  const sql = `
-    SELECT COUNT(DISTINCT user_id) AS count
-    FROM events
-    WHERE event = $1
-      AND created_at >= $2
-      AND created_at < $3
-      AND user_id IS NOT NULL
-  `;
-  const res = await query(sql, [eventType, fromDate, toDate]);
-  return parseInt(res.rows[0].count, 10);
-}
-async function getFunnelData(fromDate, toDate) {
-  const registrationCount = await getUniqueUsersByEvent('registration', fromDate, toDate);
-  const firstDownloadCount = await getUniqueUsersByEvent('first_download', fromDate, toDate);
-  const subscriptionCount = await getUniqueUsersByEvent('subscription', fromDate, toDate);
-  return { registrationCount, firstDownloadCount, subscriptionCount };
-}
+
 const allowedFields = new Set([
   'premium_limit',
   'downloads_today',
@@ -105,7 +91,7 @@ async function updateUserField(id, field, value) {
   return (await query(sql, [value, id])).rowCount;
 }
 
-async function incrementDownloads(id, trackTitle) {
+async function incrementDownloads(id) {
   await query(`
     UPDATE users SET 
       downloads_today = downloads_today + 1,
@@ -120,8 +106,7 @@ async function saveTrackForUser(id, title, fileId) {
 
   try {
     if (user.tracks_today) current = JSON.parse(user.tracks_today);
-  } catch (e) {
-    console.warn('⚠️ Невалидный JSON в tracks_today, сбрасываем:', e.message);
+  } catch {
     current = [];
   }
 
@@ -138,13 +123,7 @@ async function setPremium(id, limit, days = null) {
     await query('UPDATE users SET premium_until = $1 WHERE id = $2', [until, id]);
   } else if (days === null) {
     await query('UPDATE users SET premium_until = NULL WHERE id = $1', [id]);
-  } else {
-    console.warn(`setPremium: неверное значение days=${days} для пользователя ${id}`);
   }
-}try {
-  await logEvent(id, 'tariff');
-} catch (e) {
-  console.error('Ошибка при логировании события "tariff":', e);
 }
 
 async function markSubscribedBonusUsed(userId) {
@@ -166,7 +145,6 @@ async function resetDailyLimitIfNeeded(userId) {
           last_reset_date = CURRENT_DATE
       WHERE id = $1
     `, [userId]);
-    console.log(`🕛 Лимит сброшен: ${userId}`);
   }
 }
 
@@ -177,16 +155,12 @@ async function resetDailyStats() {
         tracks_today = '',
         last_reset_date = CURRENT_DATE
   `);
-  console.log('🕛 Суточные лимиты сброшены у всех');
 }
 
 async function getAllUsers(includeInactive = false) {
   let sql = 'SELECT * FROM users';
-  if (!includeInactive) {
-    sql += ' WHERE active = TRUE';
-  }
+  if (!includeInactive) sql += ' WHERE active = TRUE';
   sql += ' ORDER BY created_at DESC';
-
   const res = await query(sql);
   return res.rows;
 }
@@ -207,13 +181,8 @@ async function getReferralSourcesStats() {
 
 async function addReview(userId, text) {
   const time = new Date().toISOString();
-
-  const { error } = await supabase
-    .from('reviews')
-    .insert([{ user_id: userId, text, time }]);
-
+  const { error } = await supabase.from('reviews').insert([{ user_id: userId, text, time }]);
   if (error) console.error('❌ Supabase review error:', error);
-
   await query('UPDATE users SET has_reviewed = true WHERE id = $1', [userId]);
 }
 
@@ -266,7 +235,6 @@ async function saveTrackMetadata(url, metadata) {
   `, [url, metadata]);
 }
 
-// Регистрации пользователей по датам
 async function getRegistrationsByDate() {
   const res = await query(`
     SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count
@@ -279,7 +247,6 @@ async function getRegistrationsByDate() {
   return result;
 }
 
-// Корректная статистика загрузок (по суточным лимитам) с динамическим интервалом (30 дней)
 async function getDownloadsByDate() {
   const res = await query(`
     SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') as date, SUM(downloads_today) as count
@@ -293,7 +260,6 @@ async function getDownloadsByDate() {
   return result;
 }
 
-// Активные пользователи по дате (посещаемость) с динамическим интервалом (30 дней)
 async function getActiveUsersByDate() {
   const res = await query(`
     SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(*) as count
@@ -307,7 +273,6 @@ async function getActiveUsersByDate() {
   return result;
 }
 
-// Активность пользователей по часам (0-23)
 async function getActivityByHour() {
   const res = await query(`
     SELECT EXTRACT(HOUR FROM last_active) AS hour, COUNT(*) AS count
@@ -323,7 +288,6 @@ async function getActivityByHour() {
   return counts;
 }
 
-// Активность пользователей по дням недели (0=вс, 6=сб)
 async function getActivityByWeekday() {
   const res = await query(`
     SELECT EXTRACT(DOW FROM last_active) AS weekday, COUNT(*) AS count
@@ -339,7 +303,6 @@ async function getActivityByWeekday() {
   return counts;
 }
 
-// Новая функция: активность пользователей по дням и часам (тепловая карта)
 async function getUserActivityByDayHour(days = 30) {
   const res = await query(`
     SELECT
@@ -353,22 +316,17 @@ async function getUserActivityByDayHour(days = 30) {
   `);
 
   const activity = {};
-
   res.rows.forEach(row => {
     const day = row.day;
     const hour = parseInt(row.hour, 10);
     const count = parseInt(row.count, 10);
-
-    if (!activity[day]) {
-      activity[day] = Array(24).fill(0);
-    }
+    if (!activity[day]) activity[day] = Array(24).fill(0);
     activity[day][hour] = count;
   });
 
   return activity;
 }
 
-// Получить пользователей с истекающим тарифом, с пагинацией
 async function getExpiringUsersPaginated(limit = 10, offset = 0) {
   const res = await query(`
     SELECT id, username, first_name, premium_until
@@ -380,7 +338,6 @@ async function getExpiringUsersPaginated(limit = 10, offset = 0) {
   return res.rows;
 }
 
-// Обёртка для совместимости: getExpiringUsers
 async function getExpiringUsers(limit = 10, offset = 0) {
   return getExpiringUsersPaginated(limit, offset);
 }
@@ -394,17 +351,19 @@ async function getExpiringUsersCount() {
   return parseInt(res.rows[0].count, 10);
 }
 
-// Экспорт пользователей в CSV (с учётом всех)
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
   return parser.parse(users);
 }
 
-module.exports = {
+// ==================== Экспорт ====================
+
+export {
   supabase,
   createUser,
   getUser,
+  getUserById,
   updateUserField,
   incrementDownloads,
   saveTrackForUser,
@@ -430,6 +389,5 @@ module.exports = {
   exportUsersToCSV,
   getReferralSourcesStats,
   markSubscribedBonusUsed,
-  logUserActivity,
-  getUserById,
+  logUserActivity
 };
