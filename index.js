@@ -715,7 +715,23 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       }
       return months;
     }
+const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - parseInt(period, 10)); // период из параметра
+    const toDate = new Date();
 
+    const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+    const chartDataFunnel = {
+      labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
+      datasets: [{
+        label: 'Воронка пользователей',
+        data: [
+          funnelCounts.registrationCount || 0,
+          funnelCounts.firstDownloadCount || 0,
+          funnelCounts.subscriptionCount || 0
+        ],
+        backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
+      }]
+    };
     const lastMonths = getLastMonths(6);
     console.log('📆 lastMonths:', lastMonths);
 
@@ -749,45 +765,38 @@ datasets: [{
 console.log('chartDataDownloads:', chartDataDownloads);
 
 res.render('dashboard', {
-  title: 'Панель управления',
-  stats,
-  users,
-  referralStats,
-  expiringSoon,
-  expiringCount,
-  expiringOffset,
-  expiringLimit,
-  activityByHour,
-  activityByWeekday,
-  chartDataCombined,
-  chartDataHourActivity,       // <--- вот они добавлены
-  chartDataWeekdayActivity,    // <--- вот они добавлены
-  showInactive,
-  period,
-  retentionData: [],
-  funnelData: [],
-  customStyles: '',
-  customScripts: '',
-  chartDataHeatmap: {},
-  chartDataFunnel: {},
-  chartDataRetention: {},     // чтобы убрать предыдущую ошибку
-  chartDataUserFunnel: {},
-  chartDataDownloads,
-  lastMonths
-});
+      title: 'Панель управления',
+      stats,
+      users,
+      referralStats,
+      expiringSoon,
+      expiringCount,
+      expiringOffset,
+      expiringLimit,
+      activityByHour,
+      activityByWeekday,
+      chartDataCombined,
+      chartDataHourActivity,
+      chartDataWeekdayActivity,
+      showInactive,
+      period,
+      retentionData: [],
+      funnelData: funnelCounts,        // можно оставить сырые цифры
+      chartDataFunnel,                 // сюда подставляем подготовленный объект для Chart.js
+      chartDataRetention: {},          // чтобы убрать ошибку, если еще нет
+      chartDataUserFunnel: {},
+      chartDataDownloads,
+      lastMonths,
+      customStyles: '',
+      customScripts: '',
+      chartDataHeatmap: {}
+    });
+
   } catch (e) {
     console.error('❌ Ошибка при загрузке dashboard:', e);
     res.status(500).send('Внутренняя ошибка сервера');
   }
 });
-const funnelData = {
-  labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
-  datasets: [{
-    label: 'Воронка пользователей',
-    data: [123, 95, 12],
-    backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
-  }]
-};
 // Выход
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
