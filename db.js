@@ -91,28 +91,41 @@ async function updateUserField(id, field, value) {
   return (await query(sql, [value, id])).rowCount;
 }
 async function getFunnelData(from, to) {
-  const registrations = await query(`
-    SELECT COUNT(*) AS count
-    FROM users
-    WHERE created_at BETWEEN $1 AND $2
-  `, [from, to]);
+  const [registrations, firstDownloads, subscriptions] = await Promise.all([
+    supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', from)
+      .lte('created_at', to),
 
-  const firstDownloads = await query(`
-    SELECT COUNT(*) AS count
-    FROM users
-    WHERE total_downloads > 0 AND created_at BETWEEN $1 AND $2
-  `, [from, to]);
+    supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .gt('total_downloads', 0)
+      .gte('created_at', from)
+      .lte('created_at', to),
 
-  const subscriptions = await query(`
-    SELECT COUNT(*) AS count
-    FROM users
-    WHERE premium_limit >= 20 AND created_at BETWEEN $1 AND $2
-  `, [from, to]);
+    supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .gte('premium_limit', 20)
+      .gte('created_at', from)
+      .lte('created_at', to)
+  ]);
+
+  if (registrations.error || firstDownloads.error || subscriptions.error) {
+    console.error('❌ Ошибка при получении данных воронки:', {
+      registrationsError: registrations.error,
+      downloadsError: firstDownloads.error,
+      subscriptionsError: subscriptions.error,
+    });
+    throw new Error('Ошибка Supabase при получении данных воронки');
+  }
 
   return {
-    registrationCount: parseInt(registrations.rows[0].count, 10),
-    firstDownloadCount: parseInt(firstDownloads.rows[0].count, 10),
-    subscriptionCount: parseInt(subscriptions.rows[0].count, 10)
+    registrationCount: registrations.count || 0,
+    firstDownloadCount: firstDownloads.count || 0,
+    subscriptionCount: subscriptions.count || 0,
   };
 }
 async function incrementDownloads(id) {
