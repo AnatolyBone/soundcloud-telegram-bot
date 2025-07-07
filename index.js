@@ -71,30 +71,32 @@ const cacheDir = path.join(__dirname, 'cache');
 if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
 // Очистка кеша старше 7 дней
-setInterval(() => {
+async function cleanCache() {
   const cutoff = Date.now() - 7 * 86400 * 1000;
-  fs.readdir(cacheDir, (err, files) => {
-    if (err) {
-      console.error('Ошибка чтения кеша:', err);
-      return;
-    }
-    files.forEach(file => {
+  
+  try {
+    const files = await fs.promises.readdir(cacheDir);
+    
+    for (const file of files) {
       const filePath = path.join(cacheDir, file);
-      fs.stat(filePath, (err, stats) => {
-        if (err) {
-          console.error('Ошибка stat файла:', err);
-          return;
-        }
+      
+      try {
+        const stats = await fs.promises.stat(filePath);
         if (stats.mtimeMs < cutoff) {
-          fs.unlink(filePath, err => {
-            if (err) console.error('Ошибка удаления файла кеша:', err);
-            else console.log(`🗑 Удалён кеш: ${file}`);
-          });
+          await fs.promises.unlink(filePath);
+          console.log(`🗑 [cache-cleaner] Удалён файл: ${file}`);
         }
-      });
-    });
-  });
-}, 3600 * 1000);
+      } catch (err) {
+        console.warn(`⚠️ [cache-cleaner] Ошибка при обработке файла ${file}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ [cache-cleaner] Ошибка при чтении каталога кеша:', err);
+  }
+}
+
+// Запуск каждые 60 минут
+setInterval(cleanCache, 3600 * 1000);
 
 // Сброс статистики раз в сутки
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
@@ -168,17 +170,19 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
 }
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
+  let fp = null;
+  
   try {
     url = await resolveRedirect(url);
-
+    
     const info = await ytdl(url, { dumpSingleJson: true });
-
+    
     let name = info.title || 'track';
     name = sanitizeFilename(name);
     if (name.length > 64) name = name.slice(0, 64);
-
-    const fp = path.join(cacheDir, `${name}.mp3`);
-
+    
+    fp = path.join(cacheDir, `${name}.mp3`);
+    
     if (!fs.existsSync(fp)) {
       await ytdl(url, {
         extractAudio: true,
@@ -187,8 +191,7 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         preferFreeFormats: true,
         noCheckCertificates: true,
       });
-
-      // Ждём, пока запишутся ID3-теги
+      
       try {
         await writeID3({ title: name, artist: 'SoundCloud' }, fp);
         console.log(`🎵 ID3 теги записаны для ${name}`);
@@ -196,21 +199,24 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         console.warn(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
       }
     }
-
+    
     await incrementDownloads(userId, name);
-
-    const fileId = await sendAudioSafe(ctx, userId, fp);
-
+    
+    const fileId = await sendAudioSafe(ctx, userId, fp, name);
+    
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
-      await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
+      await pool.query(
+        'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
+        [userId, name]
+      );
     } else {
       console.warn(`Не удалось получить fileId для трека ${name}`);
     }
-
+    
     const duration = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
-
+    
     if (playlistUrl) {
       const playlistKey = `${userId}:${playlistUrl}`;
       if (playlistTracker.has(playlistKey)) {
@@ -226,6 +232,17 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
+  } finally {
+    // 🧹 Удаление файла безопасно и в самом конце
+    if (fp) {
+      fs.promises.unlink(fp).then(() => {
+        console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
+      }).catch(err => {
+        if (err.code !== 'ENOENT') {
+          console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
+        }
+      });
+    }
   }
 }
 
