@@ -219,6 +219,7 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     
     if (fileId) {
       await saveTrackForUser(userId, name, fileId);
+      await logEvent(userId, 'download');
       await pool.query(
         'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
         [userId, name]
