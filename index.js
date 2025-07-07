@@ -760,7 +760,72 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     };
 
     const lastMonths = getLastMonths(6);
+    const retentionResult = await pool.query(`
+  WITH cohorts AS (
+    SELECT
+      id AS user_id,
+      DATE(created_at) AS cohort_date
+    FROM users
+    WHERE created_at IS NOT NULL
+  ),
+  activities AS (
+    SELECT DISTINCT
+      user_id,
+      DATE(downloaded_at) AS activity_day
+    FROM downloads_log
+  ),
+  cohort_activity AS (
+    SELECT
+      c.cohort_date,
+      a.activity_day,
+      COUNT(DISTINCT c.user_id) AS active_users
+    FROM cohorts c
+    JOIN activities a ON c.user_id = a.user_id
+    WHERE a.activity_day >= c.cohort_date
+    GROUP BY c.cohort_date, a.activity_day
+  ),
+  cohort_sizes AS (
+    SELECT
+      cohort_date,
+      COUNT(*) AS cohort_size
+    FROM cohorts
+    GROUP BY cohort_date
+  ),
+  retention AS (
+    SELECT
+      ca.cohort_date,
+      (ca.activity_day - ca.cohort_date) AS days_since_signup,
+      ca.active_users,
+      cs.cohort_size,
+      ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
+    FROM cohort_activity ca
+    JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date
+    WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
+    ORDER BY ca.cohort_date, days_since_signup
+  )
+  SELECT * FROM retention;
+`);
+const retentionRows = retentionResult.rows;
 
+const cohortsMap = {};
+retentionRows.forEach(row => {
+  const date = row.cohort_date.toISOString().split('T')[0];
+  if (!cohortsMap[date]) {
+    cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
+  }
+  cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
+});
+
+const chartDataRetention = {
+  labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
+  datasets: Object.values(cohortsMap).map(cohort => ({
+    label: cohort.label,
+    data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
+    fill: false,
+    borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
+    tension: 0.1
+  }))
+};
     res.render('dashboard', {
       title: 'Панель управления',
       stats,
@@ -780,7 +845,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       retentionData: [],
       funnelData: funnelCounts,
       chartDataFunnel,
-      chartDataRetention: {},
+      chartDataRetention,
       chartDataUserFunnel: {},
       chartDataDownloads,
       lastMonths,
