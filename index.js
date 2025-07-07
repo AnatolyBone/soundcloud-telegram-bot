@@ -665,11 +665,6 @@ function getFromToByPeriod(period) {
   }
 }
 // Дашборд
-import { requireAuth } from './middleware.js';
-import {
-  computeActivityByHour,
-  computeActivityByWeekday
-} from './utils/analytics.js';
 
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
