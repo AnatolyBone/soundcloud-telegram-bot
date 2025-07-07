@@ -17,7 +17,9 @@ import { Parser } from 'json2csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
+import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 
+const globalQueue = [];
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
 
