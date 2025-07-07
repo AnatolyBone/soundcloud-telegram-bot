@@ -1062,7 +1062,7 @@ bot.on('text', async ctx => {
   ctx.reply('🔄 Загружаю трек... Это может занять пару минут.').catch(console.error);
 
   // Асинхронная обработка — без ctx
-  enqueue(ctx.from.id, url, ctx.chat.id).catch(e => {
+  enqueue(ctx, ctx.from.id, url).catch(e => {
     console.error('Ошибка в enqueue:', e);
     bot.telegram.sendMessage(ctx.chat.id, '❌ Ошибка при обработке ссылки.').catch(console.error);
   });
