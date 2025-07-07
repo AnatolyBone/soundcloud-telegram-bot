@@ -510,18 +510,6 @@ app.use(async (req, res, next) => {
   }
   next();
 });
-
-function getLastMonths(n = 6) {
-  const months = [];
-  const now = new Date();
-  for (let i = 0; i < n; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = d.toISOString().slice(0, 7); // 'YYYY-MM'
-    const display = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-    months.push({ value: `month:${ym}`, label: display });
-  }
-  return months;
-}
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
