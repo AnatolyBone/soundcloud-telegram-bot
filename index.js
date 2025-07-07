@@ -671,14 +671,6 @@ import {
   computeActivityByWeekday
 } from './utils/analytics.js';
 
-import {
-  convertObjToArray,
-  filterStatsByPeriod,
-  prepareChartData,
-  getLastMonths,
-  getFromToByPeriod
-} from './utils/stats.js';
-
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'dashboard';
