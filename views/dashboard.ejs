@@ -1,4 +1,3 @@
-
 <% title = 'Админка'; page = 'dashboard'; %>
 
 <!-- Заголовок страницы -->
@@ -9,7 +8,7 @@
   </div>
 </section>
 
-<!-- Форма выбора периода (единственная) -->
+<!-- Форма выбора периода -->
 <form method="get" action="/dashboard" class="mb-3 d-flex gap-2 align-items-center flex-wrap">
   <label for="periodSelectMain" class="form-label mb-0">Период:</label>
   <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
@@ -270,125 +269,61 @@
           </div>
           <div class="mb-3">
             <label for="broadcastAudio" class="form-label">Аудиофайл (mp3)</label>
-            <input type="file" id="broadcastAudio" name="audio" accept="audio/mp3,audio/mpeg" class="form-control" />
+            <input type="file" id="broadcastAudio" name="audio" accept="audio/mpeg" class="form-control" />
           </div>
-          <button type="submit" class="btn btn-success">Отправить</button>
+          <button type="submit" class="btn btn-success">Отправить рассылку</button>
         </form>
       </div>
 
       <!-- Вкладка Аналитика -->
       <div class="tab-pane fade" id="analyticsTab" role="tabpanel" aria-labelledby="analytics-tab">
-        <div class="row">
 
-          <!-- Retention таблица -->
-          <div class="col-12 col-lg-6 mb-4">
-            <div class="card card-info card-outline h-100">
-              <div class="card-header">
-                <h3 class="card-title">Удержание пользователей (Retention)</h3>
-              </div>
-              <div class="card-body table-responsive" style="max-height: 400px; overflow-y:auto;">
-                <table class="table table-sm table-bordered table-hover mb-0 text-center align-middle">
-                  <thead>
-                    <tr>
-                      <th>Дата регистрации</th>
-                      <% for(let day=0; day<=7; day++) { %>
-                        <th>D<%= day %></th>
-                      <% } %>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% if (retentionData && retentionData.length > 0) { %>
-                      <% retentionData.forEach(row => { %>
-                        <tr>
-                          <td><%= row.date %></td>
-                          <% for(let day=0; day<=7; day++) { %>
-                            <td><%= row[`d${day}`] != null ? (row[`d${day}`] + '%') : '-' %></td>
-                          <% } %>
-                        </tr>
-                      <% }) %>
-                    <% } else { %>
-                      <tr><td colspan="9">Нет данных</td></tr>
-                    <% } %>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        <div class="card card-primary card-outline">
+          <div class="card-header">
+            <h3 class="card-title">Воронка пользователей</h3>
           </div>
-
-          <!-- Воронка -->
-          <div class="col-12 col-lg-6 mb-4">
-            <div class="card card-warning card-outline h-100">
-              <div class="card-header">
-                <h3 class="card-title">Воронка: регистрация → загрузка → тариф</h3>
-              </div>
-              <div class="card-body">
-                <canvas id="funnelChart" style="height: 300px;"></canvas>
-              </div>
-            </div>
+          <div class="card-body">
+            <canvas id="funnelChart" style="height: 200px;"></canvas>
           </div>
-
         </div>
+
+        <div class="card card-secondary card-outline mt-3">
+          <div class="card-header">
+            <h3 class="card-title">User Funnel</h3>
+          </div>
+          <div class="card-body">
+            <canvas id="userFunnelChart" style="height: 200px;"></canvas>
+          </div>
+        </div>
+
       </div>
 
       <!-- Вкладка Удержание и Воронка -->
       <div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
-        <div class="card mb-3">
-          <div class="card-header">Удержание (Retention)</div>
+
+        <div class="card card-info card-outline">
+          <div class="card-header">
+            <h3 class="card-title">Retention</h3>
+          </div>
           <div class="card-body">
-            <canvas id="retentionChart" style="height: 250px;"></canvas>
+            <canvas id="retentionChart" style="height: 300px;"></canvas>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">Воронка пользователей</div>
-          <div class="card-body">
-            <canvas id="userFunnelChart" style="height: 250px;"></canvas>
-          </div>
-        </div>
+
       </div>
 
     </div>
-
   </div>
 </section>
-<pre style="color: red; background: #eee; padding: 10px;">
-combined: <%= JSON.stringify(chartDataCombined) %>
-hourActivity: <%= JSON.stringify(chartDataHourActivity) %>
-weekdayActivity: <%= JSON.stringify(chartDataWeekdayActivity) %>
-heatmap: <%= JSON.stringify(chartDataHeatmap) %>
-funnel: <%= JSON.stringify(chartDataFunnel) %>
-retention: <%= JSON.stringify(chartDataRetention) %>
-userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
-</pre>
 
-<canvas id="testChart" width="400" height="200"></canvas>
-
-<!-- Скрипты для графиков и инициализации DataTables -->
-<script src="https://code.jquery.com/jquery-3.6.4.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-  // Тестовый график - теперь Chart уже определён
-  const ctx = document.getElementById('testChart').getContext('2d');
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['Red', 'Blue', 'Yellow'],
-      datasets: [{
-        label: 'Test dataset',
-        data: [12, 19, 3],
-        backgroundColor: ['red', 'blue', 'yellow'],
-      }]
-    },
-    options: {
-      responsive: false,
-      scales: { y: { beginAtZero: true } }
-    }
-  });
-</script>
+<script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
 <script>
-  // Инициализация таблицы пользователей
   $(document).ready(function() {
+    // DataTables для таблицы пользователей
     $('#usersTable').DataTable({
       paging: true,
       searching: true,
@@ -400,9 +335,21 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // График: Регистрации, Загрузки, Активные пользователи (combinedChart)
+    // Пагинация для списка истекающих подписок
+    window.changePage = function(dir) {
+      const url = new URL(window.location.href);
+      let offset = parseInt(url.searchParams.get('expiringOffset')) || 0;
+      offset += dir * <%= expiringLimit %>;
+      if (offset < 0) offset = 0;
+      url.searchParams.set('expiringOffset', offset);
+      window.location.href = url.toString();
+    };
+
+    // Графики на Chart.js
+
+    // Регистрации, загрузки, активные
     const combinedCtx = document.getElementById('combinedChart').getContext('2d');
-    const combinedChart = new Chart(combinedCtx, {
+    new Chart(combinedCtx, {
       type: 'line',
       data: <%- JSON.stringify(chartDataCombined || {}) %>,
       options: {
@@ -412,9 +359,9 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // График: Активность по часам
+    // Активность по часам
     const hourCtx = document.getElementById('hourActivityChart').getContext('2d');
-    const hourActivityChart = new Chart(hourCtx, {
+    new Chart(hourCtx, {
       type: 'bar',
       data: <%- JSON.stringify(chartDataHourActivity || {}) %>,
       options: {
@@ -423,9 +370,9 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // График: Активность по дням недели
+    // Активность по дням недели
     const weekdayCtx = document.getElementById('weekdayActivityChart').getContext('2d');
-    const weekdayActivityChart = new Chart(weekdayCtx, {
+    new Chart(weekdayCtx, {
       type: 'bar',
       data: <%- JSON.stringify(chartDataWeekdayActivity || {}) %>,
       options: {
@@ -434,10 +381,10 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // Тепловая карта (если используешь плагин, иначе поменяй тип)
+    // Тепловая карта
     const heatmapCtx = document.getElementById('heatmapChart').getContext('2d');
-    const heatmapChart = new Chart(heatmapCtx, {
-      type: 'bar', // или 'matrix' если есть плагин
+    new Chart(heatmapCtx, {
+      type: 'bar', // Можно заменить на 'matrix' с плагином, если нужен эффект тепловой карты
       data: <%- JSON.stringify(chartDataHeatmap || {}) %>,
       options: {
         responsive: true,
@@ -445,31 +392,28 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // Воронка
+    // Воронка пользователей (горизонтальный бар)
     const funnelCtx = document.getElementById('funnelChart').getContext('2d');
-    const funnelChart = new Chart(funnelCtx, {
+    new Chart(funnelCtx, {
       type: 'bar',
       data: <%- JSON.stringify(chartDataFunnel || {}) %>,
       options: {
+        indexAxis: 'y',
         responsive: true,
-        scales: { y: { beginAtZero: true } }
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true }
+        },
+        scales: {
+          x: { beginAtZero: true, precision: 0 },
+          y: { ticks: { font: { size: 14 } } }
+        }
       }
     });
 
-    // Retention
-    const retentionCtx = document.getElementById('retentionChart').getContext('2d');
-    const retentionChart = new Chart(retentionCtx, {
-      type: 'line',
-      data: <%- JSON.stringify(chartDataRetention || {}) %>,
-      options: {
-        responsive: true,
-        scales: { y: { beginAtZero: true } }
-      }
-    });
-
-    // User funnel
+    // User Funnel (вертикальный)
     const userFunnelCtx = document.getElementById('userFunnelChart').getContext('2d');
-    const userFunnelChart = new Chart(userFunnelCtx, {
+    new Chart(userFunnelCtx, {
       type: 'bar',
       data: <%- JSON.stringify(chartDataUserFunnel || {}) %>,
       options: {
@@ -478,14 +422,15 @@ userFunnel: <%= JSON.stringify(chartDataUserFunnel) %>
       }
     });
 
-    // Функция смены страницы для пагинации
-    window.changePage = function(dir) {
-      const url = new URL(window.location.href);
-      let offset = parseInt(url.searchParams.get('expiringOffset')) || 0;
-      offset += dir * <%= expiringLimit %>;
-      if (offset < 0) offset = 0;
-      url.searchParams.set('expiringOffset', offset);
-      window.location.href = url.toString();
-    };
+    // Retention line chart
+    const retentionCtx = document.getElementById('retentionChart').getContext('2d');
+    new Chart(retentionCtx, {
+      type: 'line',
+      data: <%- JSON.stringify(chartDataRetention || {}) %>,
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
   });
 </script>
