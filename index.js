@@ -16,6 +16,7 @@ const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 const playlistTracker = new Map();
+const { supabase } = require('./db');
 const expressLayouts = require('express-ejs-layouts');
 const https = require('https');
 
