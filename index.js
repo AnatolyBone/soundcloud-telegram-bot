@@ -665,18 +665,6 @@ function getFromToByPeriod(period) {
   }
 }
 // Дашборд
-import {
-  getAllUsers,
-  getExpiringUsersPaginated,
-  getExpiringUsersCount,
-  getDownloadsByDate,
-  getRegistrationsByDate,
-  getActiveUsersByDate,
-  getReferralSourcesStats,
-  getUserActivityByDayHour,
-  getFunnelData
-} from './db.js';
-
 import { requireAuth } from './middleware.js';
 import {
   computeActivityByHour,
