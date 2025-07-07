@@ -19,7 +19,6 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 
-const globalQueue = [];
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
 
@@ -266,6 +265,10 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
 }
 
 // Управление глобальной очередью загрузок
+const globalQueue = [];
+let activeDownloadsCount = 0;
+const MAX_CONCURRENT_DOWNLOADS = 3;
+
 function addToGlobalQueue(task) {
   globalQueue.push(task);
   globalQueue.sort((a, b) => b.priority - a.priority);
@@ -275,21 +278,23 @@ async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
+
     const { ctx, userId, url, playlistUrl } = task;
 
-    try {
-      await processTrackByUrl(ctx, userId, url, playlistUrl);
-    } catch (e) {
-      console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-      try {
-        await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
-      } catch {}
-    }
-
-    activeDownloadsCount--;
-    processNextInQueue();
+    processTrackByUrl(ctx, userId, url, playlistUrl)
+      .catch(e => {
+        console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
+        try { ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.'); } catch {}
+      })
+      .finally(() => {
+        activeDownloadsCount--;
+        // Запускаем обработку очереди заново, если есть задачи
+        processNextInQueue();
+      });
   }
 }
+
+
 
 // Добавление задачи загрузки в очередь с проверками лимита
 async function enqueue(ctx, userId, url) {
