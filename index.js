@@ -846,7 +846,7 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 
   try {
-    await setPremium(userId, limitNum, 0);
+    await setPremium(userId, limitNum, null);
     res.redirect('/dashboard');
   } catch (e) {
     console.error('Ошибка установки тарифа:', e);
