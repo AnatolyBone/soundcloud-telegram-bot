@@ -1006,7 +1006,7 @@ bot.action('check_subscription', async ctx => {
       await ctx.reply('Ты уже использовал бонус подписки.');
     } else {
       const until = Date.now() + 7 * 24 * 3600 * 1000;
-      await setPremium(ctx.from.id, 50, until);
+      await setPremium(ctx.from.id, 50, 7);
       await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
       await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
     }
