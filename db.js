@@ -90,7 +90,22 @@ async function updateUserField(id, field, value) {
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
 }
+const funnelCache = new Map();
+
+function getCacheKey(from, to) {
+  return `${from}_${to}`;
+}
+
 async function getFunnelData(from, to) {
+  const key = getCacheKey(from, to);
+  const cached = funnelCache.get(key);
+
+  // Если есть свежий кеш — вернуть его
+  if (cached && Date.now() - cached.timestamp < 60 * 1000) {
+    return cached.data;
+  }
+
+  // Выполняем три запроса параллельно
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase
       .from('users')
@@ -122,11 +137,15 @@ async function getFunnelData(from, to) {
     throw new Error('Ошибка Supabase при получении данных воронки');
   }
 
-  return {
+  const result = {
     registrationCount: registrations.count || 0,
     firstDownloadCount: firstDownloads.count || 0,
     subscriptionCount: subscriptions.count || 0,
   };
+
+  funnelCache.set(key, { data: result, timestamp: Date.now() });
+
+  return result;
 }
 async function incrementDownloads(id) {
   await query(`
