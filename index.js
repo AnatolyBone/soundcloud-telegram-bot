@@ -43,14 +43,14 @@ async function resolveRedirect(url) {
   }
 }
 
-const {
+import {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
   getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
   getLatestReviews, resetDailyLimitIfNeeded, getRegistrationsByDate,
   getDownloadsByDate, getActiveUsersByDate, getExpiringUsers, getReferralSourcesStats,
   markSubscribedBonusUsed, getUserActivityByDayHour, logUserActivity, getUserById,
   getExpiringUsersCount, getExpiringUsersPaginated
-} = require('./db');
+} from './db.js';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
