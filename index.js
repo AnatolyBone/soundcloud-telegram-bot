@@ -352,7 +352,30 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
     console.error('Ошибка Supabase:', e);
   }
 }
+function getPersonalMessage(user) {
+  const now = new Date();
+  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
 
+  const tariffName =
+    user.premium_limit === 5 ? 'Free (10/день)' :
+    user.premium_limit === 20 ? 'Plus (50/день)' :
+    user.premium_limit === 50 ? 'Pro (100/день)' :
+    'Unlimited';
+
+  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
+
+  return `😎 Этот бот я делаю сам. Не команда, не стартап — просто хочу, чтобы было удобно.  
+Никакой рекламы, слежки и прочего дерьма. Всё по-честному.
+
+Если пользуешься — кайф. Рад, что зашло.  
+Спасибо, что ты тут.
+
+⚠️ Скоро немного снизим лимиты — чтобы всё стабильно работало.  
+Проект держится на моих ресурсах, поэтому вынужден делать такие шаги.
+
+Надеюсь, поймёшь.  `;
+}
 // Формат меню пользователя
 function formatMenuMessage(user) {
   const now = new Date();
@@ -860,8 +883,11 @@ bot.start(async ctx => {
   const user = ctx.from;
   await createUser(user.id, user.first_name, user.username);
   await addOrUpdateUserInSupabase(user.id, user.first_name, user.username);
-  await ctx.reply(texts.start, kb());
-  await ctx.reply(formatMenuMessage(await getUser(user.id)), kb());
+
+  const fullUser = await getUser(user.id);
+
+  await ctx.reply(getPersonalMessage(fullUser));
+  await ctx.reply(formatMenuMessage(fullUser), kb());
 });
 
 bot.hears(texts.menu, async ctx => {
