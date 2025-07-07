@@ -314,6 +314,7 @@ url = await resolveRedirect(url);
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
         entries = entries.slice(0, remainingLimit);
       }
+      await logEvent(userId, isPlaylist ? 'download_playlist' : 'download_track');
     } else {
       entries = [url];
     }
