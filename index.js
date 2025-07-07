@@ -269,36 +269,43 @@ const globalQueue = [];
 let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 3;
 
+// Добавление задачи в очередь с сортировкой по приоритету
 function addToGlobalQueue(task) {
   globalQueue.push(task);
   globalQueue.sort((a, b) => b.priority - a.priority);
 }
 
+// Обработка одного таска
+async function processTask(task) {
+  const { ctx, userId, url, playlistUrl } = task;
+  try {
+    await processTrackByUrl(ctx, userId, url, playlistUrl);
+  } catch (e) {
+    console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
+    try {
+      await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
+    } catch {}
+  }
+}
+
+// Основной цикл обработки очереди
 async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
 
-    const { ctx, userId, url, playlistUrl } = task;
-
-    processTrackByUrl(ctx, userId, url, playlistUrl)
-      .catch(e => {
-        console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-        try { ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.'); } catch {}
-      })
-      .finally(() => {
-        activeDownloadsCount--;
-        // Запускаем обработку очереди заново, если есть задачи
-        processNextInQueue();
-      });
+    // Не await, чтобы не блокировать цикл
+    processTask(task).finally(() => {
+      activeDownloadsCount--;
+      processNextInQueue();
+    });
   }
 }
 
-
-
-// Добавление задачи загрузки в очередь с проверками лимита
+// Функция добавления задач в очередь с проверками лимитов
 async function enqueue(ctx, userId, url) {
-url = await resolveRedirect(url);
+  url = await resolveRedirect(url);
+
   try {
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
@@ -325,7 +332,7 @@ url = await resolveRedirect(url);
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
         entries = entries.slice(0, remainingLimit);
       }
-      await logEvent(userId, isPlaylist ? 'download_playlist' : 'download_track');
+      await logEvent(userId, 'download_playlist');
     } else {
       entries = [url];
     }
@@ -346,6 +353,7 @@ url = await resolveRedirect(url);
     ));
 
     processNextInQueue();
+
   } catch (e) {
     console.error('Ошибка в enqueue:', e);
     await ctx.telegram.sendMessage(userId, texts.error);
@@ -1091,8 +1099,6 @@ bot.action('check_subscription', async ctx => {
   }
   await ctx.answerCbQuery();
 });
-
-// Обработка сообщений с ссылками
 bot.on('text', async ctx => {
   const url = extractUrl(ctx.message.text);
   if (!url) {
@@ -1100,16 +1106,19 @@ bot.on('text', async ctx => {
     return;
   }
 
-  // Сразу отвечаем — чтобы не ждать
-  ctx.reply('🔄 Загружаю трек... Это может занять пару минут.').catch(console.error);
+  try {
+    await ctx.reply('🔄 Загружаю трек... Это может занять пару минут.');
+  } catch (e) {
+    console.error('Ошибка при отправке сообщения:', e);
+  }
 
-  // Асинхронная обработка — без ctx
-  enqueue(ctx, ctx.from.id, url).catch(e => {
+  enqueue(ctx, ctx.from.id, url).catch(async e => {
     console.error('Ошибка в enqueue:', e);
-    bot.telegram.sendMessage(ctx.chat.id, '❌ Ошибка при обработке ссылки.').catch(console.error);
+    try {
+      await bot.telegram.sendMessage(ctx.chat.id, '❌ Ошибка при обработке ссылки.');
+    } catch {}
   });
 });
-
 // Telegram webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
