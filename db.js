@@ -60,7 +60,7 @@ async function getUser(id, first_name = '', username = '', referral_source = nul
 }
 
 async function logUserActivity(userId) {
-  return pool.query(
+  await pool.query(
     'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW())',
     [userId]
   );
