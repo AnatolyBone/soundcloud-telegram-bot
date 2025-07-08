@@ -678,7 +678,7 @@ function getFromToByPeriod(period) {
   }
 }
 // Дашборд
-
+app.get('/health', (req, res) => res.send('OK'));
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'dashboard';
