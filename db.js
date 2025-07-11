@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { json2csvAsync } from '@json2csv/node';
+import { Parser } from 'json2csv';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -11,16 +11,6 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-// где-то в твоём коде для преобразования JSON в CSV:
-async function convertToCsv(data) {
-  try {
-    const csv = await json2csvAsync(data);
-    return csv;
-  } catch (err) {
-    console.error('Ошибка при конвертации в CSV:', err);
-    throw err;
-  }
-}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // PostgreSQL
@@ -28,6 +18,31 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
+
+// ==================== Конвертация JSON в CSV ====================
+function convertToCsv(data) {
+  try {
+    const parser = new Parser({
+      fields: [
+        'id',
+        'username',
+        'first_name',
+        'total_downloads',
+        'premium_limit',
+        'premium_until',
+        'created_at',
+        'last_active',
+        'active',
+        'referral_source',
+        'referrer_id'
+      ],
+    });
+    return parser.parse(data);
+  } catch (err) {
+    console.error('Ошибка при конвертации в CSV:', err);
+    throw err;
+  }
+}
 
 // ==================== Базовые функции ====================
 
@@ -100,6 +115,7 @@ async function updateUserField(id, field, value) {
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
 }
+
 const funnelCache = new Map();
 
 function getCacheKey(from, to) {
@@ -110,12 +126,10 @@ async function getFunnelData(from, to) {
   const key = getCacheKey(from, to);
   const cached = funnelCache.get(key);
 
-  // Если есть свежий кеш — вернуть его
   if (cached && Date.now() - cached.timestamp < 60 * 1000) {
     return cached.data;
   }
 
-  // Выполняем три запроса параллельно
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase
       .from('users')
@@ -157,6 +171,7 @@ async function getFunnelData(from, to) {
 
   return result;
 }
+
 async function incrementDownloads(id) {
   await query(`
     UPDATE users SET 
@@ -419,8 +434,7 @@ async function getExpiringUsersCount() {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  const parser = new Parser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
-  return parser.parse(users);
+  return convertToCsv(users);
 }
 
 // ==================== Экспорт ====================
