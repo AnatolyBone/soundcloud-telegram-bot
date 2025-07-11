@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { Parser } from '@json2csv/node';
+import pkg from '@json2csv/node';
+const { Parser } = pkg;
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
