@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { parse } from '@json2csv/node';
+import { json2csvAsync } from '@json2csv/node';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -11,6 +11,16 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
+// где-то в твоём коде для преобразования JSON в CSV:
+async function convertToCsv(data) {
+  try {
+    const csv = await json2csvAsync(data);
+    return csv;
+  } catch (err) {
+    console.error('Ошибка при конвертации в CSV:', err);
+    throw err;
+  }
+}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // PostgreSQL
