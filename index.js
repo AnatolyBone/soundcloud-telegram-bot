@@ -883,13 +883,24 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 
   const users = await getAllUsers();
   let success = 0, error = 0;
+  let audioBuffer = null;
+
+  // Читаем файл один раз в память
+  if (audio) {
+    try {
+      audioBuffer = fs.readFileSync(audio.path);
+    } catch (err) {
+      console.error('❌ Ошибка чтения аудиофайла:', err);
+      return res.status(500).send('Ошибка при чтении файла');
+    }
+  }
 
   for (const u of users) {
     if (!u.active) continue;
     try {
-      if (audio) {
+      if (audioBuffer) {
         await bot.telegram.sendAudio(u.id, {
-          source: fs.createReadStream(audio.path),
+          source: audioBuffer,
           filename: audio.originalname
         }, { caption: message || '' });
       } else {
@@ -907,15 +918,16 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     }
   }
 
+  // Удаляем файл после загрузки в память
   if (audio) {
     fs.unlink(audio.path, err => {
       if (err) console.error('Ошибка удаления аудио:', err);
+      else console.log(`🗑 Удалён файл рассылки: ${audio.originalname}`);
     });
   }
 
   res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
-
 // Экспорт пользователей CSV
 app.get('/export', requireAuth, async (req, res) => {
   try {
