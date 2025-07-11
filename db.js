@@ -1,6 +1,8 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import json2csv from 'json2csv';
+import * as json2csv from '@json2csv/node';
+
+const { Parser } = json2csv;
 
 
 // Supabase
