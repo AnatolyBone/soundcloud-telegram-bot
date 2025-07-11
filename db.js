@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { Parser } from 'json2csv';
+import Json2csvParser from '@json2csv/node';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -18,31 +18,6 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
-
-// ==================== Конвертация JSON в CSV ====================
-function convertToCsv(data) {
-  try {
-    const parser = new Parser({
-      fields: [
-        'id',
-        'username',
-        'first_name',
-        'total_downloads',
-        'premium_limit',
-        'premium_until',
-        'created_at',
-        'last_active',
-        'active',
-        'referral_source',
-        'referrer_id'
-      ],
-    });
-    return parser.parse(data);
-  } catch (err) {
-    console.error('Ошибка при конвертации в CSV:', err);
-    throw err;
-  }
-}
 
 // ==================== Базовые функции ====================
 
@@ -434,7 +409,8 @@ async function getExpiringUsersCount() {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  return convertToCsv(users);
+  const parser = new Json2csvParser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
+  return parser.parse(users);
 }
 
 // ==================== Экспорт ====================
