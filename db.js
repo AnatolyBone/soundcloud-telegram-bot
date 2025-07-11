@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import Json2csvParser from '@json2csv/node';
+import { Parser } from '@json2csv/node';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -409,7 +409,12 @@ async function getExpiringUsersCount() {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  const parser = new Json2csvParser({ fields: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
+  const parser = new Parser({
+    fields: [
+      'id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 
+      'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'
+    ]
+  });
   return parser.parse(users);
 }
 
