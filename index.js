@@ -872,12 +872,26 @@ app.get('/broadcast', requireAuth, (req, res) => {
   res.locals.page = 'broadcast';
   res.render('broadcast-form', { title: 'Рассылка', error: null });
 });
-
+// ✅ Универсальный безопасный вызов Telegram API
+async function safeTelegramCall(method, ...args) {
+  try {
+    return await bot.telegram[method](...args);
+  } catch (err) {
+    const chatId = args?.[0];
+    if (err?.response?.error_code === 403) {
+      console.warn(`🚫 Пользователь ${chatId} заблокировал бота`);
+      return null;
+    }
+    console.error(`❌ Ошибка при ${method} ${chatId}:`, err.message);
+    return null;
+  }
+}
 app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
   const { message } = req.body;
   const audio = req.file;
 
   if (!message && !audio) {
+    res.locals.page = 'broadcast';
     return res.status(400).render('broadcast-form', { error: 'Текст или файл обязательны' });
   }
 
@@ -891,24 +905,28 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
       audioBuffer = fs.readFileSync(audio.path);
     } catch (err) {
       console.error('❌ Ошибка чтения аудиофайла:', err);
-      return res.status(500).send('Ошибка при чтении файла');
+      res.locals.page = 'broadcast';
+      return res.status(500).render('broadcast-form', { error: 'Ошибка при чтении файла' });
     }
   }
 
   for (const u of users) {
     if (!u.active) continue;
-    try {
-      if (audioBuffer) {
-        await bot.telegram.sendAudio(u.id, {
-          source: audioBuffer,
-          filename: audio.originalname
-        }, { caption: message || '' });
-      } else {
-        await bot.telegram.sendMessage(u.id, message);
-      }
+
+    let sent = null;
+
+    if (audioBuffer) {
+      sent = await safeTelegramCall('sendAudio', u.id, {
+        source: audioBuffer,
+        filename: audio.originalname
+      }, { caption: message || '' });
+    } else {
+      sent = await safeTelegramCall('sendMessage', u.id, message);
+    }
+
+    if (sent) {
       success++;
-      await new Promise(r => setTimeout(r, 150));
-    } catch (e) {
+    } else {
       error++;
       try {
         await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [u.id]);
@@ -916,6 +934,8 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
         console.error('Ошибка обновления статуса пользователя:', err);
       }
     }
+
+    await new Promise(r => setTimeout(r, 150)); // антиперебор
   }
 
   // Удаляем файл после загрузки в память
@@ -926,7 +946,21 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     });
   }
 
-  res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
+  // Отправляем администратору отчет
+  try {
+    await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
+  } catch (err) {
+    console.error('Ошибка отправки уведомления админу:', err);
+  }
+
+  // Отдаем страницу с результатом
+  res.locals.page = 'broadcast';
+  res.render('broadcast-form', {
+    title: 'Рассылка',
+    success,
+    error,
+    errorMessage: null,
+  });
 });
 // Экспорт пользователей CSV
 app.get('/export', requireAuth, async (req, res) => {
