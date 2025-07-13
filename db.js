@@ -175,14 +175,23 @@ async function saveTrackForUser(id, title, fileId) {
 }
 
 async function setPremium(id, limit, days = null) {
-  await query('UPDATE users SET premium_limit = $1 WHERE id = $2', [limit, id]);
+  const res = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
+  if (!res.rows.length) return;
 
-  if (typeof days === 'number' && days > 0) {
-    const until = new Date(Date.now() + days * 86400000).toISOString();
-    await query('UPDATE users SET premium_until = $1 WHERE id = $2', [until, id]);
-  } else if (days === null) {
-    await query('UPDATE users SET premium_until = NULL WHERE id = $1', [id]);
+  let extraDays = 0;
+
+  if (days && !res.rows[0].promo_1plus1_used) {
+    extraDays = days; // добавим +30 дней
+    await query('UPDATE users SET promo_1plus1_used = TRUE WHERE id = $1', [id]);
   }
+
+  const totalDays = days + extraDays;
+  const until = new Date(Date.now() + totalDays * 86400000).toISOString();
+
+  await query(
+    'UPDATE users SET premium_limit = $1, premium_until = $2 WHERE id = $3',
+    [limit, until, id]
+  );
 }
 
 async function markSubscribedBonusUsed(userId) {
