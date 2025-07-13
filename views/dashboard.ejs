@@ -217,6 +217,8 @@
               <th>Статус</th>
               <th>Источник</th>
               <th>Тариф</th>
+               <th>1+1</th>
+               <th>Сброс</th>
             </tr>
           </thead>
           <tbody>
@@ -253,11 +255,18 @@
                     <button type="submit" class="btn btn-primary btn-sm">Сохранить</button>
                   </form>
                 </td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
+                <td><%= user.promo_1plus1_used ? '✅' : '❌' %></td>
 
+        <!-- Новый столбец Сброс -->
+        <td>
+          <form action="/admin/reset-promo/<%= user.id %>" method="POST" onsubmit="return confirm('Сбросить промо этому пользователю?')">
+            <button class="btn btn-sm btn-warning">Сбросить</button>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
       </div>
 
       <!-- Вкладка Рассылка -->
