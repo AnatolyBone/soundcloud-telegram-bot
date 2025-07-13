@@ -1044,7 +1044,11 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 // === Telegraf бот ===
-
+app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
+  const userId = req.params.id;
+  await updateUserField(userId, 'promo_1plus1_used', false);
+  res.redirect('/dashboard');
+});
 // Команды бота
 bot.start(async ctx => {
   const user = ctx.from;
