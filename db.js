@@ -179,9 +179,11 @@ async function setPremium(id, limit, days = null) {
   if (!res.rows.length) return;
 
   let extraDays = 0;
+  let bonusApplied = false;
 
   if (days && !res.rows[0].promo_1plus1_used) {
-    extraDays = days; // добавим +30 дней
+    extraDays = days; // +30 дней
+    bonusApplied = true;
     await query('UPDATE users SET promo_1plus1_used = TRUE WHERE id = $1', [id]);
   }
 
@@ -192,8 +194,13 @@ async function setPremium(id, limit, days = null) {
     'UPDATE users SET premium_limit = $1, premium_until = $2 WHERE id = $3',
     [limit, until, id]
   );
-}
 
+  if (bonusApplied) {
+    console.log(`🎁 Пользователь ${id} получил бонус 1+1: подписка до ${until}`);
+  }
+
+  return bonusApplied;
+}
 async function markSubscribedBonusUsed(userId) {
   await query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
 }
