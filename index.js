@@ -437,40 +437,39 @@ function getPersonalMessage(user) {
 }
 // Формат меню пользователя
 function formatMenuMessage(user) {
-  const now = new Date();
-  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
-  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
-
-  const tariffName =
-    user.premium_limit === 5 ? 'Free (5/день)' :
-    user.premium_limit === 20 ? 'Plus (20/день)' :
-    user.premium_limit === 50 ? 'Pro (50/день)' :
-    'Unlimited';
-
+  const tariffLabel = getTariffName(user.premium_limit);
+  const downloadsToday = user.downloads_today || 0;
+  const invited = user.invited_count || 0;
+  const bonusDays = user.bonus_days || 0;
   const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
-  const hasPromoBonus = user.promo_1plus1_used && user.premium_limit > 10;
+  const daysLeft = user.premium_until
+    ? Math.max(0, Math.ceil((new Date(user.premium_until) - Date.now()) / 86400000))
+    : 0;
 
   return `
 👋 Привет, ${user.first_name}!
 
-📦 <b>Подписка</b>
-Тариф: <b>${tariffName}</b>  
-Осталось дней: <b>${daysLeft > 0 ? daysLeft : '0'}</b>  
-${hasPromoBonus ? '🎁 <i>Бонус +30 дней по акции 1+1 был применён</i>' : ''}
+📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
+Просто пришли ссылку — и всё 🧙‍♂️
 
-🎧 <b>Активность</b>
-Сегодня скачано: <b>${user.downloads_today || 0} из ${user.premium_limit}</b>
+📣 Хочешь быть в курсе новостей, фишек и бонусов?  
+Подпишись на наш канал 👉 @SCM_BLOG
 
-👫 <b>Рефералы</b>
-Приглашено: <b>${user.referred_count || 0}</b>  
-Получено дней Plus: <b>${user.referred_count || 0}</b>
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
+🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
 
-🔗 <b>Твоя ссылка</b>
-<code>${refLink}</code>
+💼 Тариф: ${tariffLabel} (${user.premium_limit}/день)  
+⏳ Осталось дней: ${daysLeft}
 
-📣 Подпишись на канал с бонусами 👉 @SCM_BLOG  
-Просто пришли ссылку на трек — и всё 🧙‍♂️
-`.trim();
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+
+👫 Приглашено: ${invited}  
+🎁 Получено дней Plus по рефералам: ${bonusDays}
+
+🔗 Твоя реферальная ссылка:  
+${refLink}
+  `.trim();
 }
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
