@@ -436,6 +436,13 @@ function getTariffName(limit) {
 function getReferralLink(userId) {
   return `https://t.me/SCloudMusicBot?start=${userId}`;
 }
+function getDaysLeft(premiumUntil) {
+  if (!premiumUntil) return 0;
+  const now = new Date();
+  const until = new Date(premiumUntil);
+  const diff = until - now;
+  return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
+}
 // Формат меню пользователя
 function formatMenuMessage(user) {
   const tariffLabel = getTariffName(user.premium_limit);
