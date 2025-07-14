@@ -433,6 +433,9 @@ function getTariffName(limit) {
   if (limit >= 50) return 'Plus (50/день)';
   return 'Free (10/день)';
 }
+function getReferralLink(userId) {
+  return `https://t.me/SCloudMusicBot?start=${userId}`;
+}
 // Формат меню пользователя
 function formatMenuMessage(user) {
   const tariffLabel = getTariffName(user.premium_limit);
