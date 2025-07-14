@@ -409,18 +409,8 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
   }
 }
 function getPersonalMessage(user) {
-  const now = new Date();
-  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
-  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
-
-  const tariffName =
-    user.premium_limit === 5 ? 'Free (10/день)' :
-    user.premium_limit === 20 ? 'Plus (50/день)' :
-    user.premium_limit === 50 ? 'Pro (100/день)' :
-    'Unlimited';
-
-  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
-
+  const tariffName = getTariffName(user.premium_limit);
+  
   return `Привет, ${user.first_name}!
 
 😎 Этот бот — не стартап и не команда разработчиков.  
@@ -430,10 +420,18 @@ function getPersonalMessage(user) {
 Если пользуешься — круто. Рад, что зашло.  
 Спасибо, что ты тут 🙌
 
+💼 Текущий тариф: ${tariffName}
+
 ⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.  
 Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
 
-Надеюсь на понимание.  `;
+Надеюсь на понимание. 🙏`;
+}
+function getTariffName(limit) {
+  if (limit >= 1000) return 'Unlim (∞/день)';
+  if (limit >= 100) return 'Pro (100/день)';
+  if (limit >= 50) return 'Plus (50/день)';
+  return 'Free (10/день)';
 }
 // Формат меню пользователя
 function formatMenuMessage(user) {
@@ -441,10 +439,8 @@ function formatMenuMessage(user) {
   const downloadsToday = user.downloads_today || 0;
   const invited = user.invited_count || 0;
   const bonusDays = user.bonus_days || 0;
-  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
-  const daysLeft = user.premium_until
-    ? Math.max(0, Math.ceil((new Date(user.premium_until) - Date.now()) / 86400000))
-    : 0;
+  const refLink = getReferralLink(user.id);
+  const daysLeft = getDaysLeft(user.premium_until);
 
   return `
 👋 Привет, ${user.first_name}!
@@ -459,7 +455,7 @@ function formatMenuMessage(user) {
 🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
 📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
 
-💼 Тариф: ${tariffLabel} (${user.premium_limit}/день)  
+💼 Тариф: ${tariffLabel}  
 ⏳ Осталось дней: ${daysLeft}
 
 🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
