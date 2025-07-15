@@ -998,6 +998,8 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 });
 // Экспорт пользователей CSV
 
+import { json2csv } from 'json-2-csv';
+
 app.get('/export', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'export';
@@ -1026,7 +1028,7 @@ app.get('/export', requireAuth, async (req, res) => {
       eol: '\n',
     });
     
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Type', 'text/csv');
     res.attachment(`users_${period}.csv`);
     res.send(csv);
   } catch (e) {
