@@ -1030,42 +1030,49 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 // === Telegraf бот ===
+
+// Сброс промо-бонуса (админка)
 app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
   const userId = req.params.id;
   await updateUserField(userId, 'promo_1plus1_used', false);
   res.redirect('/dashboard');
 });
 
-bot.command('limit', ctx => {
-  ctx.reply(tariffTexts.limitReached);
+// Команда /limit — показать сообщение о лимите
+bot.command('limit', async ctx => {
+  await ctx.reply(tariffTexts.limitReached);
 });
-// Команды бота
+
+// Команда /start — регистрация и приветствие
 bot.start(async ctx => {
   const user = ctx.from;
-
-  // Создание и обновление пользователя
+  
+  // Создание и обновление пользователя в базе и Supabase
   await createUser(user.id, user.first_name, user.username);
   await addOrUpdateUserInSupabase(user.id, user.first_name, user.username);
-
-  // Логируем событие "регистрация"
+  
+  // Лог события регистрации
   await logEvent(user.id, 'registered');
-
+  
   const fullUser = await getUser(user.id);
-
+  
+  // Личное приветствие
   await ctx.reply(getPersonalMessage(fullUser));
-
-  // ⏳ Добавляем задержку ~1.5 секунды
+  
+  // Задержка, показываем "печатает..."
   await ctx.replyWithChatAction('typing');
   await new Promise(resolve => setTimeout(resolve, 2000));
-
+  
+  // Главное меню с клавиатурой
   await ctx.reply(formatMenuMessage(fullUser), kb());
 });
 
+// Обработка нажатия кнопки "Меню"
 bot.hears(texts.menu, async ctx => {
   const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
-
-  // Добавляем inline-кнопку, если бонус ещё не использован
+  
+  // Inline-кнопка для бонуса, если ещё не использован
   if (!user.subscribed_bonus_used) {
     await ctx.reply(
       'Нажми кнопку ниже, чтобы получить бонус после подписки:',
@@ -1076,22 +1083,21 @@ bot.hears(texts.menu, async ctx => {
   }
 });
 
-bot.hears(texts.help, async ctx => {
-  await ctx.reply(texts.helpInfo, kb());
+// Помощь
+bot.hears(tariffTexts.help, async ctx => {
+  await ctx.reply(tariffTexts.helpInfo, kb());
 });
 
-bot.hears(texts.upgrade, async ctx => {
-  await ctx.reply(texts.upgradeInfo, kb());
+// Расширить лимит
+bot.hears(tariffTexts.upgrade, async ctx => {
+  await ctx.reply(tariffTexts.upgradeInfo, kb());
 });
 
-function sanitizeFilename(name) {
-  return name.replace(/[<>:"/\\|?*]+/g, '').trim();
-}
-
-bot.hears(texts.mytracks, async ctx => {
+// Мои треки — список треков пользователя за сегодня, отправка пачками по 5
+bot.hears(tariffTexts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Ошибка получения данных пользователя.');
-
+  
   let tracks = [];
   try {
     tracks = user.tracks_today ? JSON.parse(user.tracks_today) : [];
@@ -1099,14 +1105,14 @@ bot.hears(texts.mytracks, async ctx => {
     console.warn('Ошибка парсинга tracks_today:', e);
     return ctx.reply('❌ Ошибка чтения треков. Попробуй позже.');
   }
-
+  
   if (!tracks.length) return ctx.reply('Сегодня ты ещё ничего не скачивал.');
-
+  
   await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit || 10}`);
-
+  
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-
+    
     // Фильтруем треки с валидным fileId
     const mediaGroup = chunk
       .filter(t => t.fileId && typeof t.fileId === 'string' && t.fileId.trim().length > 0)
@@ -1114,27 +1120,27 @@ bot.hears(texts.mytracks, async ctx => {
         type: 'audio',
         media: t.fileId
       }));
-
+    
     if (mediaGroup.length > 0) {
       try {
         await ctx.replyWithMediaGroup(mediaGroup);
       } catch (e) {
         console.error('Ошибка отправки аудио-пачки:', e);
-
-        // Если не получилось, отправляем по одному треку без caption
-        for (let t of chunk) {
+        
+        // Если не получилось, отправляем по одному треку
+        for (const t of chunk) {
           try {
             await ctx.replyWithAudio(t.fileId);
           } catch {
-            // Если fileId не работает — отправляем локальный файл
+            // fallback: отправляем локальный файл, если fileId не работает
             const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
             if (fs.existsSync(filePath)) {
               const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
               const newFileId = msg.audio.file_id;
-
+              
               // Обновляем fileId в базе
               await saveTrackForUser(ctx.from.id, t.title, newFileId);
-
+              
               console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
             } else {
               console.warn(`Файл для трека "${t.title}" не найден на диске.`);
@@ -1144,15 +1150,15 @@ bot.hears(texts.mytracks, async ctx => {
         }
       }
     } else {
-      // Если ни одного валидного fileId нет — отправляем по одному локальным файлом
-      for (let t of chunk) {
+      // Если нет валидных fileId, отправляем локальные файлы по одному
+      for (const t of chunk) {
         const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
         if (fs.existsSync(filePath)) {
           const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
           const newFileId = msg.audio.file_id;
-
+          
           await saveTrackForUser(ctx.from.id, t.title, newFileId);
-
+          
           console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
         } else {
           console.warn(`Файл для трека "${t.title}" не найден на диске.`);
@@ -1163,25 +1169,26 @@ bot.hears(texts.mytracks, async ctx => {
   }
 });
 
-bot.command('admin', async (ctx) => {
+// Команда /admin — показать статистику (только для ADMIN_ID)
+bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
   }
-
+  
   try {
     const users = await getAllUsers();
     const totalUsers = users.length;
     const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-
+    
     const activeToday = users.filter(u => {
       if (!u.last_active) return false;
       const last = new Date(u.last_active);
       const now = new Date();
       return last.toDateString() === now.toDateString();
     }).length;
-
+    
     await ctx.reply(
-`📊 Статистика бота:
+      `📊 Статистика бота:
 
 👤 Пользователей: ${totalUsers}
 📥 Всего загрузок: ${totalDownloads}
@@ -1195,6 +1202,8 @@ bot.command('admin', async (ctx) => {
     await ctx.reply('⚠️ Ошибка получения статистики');
   }
 });
+
+// Обработка callback для проверки подписки и выдачи бонуса
 bot.action('check_subscription', async ctx => {
   const subscribed = await isSubscribed(ctx.from.id);
   if (subscribed) {
@@ -1202,7 +1211,6 @@ bot.action('check_subscription', async ctx => {
     if (user.subscribed_bonus_used) {
       await ctx.reply('Ты уже использовал бонус подписки.');
     } else {
-      const until = Date.now() + 7 * 24 * 3600 * 1000;
       await setPremium(ctx.from.id, 50, 7);
       await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
       await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
@@ -1212,19 +1220,21 @@ bot.action('check_subscription', async ctx => {
   }
   await ctx.answerCbQuery();
 });
+
+// Обработка текстовых сообщений — ожидаем ссылку на трек/плейлист
 bot.on('text', async ctx => {
   const url = extractUrl(ctx.message.text);
   if (!url) {
     await ctx.reply('Пожалуйста, отправь ссылку на трек или плейлист SoundCloud.');
     return;
   }
-
+  
   try {
     await ctx.reply('🔄 Загружаю трек... Это может занять пару минут.');
   } catch (e) {
     console.error('Ошибка при отправке сообщения:', e);
   }
-
+  
   enqueue(ctx, ctx.from.id, url).catch(async e => {
     console.error('Ошибка в enqueue:', e);
     try {
@@ -1232,7 +1242,8 @@ bot.on('text', async ctx => {
     } catch {}
   });
 });
-// Telegram webhook
+
+// Telegram webhook для обработки входящих обновлений
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(err => console.error('Ошибка handleUpdate:', err));
