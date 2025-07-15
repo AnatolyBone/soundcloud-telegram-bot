@@ -1,4 +1,4 @@
-import { getTariffName } from './tariff.js';
+import { getTariffName, getDaysLeft } from '../texts/tariff.js';
 
 export function getReferralLink(userId) {
   return `https://t.me/SCloudMusicBot?start=${userId}`;
