@@ -402,9 +402,7 @@ function getTariffName(limit) {
   if (limit >= 50) return 'Plus (50/день)';
   return 'Free (10/день)';
 }
-function getReferralLink(userId) {
-  return `https://t.me/SCloudMusicBot?start=${userId}`;
-}
+
 function getDaysLeft(premiumUntil) {
   if (!premiumUntil) return 0;
   const now = new Date();
