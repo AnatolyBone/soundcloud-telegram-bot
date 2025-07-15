@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import { Parser } from '@json2csv/node';
+import json2csv from '@json2csv/node';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
@@ -1018,6 +1018,7 @@ app.get('/export', requireAuth, async (req, res) => {
     });
     
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
+    const { Parser } = json2csv;
     const parser = new Parser({ fields });
     const csv = parser.parse(filteredUsers);
     
