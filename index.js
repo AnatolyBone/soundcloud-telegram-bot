@@ -18,6 +18,7 @@ import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
+import tariffTexts from './src/texts/tariff.js';
 
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
@@ -1060,6 +1061,10 @@ app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
   const userId = req.params.id;
   await updateUserField(userId, 'promo_1plus1_used', false);
   res.redirect('/dashboard');
+});
+
+bot.command('limit', ctx => {
+  ctx.reply(tariffTexts.limitReached);
 });
 // Команды бота
 bot.start(async ctx => {
