@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { parse } from '@json2csv/node';
+import { json2csvAsync } from 'json-2-csv';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -426,8 +426,8 @@ async function getExpiringUsersCount() {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  return parse(users, {
-    fields: [
+  return await json2csvAsync(users, {
+    keys: [
       'id',
       'username',
       'first_name',
@@ -439,12 +439,9 @@ async function exportUsersToCSV() {
       'active',
       'referral_source',
       'referrer_id'
-    ],
-    defaultValue: '',
-    quote: '"'
+    ]
   });
 }
-
 // ==================== Экспорт ====================
 
 export {
