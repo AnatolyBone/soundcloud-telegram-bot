@@ -127,7 +127,6 @@ async function logEvent(userId, event) {
   }
 }
 
-import tariffTexts from './src/texts/tariff.js';
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
