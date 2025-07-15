@@ -1,4 +1,4 @@
-import { getTariffName, getDaysLeft } from '../src/texts/tariff.js';
+import { getTariffName, getDaysLeft } from './tariff.js';
 import { getReferralLink } from '../utils/user.js';
 
 export function formatMenuMessage(user) {
