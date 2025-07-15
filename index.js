@@ -18,9 +18,11 @@ import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-import { getReferralLink, getPersonalMessage } from './utils/user.js';
-import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
-import { formatMenuMessage } from './src/texts/menu.js';
+//import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
+// Menu message
+//import { formatMenuMessage } from './src/texts/menu.js';
+//import { getReferralLink, getPersonalMessage } from './utils/user.js';
+
 
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
@@ -372,6 +374,85 @@ async function broadcastMessage(bot, pool, message) {
   }
   return { successCount, errorCount };
 }
+
+async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
+if (!id) return;
+if (!supabase) {
+console.error('Supabase клиент не инициализирован');
+return;
+}
+try {
+const { error } = await supabase
+.from('users')
+.upsert([{ id, first_name, username, referred_by: referralSource || null }]);
+if (error) {
+console.error('Ошибка upsert в Supabase:', error);
+}
+} catch (e) {
+console.error('Ошибка Supabase:', e);
+}
+}
+function getPersonalMessage(user) {
+const tariffName = getTariffName(user.premium_limit);
+
+return `Привет, ${user.first_name}!
+
+😎 Этот бот — не стартап и не команда разработчиков.
+Я делаю его сам, просто потому что хочется удобный и честный инструмент.
+Без рекламы, без сбора данных — всё по-простому.
+
+Если пользуешься — круто. Рад, что зашло.
+Спасибо, что ты тут 🙌
+
+💼 Текущий тариф: ${tariffName}
+
+⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.
+Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
+
+Надеюсь на понимание. 🙏;   }   function getTariffName(limit) {   if (limit >= 1000) return 'Unlim (∞/день)';   if (limit >= 100) return 'Pro (100/день)';   if (limit >= 50) return 'Plus (50/день)';   return 'Free (10/день)';   }   function getReferralLink(userId) {   return https://t.me/SCloudMusicBot?start=${userId}`;
+}
+function getDaysLeft(premiumUntil) {
+if (!premiumUntil) return 0;
+const now = new Date();
+const until = new Date(premiumUntil);
+const diff = until - now;
+return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
+}
+// Формат меню пользователя
+function formatMenuMessage(user) {
+const tariffLabel = getTariffName(user.premium_limit);
+const downloadsToday = user.downloads_today || 0;
+const invited = user.invited_count || 0;
+const bonusDays = user.bonus_days || 0;
+const refLink = getReferralLink(user.id);
+const daysLeft = getDaysLeft(user.premium_until);
+
+return `
+👋 Привет, ${user.first_name}!
+
+📥 Бот качает треки и плейлисты с SoundCloud в MP3.
+Просто пришли ссылку — и всё 🧙‍♂️
+
+📣 Хочешь быть в курсе новостей, фишек и бонусов?
+Подпишись на наш канал 👉 @SCM_BLOG
+
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.
+🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
+
+💼 Тариф: ${tariffLabel}
+⏳ Осталось дней: ${daysLeft}
+
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+
+👫 Приглашено: ${invited}
+🎁 Получено дней Plus по рефералам: ${bonusDays}
+
+🔗 Твоя реферальная ссылка:
+${refLink}
+`.trim();
+}
+
 
 // Добавление или обновление пользователя в Supabase
 async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
