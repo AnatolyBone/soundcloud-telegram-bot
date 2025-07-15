@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import { Parser } from 'json2csv';
+import { json2csv } from 'json-2-csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
@@ -1017,19 +1017,16 @@ app.get('/export', requireAuth, async (req, res) => {
       return true;
     });
     
-   const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
-const opts = { fields };
-
-try {
-  const parser = new Parser(opts);
-  const csv = parser.parse(data);
-  console.log(csv);
-} catch (err) {
-  console.error('Ошибка парсинга CSV:', err);
-}
-
+    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
     
-    res.header('Content-Type', 'text/csv');
+    const csv = await json2csv(filteredUsers, {
+      keys: fields,
+      expandNestedObjects: true,
+      wrap: '"',
+      eol: '\n',
+    });
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.attachment(`users_${period}.csv`);
     res.send(csv);
   } catch (e) {
