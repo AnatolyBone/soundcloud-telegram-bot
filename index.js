@@ -19,6 +19,10 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
+// Menu message
+import { formatMenuMessage } from './src/texts/menu.js';
+import { getReferralLink, getPersonalMessage } from './src/utils/user.js';
+
 
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
@@ -389,25 +393,9 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
     console.error('Ошибка Supabase:', e);
   }
 }
-function getPersonalMessage(user) {
-  const tariffName = getTariffName(user.premium_limit);
-  
-  return `Привет, ${user.first_name}!
+const msg = getPersonalMessage(user);
+await ctx.reply(msg);
 
-😎 Этот бот — не стартап и не команда разработчиков.  
-Я делаю его сам, просто потому что хочется удобный и честный инструмент.  
-Без рекламы, без сбора данных — всё по-простому.
-
-Если пользуешься — круто. Рад, что зашло.  
-Спасибо, что ты тут 🙌
-
-💼 Текущий тариф: ${tariffName}
-
-⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.  
-Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
-
-Надеюсь на понимание. 🙏`;
-}
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlim (∞/день)';
   if (limit >= 100) return 'Pro (100/день)';
@@ -425,39 +413,8 @@ function getDaysLeft(premiumUntil) {
   return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
 }
 // Формат меню пользователя
-function formatMenuMessage(user) {
-  const tariffLabel = getTariffName(user.premium_limit);
-  const downloadsToday = user.downloads_today || 0;
-  const invited = user.invited_count || 0;
-  const bonusDays = user.bonus_days || 0;
-  const refLink = getReferralLink(user.id);
-  const daysLeft = getDaysLeft(user.premium_until);
-
-  return `
-👋 Привет, ${user.first_name}!
-
-📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
-Просто пришли ссылку — и всё 🧙‍♂️
-
-📣 Хочешь быть в курсе новостей, фишек и бонусов?  
-Подпишись на наш канал 👉 @SCM_BLOG
-
-🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
-🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
-📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
-
-💼 Тариф: ${tariffLabel}  
-⏳ Осталось дней: ${daysLeft}
-
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
-
-👫 Приглашено: ${invited}  
-🎁 Получено дней Plus по рефералам: ${bonusDays}
-
-🔗 Твоя реферальная ссылка:  
-${refLink}
-  `.trim();
-}
+const message = formatMenuMessage(user);
+await ctx.reply(message, kb());
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
   const regex = /(https?:\/\/[^\s]+)/g;
