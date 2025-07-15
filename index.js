@@ -18,9 +18,9 @@ import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-import { getReferralLink, getPersonalMessage } from './src/utils/user.js';
+import { getReferralLink, getPersonalMessage } from './utils/user.js';
 import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
-import { formatMenuMessage } from './src/texts/menu.js';
+import { formatMenuMessage } from '.../src/texts/menu.js';
 
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
