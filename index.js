@@ -144,8 +144,8 @@ const texts = {
 
 const kb = () =>
   Markup.keyboard([
-    [texts.menu, texts.upgrade],
-    [texts.mytracks, texts.help]
+    [buttonTexts.menu, buttonTexts.upgrade],
+    [buttonTexts.mytracks, buttonTexts.help]
   ]).resize();
 
 const isSubscribed = async userId => {
@@ -1070,8 +1070,7 @@ bot.start(async ctx => {
 // Обработка нажатия кнопки "Меню"
 const userStates = {};
 
-// Меню
-bot.hears(texts.menu, async ctx => {
+bot.hears(buttonTexts.menu, async ctx => {
   const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
   
@@ -1086,12 +1085,12 @@ bot.hears(texts.menu, async ctx => {
 });
 
 // Помощь
-bot.hears(tariffTexts.help, async ctx => {
+bot.hears(buttonTexts.help, async ctx => {
   await ctx.reply(tariffTexts.helpInfo, kb());
 });
 
-// Расширить лимит — здесь меняем ответ и ставим ожидание ссылки
-bot.hears(tariffTexts.upgrade, async ctx => {
+// Расширить лимит — меняем ответ и ставим ожидание ссылки
+bot.hears(buttonTexts.upgrade, async ctx => {
   userStates[ctx.from.id] = 'awaiting_link';
   await ctx.reply(tariffTexts.upgradePrompt, kb());
 });
@@ -1105,7 +1104,7 @@ bot.on('text', async ctx => {
       await ctx.reply('Спасибо! Ссылка принята, начинаю обработку...');
       userStates[ctx.from.id] = null;
       
-      // Тут твоя логика обработки ссылки
+      // Вставь сюда свою логику обработки ссылки
       
     } else {
       await ctx.reply('Пожалуйста, отправь именно ссылку на трек или плейлист SoundCloud.');
@@ -1113,7 +1112,8 @@ bot.on('text', async ctx => {
   }
 });
 
-bot.hears(tariffTexts.mytracks, async ctx => {
+// Мои треки — список треков пользователя за сегодня, отправка пачками по 5
+bot.hears(buttonTexts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Ошибка получения данных пользователя.');
   
