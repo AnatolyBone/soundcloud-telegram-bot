@@ -45,6 +45,17 @@ ${paymentInfo}
 
 ${bonusInfo}`,
 
+  upgradePrompt: `🚀 Хочешь больше треков?
+${tariffs}
+
+${promoInfo}
+
+${paymentInfo}
+
+${bonusInfo}
+
+Пожалуйста, отправь ссылку на трек или плейлист SoundCloud.`,
+
   mytracks: '🎵 Мои треки',
 };
 
