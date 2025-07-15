@@ -59,4 +59,11 @@ ${bonusInfo}
   mytracks: '🎵 Мои треки',
 };
 
+export const buttonTexts = {
+  menu: '📋 Меню',
+  help: tariffTexts.help,       // 'ℹ️ Помощь'
+  upgrade: tariffTexts.upgrade, // '🚀 Расширить лимит'
+  mytracks: tariffTexts.mytracks // '🎵 Мои треки'
+};
+
 export default tariffTexts;
