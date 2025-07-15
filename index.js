@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import json2csv from '@json2csv/node';
+import { Parser } from '@json2csv/node';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
@@ -1000,9 +1000,34 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
 
 app.get('/export', requireAuth, async (req, res) => {
   try {
-    // ...
-    const fields = [ /* поля */ ];
-    const parser = new json2csv.Parser({ fields });
+    res.locals.page = 'export';
+    const allUsers = await getAllUsers(true);
+    const period = req.query.period || 'all';
+    
+    const filteredUsers = allUsers.filter(user => {
+      if (period === 'all') return true;
+      if (period === '7' || period === '30') {
+        const from = new Date(Date.now() - parseInt(period) * 86400000);
+        return new Date(user.created_at) >= from;
+      }
+      if (period.startsWith('month:')) {
+        const ym = period.split(':')[1]; // 'YYYY-MM'
+        return user.created_at.startsWith(ym);
+      }
+      return true;
+    });
+    
+    const fields = [
+      'id',
+      'username',
+      'first_name',
+      'total_downloads',
+      'premium_limit',
+      'created_at',
+      'last_active'
+    ];
+    
+    const parser = new Parser({ fields });
     const csv = parser.parse(filteredUsers);
     
     res.header('Content-Type', 'text/csv');
