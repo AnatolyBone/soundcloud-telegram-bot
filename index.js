@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import * as json2csv from '@json2csv/node';
+import { Parser } from '@json2csv/node';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
@@ -525,7 +525,7 @@ app.use(async (req, res, next) => {
       const user = await getUserById(req.session.userId);
       if (user) {
         req.user = user;
-        res.locals.user = user;  // важно для ejs partials
+        res.locals.user = user;  // важно для ejs import { Parser } from '@json2csv/node';tials
       } else {
         res.locals.user = null;
       }
@@ -1026,7 +1026,7 @@ app.get('/export', requireAuth, async (req, res) => {
       'last_active'
     ];
     
-    const parser = new json2csv.Parser({ fields });
+    const parser = new Parser({ fields });
     const csv = parser.parse(filteredUsers);
     
     res.header('Content-Type', 'text/csv');
