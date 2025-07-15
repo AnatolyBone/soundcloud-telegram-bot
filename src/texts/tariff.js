@@ -35,6 +35,7 @@ ${paymentInfo}
 
 ${bonusInfo}`,
 
+  upgrade: '🚀 Расширить лимит',
   upgradeInfo: `🚀 Хочешь больше треков?
 ${tariffs}
 
@@ -43,6 +44,8 @@ ${promoInfo}
 ${paymentInfo}
 
 ${bonusInfo}`,
+
+  mytracks: '🎵 Мои треки',
 };
 
 export default tariffTexts;
