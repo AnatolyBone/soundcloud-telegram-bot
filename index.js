@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import json2csv from '@json2csv/node'
+import { Parser } from 'json2csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
@@ -1017,8 +1017,16 @@ app.get('/export', requireAuth, async (req, res) => {
       return true;
     });
     
-    // Теперь использовать как:
-const csv = json2csv({ data: yourData, fields: ['field1', 'field2'] });
+   const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
+const opts = { fields };
+
+try {
+  const parser = new Parser(opts);
+  const csv = parser.parse(data);
+  console.log(csv);
+} catch (err) {
+  console.error('Ошибка парсинга CSV:', err);
+}
 
     
     res.header('Content-Type', 'text/csv');
