@@ -1019,7 +1019,7 @@ app.get('/export', requireAuth, async (req, res) => {
     
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
     const opts = { fields };
-    const csv = parse(filteredUsers, opts);
+    const csv = json2csv.parse(filteredUsers, opts);
     
     res.header('Content-Type', 'text/csv');
     res.attachment(`users_${period}.csv`);
