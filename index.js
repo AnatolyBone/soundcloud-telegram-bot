@@ -13,7 +13,7 @@ import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import pkg from 'pg';
-import json2csv from '@json2csv/node';
+import { Parser } from '@json2csv/node';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
