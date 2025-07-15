@@ -1,4 +1,4 @@
-// tariff.js
+// /src/texts/tariff.js
 
 const tariffs = `
 🆓 Free — 5 треков в день  
