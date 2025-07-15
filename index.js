@@ -1070,10 +1070,11 @@ bot.start(async ctx => {
 // Обработка нажатия кнопки "Меню"
 const userStates = {};
 
+// Главное меню
 bot.hears(buttonTexts.menu, async ctx => {
   const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
-  
+
   if (!user.subscribed_bonus_used) {
     await ctx.reply(
       'Нажми кнопку ниже, чтобы получить бонус после подписки:',
@@ -1089,34 +1090,17 @@ bot.hears(buttonTexts.help, async ctx => {
   await ctx.reply(tariffTexts.helpInfo, kb());
 });
 
-// Расширить лимит — меняем ответ и ставим ожидание ссылки
+// Расширить лимит — включаем режим ожидания ссылки
 bot.hears(buttonTexts.upgrade, async ctx => {
   userStates[ctx.from.id] = 'awaiting_link';
   await ctx.reply(tariffTexts.upgradePrompt, kb());
 });
 
-// Обработка ссылки после "Расширить лимит"
-bot.on('text', async ctx => {
-  if (userStates[ctx.from.id] === 'awaiting_link') {
-    const text = ctx.message.text;
-    
-    if (text.includes('soundcloud.com')) {
-      await ctx.reply('Спасибо! Ссылка принята, начинаю обработку...');
-      userStates[ctx.from.id] = null;
-      
-      // Вставь сюда свою логику обработки ссылки
-      
-    } else {
-      await ctx.reply('Пожалуйста, отправь именно ссылку на трек или плейлист SoundCloud.');
-    }
-  }
-});
-
-// Мои треки — список треков пользователя за сегодня, отправка пачками по 5
+// 🎵 Мои треки
 bot.hears(buttonTexts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Ошибка получения данных пользователя.');
-  
+
   let tracks = [];
   try {
     tracks = user.tracks_today ? JSON.parse(user.tracks_today) : [];
@@ -1124,68 +1108,71 @@ bot.hears(buttonTexts.mytracks, async ctx => {
     console.warn('Ошибка парсинга tracks_today:', e);
     return ctx.reply('❌ Ошибка чтения треков. Попробуй позже.');
   }
-  
+
   if (!tracks.length) return ctx.reply('Сегодня ты ещё ничего не скачивал.');
-  
+
   await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit || 10}`);
-  
+
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
-    
-    // Треки с валидным fileId
+
     const mediaGroup = chunk
       .filter(t => t.fileId && typeof t.fileId === 'string' && t.fileId.trim().length > 0)
       .map(t => ({
         type: 'audio',
         media: t.fileId
       }));
-    
+
     if (mediaGroup.length > 0) {
       try {
-        // Пробуем отправить пачкой
         await ctx.replyWithMediaGroup(mediaGroup);
       } catch (e) {
         console.error('Ошибка отправки аудио-пачки:', e);
-        
-        // При ошибке отправляем по одному треку с fallback на локальный файл
+
         for (const t of chunk) {
           try {
             await ctx.replyWithAudio(t.fileId);
           } catch {
-            // fallback: отправляем локальный файл, если fileId не работает
             const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
             if (fs.existsSync(filePath)) {
               const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
               const newFileId = msg.audio.file_id;
-              
-              // Обновляем fileId в базе
               await saveTrackForUser(ctx.from.id, t.title, newFileId);
-              
-              console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
             } else {
-              console.warn(`Файл для трека "${t.title}" не найден на диске.`);
               await ctx.reply(`⚠️ Не удалось отправить трек "${t.title}". Файл не найден.`);
             }
           }
         }
       }
     } else {
-      // Нет треков с валидным fileId — отправляем локальные файлы по одному
       for (const t of chunk) {
         const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
         if (fs.existsSync(filePath)) {
           const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
           const newFileId = msg.audio.file_id;
-          
           await saveTrackForUser(ctx.from.id, t.title, newFileId);
-          
-          console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
         } else {
-          console.warn(`Файл для трека "${t.title}" не найден на диске.`);
           await ctx.reply(`⚠️ Не удалось отправить трек "${t.title}". Файл не найден.`);
         }
       }
     }
+  }
+});
+
+// Последним — универсальный обработчик текста (только если пользователь в режиме "ожидания ссылки")
+bot.on('text', async ctx => {
+  const state = userStates[ctx.from.id];
+  if (state !== 'awaiting_link') return; // ⚠️ важно: чтобы не перехватывал другие hears
+
+  const text = ctx.message.text;
+
+  if (text.includes('soundcloud.com')) {
+    await ctx.reply('Спасибо! Ссылка принята, начинаю обработку...');
+    userStates[ctx.from.id] = null;
+
+    // 👉 Твоя логика загрузки/скачивания сюда
+  } else {
+    await ctx.reply('Пожалуйста, отправь именно ссылку на трек или плейлист SoundCloud.');
   }
 });
 // Команда /admin — показать статистику (только для ADMIN_ID)
