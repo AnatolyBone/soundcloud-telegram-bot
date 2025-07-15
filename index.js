@@ -375,23 +375,7 @@ async function broadcastMessage(bot, pool, message) {
   return { successCount, errorCount };
 }
 
-async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
-if (!id) return;
-if (!supabase) {
-console.error('Supabase клиент не инициализирован');
-return;
-}
-try {
-const { error } = await supabase
-.from('users')
-.upsert([{ id, first_name, username, referred_by: referralSource || null }]);
-if (error) {
-console.error('Ошибка upsert в Supabase:', error);
-}
-} catch (e) {
-console.error('Ошибка Supabase:', e);
-}
-}
+
 function getPersonalMessage(user) {
 const tariffName = getTariffName(user.premium_limit);
 
