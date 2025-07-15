@@ -21,7 +21,7 @@ import { getFunnelData } from './db.js';  // или путь к твоему м�
 import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
 // Menu message
 import { formatMenuMessage } from './src/texts/menu.js';
-import { getReferralLink, getPersonalMessage } from './src/utils/user.js';
+import { getReferralLink, getPersonalMessage } from './utils/user.js';
 
 
 // Инициализация сессии для pg
