@@ -1068,11 +1068,13 @@ bot.start(async ctx => {
 });
 
 // Обработка нажатия кнопки "Меню"
+const userStates = {};
+
+// Меню
 bot.hears(texts.menu, async ctx => {
   const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
   
-  // Inline-кнопка для бонуса, если ещё не использован
   if (!user.subscribed_bonus_used) {
     await ctx.reply(
       'Нажми кнопку ниже, чтобы получить бонус после подписки:',
@@ -1088,12 +1090,29 @@ bot.hears(tariffTexts.help, async ctx => {
   await ctx.reply(tariffTexts.helpInfo, kb());
 });
 
-// Расширить лимит
+// Расширить лимит — здесь меняем ответ и ставим ожидание ссылки
 bot.hears(tariffTexts.upgrade, async ctx => {
-  await ctx.reply(tariffTexts.upgradeInfo, kb());
+  userStates[ctx.from.id] = 'awaiting_link';
+  await ctx.reply(tariffTexts.upgradePrompt, kb());
 });
 
-// Мои треки — список треков пользователя за сегодня, отправка пачками по 5
+// Обработка ссылки после "Расширить лимит"
+bot.on('text', async ctx => {
+  if (userStates[ctx.from.id] === 'awaiting_link') {
+    const text = ctx.message.text;
+    
+    if (text.includes('soundcloud.com')) {
+      await ctx.reply('Спасибо! Ссылка принята, начинаю обработку...');
+      userStates[ctx.from.id] = null;
+      
+      // Тут твоя логика обработки ссылки
+      
+    } else {
+      await ctx.reply('Пожалуйста, отправь именно ссылку на трек или плейлист SoundCloud.');
+    }
+  }
+});
+
 bot.hears(tariffTexts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Ошибка получения данных пользователя.');
@@ -1113,7 +1132,7 @@ bot.hears(tariffTexts.mytracks, async ctx => {
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
     
-    // Фильтруем треки с валидным fileId
+    // Треки с валидным fileId
     const mediaGroup = chunk
       .filter(t => t.fileId && typeof t.fileId === 'string' && t.fileId.trim().length > 0)
       .map(t => ({
@@ -1123,11 +1142,12 @@ bot.hears(tariffTexts.mytracks, async ctx => {
     
     if (mediaGroup.length > 0) {
       try {
+        // Пробуем отправить пачкой
         await ctx.replyWithMediaGroup(mediaGroup);
       } catch (e) {
         console.error('Ошибка отправки аудио-пачки:', e);
         
-        // Если не получилось, отправляем по одному треку
+        // При ошибке отправляем по одному треку с fallback на локальный файл
         for (const t of chunk) {
           try {
             await ctx.replyWithAudio(t.fileId);
@@ -1150,7 +1170,7 @@ bot.hears(tariffTexts.mytracks, async ctx => {
         }
       }
     } else {
-      // Если нет валидных fileId, отправляем локальные файлы по одному
+      // Нет треков с валидным fileId — отправляем локальные файлы по одному
       for (const t of chunk) {
         const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
         if (fs.existsSync(filePath)) {
@@ -1168,7 +1188,6 @@ bot.hears(tariffTexts.mytracks, async ctx => {
     }
   }
 });
-
 // Команда /admin — показать статистику (только для ADMIN_ID)
 bot.command('admin', async ctx => {
   if (ctx.from.id !== ADMIN_ID) {
