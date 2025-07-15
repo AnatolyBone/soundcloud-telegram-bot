@@ -982,7 +982,7 @@ app.get('/export', requireAuth, async (req, res) => {
     res.locals.page = 'export';
     const allUsers = await getAllUsers(true);
     const period = req.query.period || 'all';
-
+    
     const filteredUsers = allUsers.filter(user => {
       if (period === 'all') return true;
       if (period === '7' || period === '30') {
@@ -995,11 +995,20 @@ app.get('/export', requireAuth, async (req, res) => {
       }
       return true;
     });
-
-    const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
-    const parser = new Parser({ fields });
+    
+    const fields = [
+      'id',
+      'username',
+      'first_name',
+      'total_downloads',
+      'premium_limit',
+      'created_at',
+      'last_active'
+    ];
+    
+    const parser = new json2csv.Parser({ fields });
     const csv = parser.parse(filteredUsers);
-
+    
     res.header('Content-Type', 'text/csv');
     res.attachment(`users_${period}.csv`);
     res.send(csv);
