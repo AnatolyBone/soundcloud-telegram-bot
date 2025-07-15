@@ -675,22 +675,42 @@ function getLastMonths(count = 6) {
 }
 
 // Получение диапазона дат по периоду (число дней или 'YYYY-MM')
+// Получение диапазона дат по периоду (число дней или 'YYYY-MM')
 function getFromToByPeriod(period) {
   const now = new Date();
-  if (!isNaN(period)) {
-    const days = parseInt(period);
+  
+  if (!period) {
+    console.warn('[getFromToByPeriod] Период не указан. Используется "all"');
+    return { from: new Date('2000-01-01'), to: now };
+  }
+  
+  if (period === 'all') {
+    return { from: new Date('2000-01-01'), to: now };
+  }
+  
+  if (/^\d+$/.test(period)) {
+    const days = parseInt(period, 10);
+    if (days <= 0 || days > 3650) {
+      throw new Error(`Неверное количество дней: ${days}`);
+    }
     return {
       from: new Date(now.getTime() - days * 86400000),
       to: now
     };
-  } else if (/^\d{4}-\d{2}$/.test(period)) {
+  }
+  
+  if (/^\d{4}-\d{2}$/.test(period)) {
     const [year, month] = period.split('-').map(Number);
+    if (year < 2000 || month < 1 || month > 12) {
+      throw new Error(`Неверный формат месяца: ${period}`);
+    }
     const from = new Date(year, month - 1, 1);
     const to = new Date(year, month, 1);
     return { from, to };
-  } else {
-    throw new Error('Некорректный формат периода');
   }
+  
+  console.error('[getFromToByPeriod] Некорректный формат:', period);
+  throw new Error('Некорректный формат периода. Используй "all", число дней или YYYY-MM');
 }
 // Дашборд
 app.get('/health', (req, res) => res.send('OK'));
