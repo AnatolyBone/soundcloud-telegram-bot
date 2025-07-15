@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import { json2csvAsync } from 'json-2-csv';
+import json2csv from 'json-2-csv';
+const { json2csvAsync } = json2csv;
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
