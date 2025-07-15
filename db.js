@@ -1,9 +1,6 @@
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import * as json2csv from '@json2csv/node';
-
-const { Parser } = json2csv;
-
+import { parse } from '@json2csv/node';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -93,6 +90,7 @@ async function updateUserField(id, field, value) {
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
 }
+
 const funnelCache = new Map();
 
 function getCacheKey(from, to) {
@@ -103,12 +101,10 @@ async function getFunnelData(from, to) {
   const key = getCacheKey(from, to);
   const cached = funnelCache.get(key);
 
-  // Если есть свежий кеш — вернуть его
   if (cached && Date.now() - cached.timestamp < 60 * 1000) {
     return cached.data;
   }
 
-  // Выполняем три запроса параллельно
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase
       .from('users')
@@ -150,6 +146,7 @@ async function getFunnelData(from, to) {
 
   return result;
 }
+
 async function incrementDownloads(id) {
   await query(`
     UPDATE users SET 
@@ -182,7 +179,7 @@ async function setPremium(id, limit, days = null) {
   let bonusApplied = false;
 
   if (days && !res.rows[0].promo_1plus1_used) {
-    extraDays = days; // +30 дней
+    extraDays = days;
     bonusApplied = true;
     await query('UPDATE users SET promo_1plus1_used = TRUE WHERE id = $1', [id]);
   }
@@ -201,6 +198,7 @@ async function setPremium(id, limit, days = null) {
 
   return bonusApplied;
 }
+
 async function markSubscribedBonusUsed(userId) {
   await query('UPDATE users SET subscribed_bonus_used = TRUE WHERE id = $1', [userId]);
 }
@@ -428,21 +426,22 @@ async function getExpiringUsersCount() {
 
 async function exportUsersToCSV() {
   const users = await getAllUsers(true);
-  return json2csv({
-    data: users,
+  return parse(users, {
     fields: [
-      'id', 
-      'username', 
-      'first_name', 
-      'total_downloads', 
-      'premium_limit', 
-      'premium_until', 
-      'created_at', 
-      'last_active', 
-      'active', 
-      'referral_source', 
+      'id',
+      'username',
+      'first_name',
+      'total_downloads',
+      'premium_limit',
+      'premium_until',
+      'created_at',
+      'last_active',
+      'active',
+      'referral_source',
       'referrer_id'
-    ]
+    ],
+    defaultValue: '',
+    quote: '"'
   });
 }
 
