@@ -18,11 +18,6 @@ import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-//import tariffTexts, { buttonTexts } from './src/texts/tariff.js';
-// Menu message
-//import { formatMenuMessage } from './src/texts/menu.js';
-//import { getReferralLink, getPersonalMessage } from './utils/user.js';
-
 
 // Инициализация сессии для pg
 const pgSession = pgSessionFactory(session);
@@ -131,7 +126,6 @@ async function logEvent(userId, event) {
   }
 }
 
-
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
   menu: '📋 Меню',
@@ -141,15 +135,35 @@ const texts = {
   downloading: '🎧 Загружаю...',
   error: '❌ Ошибка',
   noTracks: 'Сегодня нет треков.',
-  
-  limitReached: tariffTexts.limitReached,
-  upgradeInfo: tariffTexts.upgradeInfo,
+  limitReached: `🚫 Лимит достигнут ❌
+
+💡 Чтобы качать больше треков, переходи на тариф Plus или выше.
+
+📣 Подпишись на канал с новостями: @SCM_BLOG`,
+  upgradeInfo: `🚀 Хочешь больше треков?
+
+🆓 Free — 5 🟢  
+Plus — 20 🎯 (59₽)  
+Pro — 50 💪 (119₽)  
+Unlimited — 💎 (199₽)
+
+👉 Донат: https://boosty.to/anatoly_bone/donate  
+✉️ После оплаты напиши: @anatolybone
+
+📣 Новости и фишки: @SCM_BLOG`,
+  helpInfo: `ℹ️ Просто пришли ссылку и получишь mp3.  
+🔓 Расширить — оплати и подтверди.  
+🎵 Мои треки — список за сегодня.  
+📋 Меню — тариф, лимиты, рефералы.  
+📣 Канал: @SCM_BLOG`,
+  queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
+  adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
 };
 
 const kb = () =>
   Markup.keyboard([
-    [buttonTexts.menu, buttonTexts.upgrade],
-    [buttonTexts.mytracks, buttonTexts.help]
+    [texts.menu, texts.upgrade],
+    [texts.mytracks, texts.help]
   ]).resize();
 
 const isSubscribed = async userId => {
@@ -160,6 +174,7 @@ const isSubscribed = async userId => {
     return false;
   }
 };
+
 async function sendAudioSafe(ctx, userId, filePath, title) {
   try {
     const message = await ctx.telegram.sendAudio(userId, {
@@ -375,69 +390,6 @@ async function broadcastMessage(bot, pool, message) {
   return { successCount, errorCount };
 }
 
-
-function getPersonalMessage(user) {
-const tariffName = getTariffName(user.premium_limit);
-
-return `Привет, ${user.first_name}!
-
-😎 Этот бот — не стартап и не команда разработчиков.
-Я делаю его сам, просто потому что хочется удобный и честный инструмент.
-Без рекламы, без сбора данных — всё по-простому.
-
-Если пользуешься — круто. Рад, что зашло.
-Спасибо, что ты тут 🙌
-
-💼 Текущий тариф: ${tariffName}
-
-⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.
-Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
-
-Надеюсь на понимание. 🙏;   }   function getTariffName(limit) {   if (limit >= 1000) return 'Unlim (∞/день)';   if (limit >= 100) return 'Pro (100/день)';   if (limit >= 50) return 'Plus (50/день)';   return 'Free (10/день)';   }   function getReferralLink(userId) {   return https://t.me/SCloudMusicBot?start=${userId}`;
-}
-function getDaysLeft(premiumUntil) {
-if (!premiumUntil) return 0;
-const now = new Date();
-const until = new Date(premiumUntil);
-const diff = until - now;
-return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
-}
-// Формат меню пользователя
-function formatMenuMessage(user) {
-const tariffLabel = getTariffName(user.premium_limit);
-const downloadsToday = user.downloads_today || 0;
-const invited = user.invited_count || 0;
-const bonusDays = user.bonus_days || 0;
-const refLink = getReferralLink(user.id);
-const daysLeft = getDaysLeft(user.premium_until);
-
-return `
-👋 Привет, ${user.first_name}!
-
-📥 Бот качает треки и плейлисты с SoundCloud в MP3.
-Просто пришли ссылку — и всё 🧙‍♂️
-
-📣 Хочешь быть в курсе новостей, фишек и бонусов?
-Подпишись на наш канал 👉 @SCM_BLOG
-
-🔄 При отправке ссылки ты увидишь свою позицию в очереди.
-🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.
-📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
-
-💼 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft}
-
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
-
-👫 Приглашено: ${invited}
-🎁 Получено дней Plus по рефералам: ${bonusDays}
-
-🔗 Твоя реферальная ссылка:
-${refLink}
-`.trim();
-}
-
-
 // Добавление или обновление пользователя в Supabase
 async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
   if (!id) return;
@@ -456,16 +408,34 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
     console.error('Ошибка Supabase:', e);
   }
 }
-const msg = getPersonalMessage(user);
-await ctx.reply(msg);
+function getPersonalMessage(user) {
+  const tariffName = getTariffName(user.premium_limit);
+  
+  return `Привет, ${user.first_name}!
 
+😎 Этот бот — не стартап и не команда разработчиков.  
+Я делаю его сам, просто потому что хочется удобный и честный инструмент.  
+Без рекламы, без сбора данных — всё по-простому.
+
+Если пользуешься — круто. Рад, что зашло.  
+Спасибо, что ты тут 🙌
+
+💼 Текущий тариф: ${tariffName}
+
+⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.  
+Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
+
+Надеюсь на понимание. 🙏`;
+}
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlim (∞/день)';
   if (limit >= 100) return 'Pro (100/день)';
   if (limit >= 50) return 'Plus (50/день)';
   return 'Free (10/день)';
 }
-
+function getReferralLink(userId) {
+  return `https://t.me/SCloudMusicBot?start=${userId}`;
+}
 function getDaysLeft(premiumUntil) {
   if (!premiumUntil) return 0;
   const now = new Date();
@@ -474,8 +444,39 @@ function getDaysLeft(premiumUntil) {
   return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
 }
 // Формат меню пользователя
-const message = formatMenuMessage(user);
-await ctx.reply(message, kb());
+function formatMenuMessage(user) {
+  const tariffLabel = getTariffName(user.premium_limit);
+  const downloadsToday = user.downloads_today || 0;
+  const invited = user.invited_count || 0;
+  const bonusDays = user.bonus_days || 0;
+  const refLink = getReferralLink(user.id);
+  const daysLeft = getDaysLeft(user.premium_until);
+
+  return `
+👋 Привет, ${user.first_name}!
+
+📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
+Просто пришли ссылку — и всё 🧙‍♂️
+
+📣 Хочешь быть в курсе новостей, фишек и бонусов?  
+Подпишись на наш канал 👉 @SCM_BLOG
+
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
+🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
+
+💼 Тариф: ${tariffLabel}  
+⏳ Осталось дней: ${daysLeft}
+
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+
+👫 Приглашено: ${invited}  
+🎁 Получено дней Plus по рефералам: ${bonusDays}
+
+🔗 Твоя реферальная ссылка:  
+${refLink}
+  `.trim();
+}
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
   const regex = /(https?:\/\/[^\s]+)/g;
@@ -1048,51 +1049,38 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 // === Telegraf бот ===
-
-// Сброс промо-бонуса (админка)
 app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
   const userId = req.params.id;
   await updateUserField(userId, 'promo_1plus1_used', false);
   res.redirect('/dashboard');
 });
-
-// Команда /limit — показать сообщение о лимите
-bot.command('limit', async ctx => {
-  await ctx.reply(tariffTexts.limitReached);
-});
-
-// Команда /start — регистрация и приветствие
+// Команды бота
 bot.start(async ctx => {
   const user = ctx.from;
-  
-  // Создание и обновление пользователя в базе и Supabase
+
+  // Создание и обновление пользователя
   await createUser(user.id, user.first_name, user.username);
   await addOrUpdateUserInSupabase(user.id, user.first_name, user.username);
-  
-  // Лог события регистрации
+
+  // Логируем событие "регистрация"
   await logEvent(user.id, 'registered');
-  
+
   const fullUser = await getUser(user.id);
-  
-  // Личное приветствие
+
   await ctx.reply(getPersonalMessage(fullUser));
-  
-  // Задержка, показываем "печатает..."
+
+  // ⏳ Добавляем задержку ~1.5 секунды
   await ctx.replyWithChatAction('typing');
   await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Главное меню с клавиатурой
+
   await ctx.reply(formatMenuMessage(fullUser), kb());
 });
 
-// Обработка нажатия кнопки "Меню"
-const userStates = {};
-
-// Главное меню
-bot.hears(buttonTexts.menu, async ctx => {
+bot.hears(texts.menu, async ctx => {
   const user = await getUser(ctx.from.id);
   await ctx.reply(formatMenuMessage(user), kb());
 
+  // Добавляем inline-кнопку, если бонус ещё не использован
   if (!user.subscribed_bonus_used) {
     await ctx.reply(
       'Нажми кнопку ниже, чтобы получить бонус после подписки:',
@@ -1103,19 +1091,19 @@ bot.hears(buttonTexts.menu, async ctx => {
   }
 });
 
-// Помощь
-bot.hears(buttonTexts.help, async ctx => {
-  await ctx.reply(tariffTexts.helpInfo, kb());
+bot.hears(texts.help, async ctx => {
+  await ctx.reply(texts.helpInfo, kb());
 });
 
-// Расширить лимит — включаем режим ожидания ссылки
-bot.hears(buttonTexts.upgrade, async ctx => {
-  userStates[ctx.from.id] = 'awaiting_link';
-  await ctx.reply(tariffTexts.upgradePrompt, kb());
+bot.hears(texts.upgrade, async ctx => {
+  await ctx.reply(texts.upgradeInfo, kb());
 });
 
-// 🎵 Мои треки
-bot.hears(buttonTexts.mytracks, async ctx => {
+function sanitizeFilename(name) {
+  return name.replace(/[<>:"/\\|?*]+/g, '').trim();
+}
+
+bot.hears(texts.mytracks, async ctx => {
   const user = await getUser(ctx.from.id);
   if (!user) return ctx.reply('Ошибка получения данных пользователя.');
 
@@ -1134,6 +1122,7 @@ bot.hears(buttonTexts.mytracks, async ctx => {
   for (let i = 0; i < tracks.length; i += 5) {
     const chunk = tracks.slice(i, i + 5);
 
+    // Фильтруем треки с валидным fileId
     const mediaGroup = chunk
       .filter(t => t.fileId && typeof t.fileId === 'string' && t.fileId.trim().length > 0)
       .map(t => ({
@@ -1147,29 +1136,41 @@ bot.hears(buttonTexts.mytracks, async ctx => {
       } catch (e) {
         console.error('Ошибка отправки аудио-пачки:', e);
 
-        for (const t of chunk) {
+        // Если не получилось, отправляем по одному треку без caption
+        for (let t of chunk) {
           try {
             await ctx.replyWithAudio(t.fileId);
           } catch {
+            // Если fileId не работает — отправляем локальный файл
             const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
             if (fs.existsSync(filePath)) {
               const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
               const newFileId = msg.audio.file_id;
+
+              // Обновляем fileId в базе
               await saveTrackForUser(ctx.from.id, t.title, newFileId);
+
+              console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
             } else {
+              console.warn(`Файл для трека "${t.title}" не найден на диске.`);
               await ctx.reply(`⚠️ Не удалось отправить трек "${t.title}". Файл не найден.`);
             }
           }
         }
       }
     } else {
-      for (const t of chunk) {
+      // Если ни одного валидного fileId нет — отправляем по одному локальным файлом
+      for (let t of chunk) {
         const filePath = path.join(cacheDir, `${sanitizeFilename(t.title)}.mp3`);
         if (fs.existsSync(filePath)) {
           const msg = await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
           const newFileId = msg.audio.file_id;
+
           await saveTrackForUser(ctx.from.id, t.title, newFileId);
+
+          console.log(`Обновлен fileId для трека "${t.title}" у пользователя ${ctx.from.id}`);
         } else {
+          console.warn(`Файл для трека "${t.title}" не найден на диске.`);
           await ctx.reply(`⚠️ Не удалось отправить трек "${t.title}". Файл не найден.`);
         }
       }
@@ -1177,42 +1178,25 @@ bot.hears(buttonTexts.mytracks, async ctx => {
   }
 });
 
-// Последним — универсальный обработчик текста (только если пользователь в режиме "ожидания ссылки")
-bot.on('text', async ctx => {
-  const state = userStates[ctx.from.id];
-  if (state !== 'awaiting_link') return; // ⚠️ важно: чтобы не перехватывал другие hears
-
-  const text = ctx.message.text;
-
-  if (text.includes('soundcloud.com')) {
-    await ctx.reply('Спасибо! Ссылка принята, начинаю обработку...');
-    userStates[ctx.from.id] = null;
-
-    // 👉 Твоя логика загрузки/скачивания сюда
-  } else {
-    await ctx.reply('Пожалуйста, отправь именно ссылку на трек или плейлист SoundCloud.');
-  }
-});
-// Команда /admin — показать статистику (только для ADMIN_ID)
-bot.command('admin', async ctx => {
+bot.command('admin', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) {
     return ctx.reply('❌ У вас нет доступа к этой команде.');
   }
-  
+
   try {
     const users = await getAllUsers();
     const totalUsers = users.length;
     const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-    
+
     const activeToday = users.filter(u => {
       if (!u.last_active) return false;
       const last = new Date(u.last_active);
       const now = new Date();
       return last.toDateString() === now.toDateString();
     }).length;
-    
+
     await ctx.reply(
-      `📊 Статистика бота:
+`📊 Статистика бота:
 
 👤 Пользователей: ${totalUsers}
 📥 Всего загрузок: ${totalDownloads}
@@ -1226,8 +1210,6 @@ bot.command('admin', async ctx => {
     await ctx.reply('⚠️ Ошибка получения статистики');
   }
 });
-
-// Обработка callback для проверки подписки и выдачи бонуса
 bot.action('check_subscription', async ctx => {
   const subscribed = await isSubscribed(ctx.from.id);
   if (subscribed) {
@@ -1235,6 +1217,7 @@ bot.action('check_subscription', async ctx => {
     if (user.subscribed_bonus_used) {
       await ctx.reply('Ты уже использовал бонус подписки.');
     } else {
+      const until = Date.now() + 7 * 24 * 3600 * 1000;
       await setPremium(ctx.from.id, 50, 7);
       await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
       await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
@@ -1244,21 +1227,19 @@ bot.action('check_subscription', async ctx => {
   }
   await ctx.answerCbQuery();
 });
-
-// Обработка текстовых сообщений — ожидаем ссылку на трек/плейлист
 bot.on('text', async ctx => {
   const url = extractUrl(ctx.message.text);
   if (!url) {
     await ctx.reply('Пожалуйста, отправь ссылку на трек или плейлист SoundCloud.');
     return;
   }
-  
+
   try {
     await ctx.reply('🔄 Загружаю трек... Это может занять пару минут.');
   } catch (e) {
     console.error('Ошибка при отправке сообщения:', e);
   }
-  
+
   enqueue(ctx, ctx.from.id, url).catch(async e => {
     console.error('Ошибка в enqueue:', e);
     try {
@@ -1266,8 +1247,7 @@ bot.on('text', async ctx => {
     } catch {}
   });
 });
-
-// Telegram webhook для обработки входящих обновлений
+// Telegram webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
   bot.handleUpdate(req.body).catch(err => console.error('Ошибка handleUpdate:', err));
