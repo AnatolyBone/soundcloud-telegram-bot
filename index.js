@@ -12,15 +12,12 @@ import axios from 'axios';
 import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
-import pkg from 'pg';
+import { pool } from './db.js';
 import { json2csv } from 'json-2-csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-
-// Инициализация сессии для pg
-const { Pool } = pkg;
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -70,10 +67,6 @@ if (isNaN(ADMIN_ID)) {
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
