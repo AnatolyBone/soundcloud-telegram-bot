@@ -5,6 +5,7 @@ import express from 'express';
 import session from 'express-session';
 import ejs from 'ejs';
 import fs from 'fs';
+import pool from './database/index.js'; // проверь путь
 import path from 'path';
 import ytdl from 'youtube-dl-exec';
 import multer from 'multer';
@@ -186,19 +187,37 @@ const isSubscribed = async userId => {
   }
 };
 
+
 async function sendAudioSafe(ctx, userId, filePath, title) {
   try {
-    const message = await ctx.telegram.sendAudio(userId, {
-      source: fs.createReadStream(filePath),
-      filename: `${title}.mp3`
-    }, {
-      title,
-      performer: 'SoundCloud'
-    });
+    const message = await ctx.telegram.sendAudio(
+      userId,
+      {
+        source: fs.createReadStream(filePath),
+        filename: `${title}.mp3`
+      },
+      {
+        title,
+        performer: 'SoundCloud'
+      }
+    );
     return message.audio.file_id;
   } catch (e) {
-    console.error(`Ошибка отправки аудио пользователю ${userId}:`, e);
-    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
+    console.error(`❌ Ошибка отправки аудио пользователю ${userId}:`, e);
+    
+    // Если бот заблокирован пользователем — отключаем его
+    if (e.description === 'Forbidden: bot was blocked by the user') {
+      console.warn(`🚫 Пользователь ${userId} заблокировал бота. Помечаем как inactive.`);
+      await pool.query('UPDATE users SET active = false WHERE telegram_id = $1', [userId]);
+    } else {
+      // Только если ошибка не связана с блокировкой — пробуем отправить сообщение
+      try {
+        await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
+      } catch (innerErr) {
+        console.error(`Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
+      }
+    }
+    
     return null;
   }
 }
