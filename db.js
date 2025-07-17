@@ -2,7 +2,6 @@ import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import json2csv from 'json-2-csv';
 const { json2csvAsync } = json2csv;
-import pool, { getUser, saveTrackForUser } from './index.js';
 
 // Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -477,5 +476,6 @@ export {
   getReferralSourcesStats,
   markSubscribedBonusUsed,
   getFunnelData,
+  pool,
   logUserActivity
 };
