@@ -5,7 +5,6 @@ import express from 'express';
 import session from 'express-session';
 import ejs from 'ejs';
 import fs from 'fs';
-import pool from './database/index.js'; // проверь путь
 import path from 'path';
 import ytdl from 'youtube-dl-exec';
 import multer from 'multer';
@@ -21,8 +20,6 @@ import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 
 // Инициализация сессии для pg
-const pgSession = pgSessionFactory(session);
-
 const { Pool } = pkg;
 
 const upload = multer({ dest: 'uploads/' });
@@ -528,6 +525,7 @@ app.use(expressLayouts); // Используем layout
 app.set('view engine', 'ejs'); // Указываем движок шаблонов
 app.set('views', path.join(__dirname, 'views')); // Папка с шаблонами
 app.set('layout', 'layout');
+const pgSession = pgSessionFactory(session);
 
 app.use(session({
   store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
