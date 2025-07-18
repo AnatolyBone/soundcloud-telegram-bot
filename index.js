@@ -12,12 +12,17 @@ import axios from 'axios';
 import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
-import { pool } from './db.js';
-import { json2csv } from 'json-2-csv';
+import pkg from 'pg';
+import * as json2csv from '@json2csv/node';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
+
+// Инициализация сессии для pg
+const pgSession = pgSessionFactory(session);
+
+const { Pool } = pkg;
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -67,6 +72,10 @@ if (isNaN(ADMIN_ID)) {
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
@@ -128,20 +137,9 @@ const texts = {
   noTracks: 'Сегодня нет треков.',
   limitReached: `🚫 Лимит достигнут ❌
 
-💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.
+💡 Чтобы качать больше треков, переходи на тариф Plus или выше.
 
-🆓 Free — 5 🟢
-🎯 Plus — 20 (59₽)
-💪 Pro — 50 (119₽)
-💎 Unlimited — безлимит (199₽)
-
-👉 Донат: boosty.to/anatoly_bone/donate
-✉️ После оплаты напиши: @anatolybone
-
-📣 Подпишись на канал с новостями:
-@SCM_BLOG
-
-🎁 Бонус: подпишись на @bazaproject и получи 7 дней тарифа Plus бесплатно!`,
+📣 Подпишись на канал с новостями: @SCM_BLOG`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
 🆓 Free — 5 🟢  
@@ -177,37 +175,19 @@ const isSubscribed = async userId => {
   }
 };
 
-
 async function sendAudioSafe(ctx, userId, filePath, title) {
   try {
-    const message = await ctx.telegram.sendAudio(
-      userId,
-      {
-        source: fs.createReadStream(filePath),
-        filename: `${title}.mp3`
-      },
-      {
-        title,
-        performer: 'SoundCloud'
-      }
-    );
+    const message = await ctx.telegram.sendAudio(userId, {
+      source: fs.createReadStream(filePath),
+      filename: `${title}.mp3`
+    }, {
+      title,
+      performer: 'SoundCloud'
+    });
     return message.audio.file_id;
   } catch (e) {
-    console.error(`❌ Ошибка отправки аудио пользователю ${userId}:`, e);
-    
-    // Если бот заблокирован пользователем — отключаем его
-    if (e.description === 'Forbidden: bot was blocked by the user') {
-      console.warn(`🚫 Пользователь ${userId} заблокировал бота. Помечаем как inactive.`);
-      await pool.query('UPDATE users SET active = false WHERE telegram_id = $1', [userId]);
-    } else {
-      // Только если ошибка не связана с блокировкой — пробуем отправить сообщение
-      try {
-        await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
-      } catch (innerErr) {
-        console.error(`Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
-      }
-    }
-    
+    console.error(`Ошибка отправки аудио пользователю ${userId}:`, e);
+    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
     return null;
   }
 }
@@ -276,18 +256,15 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
   } finally {
-  // Удаление файла только если он ещё существует
-  if (fp) {
-    try {
-      await fs.promises.access(fp); // проверка на существование
-      await fs.promises.unlink(fp);
-      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
-      } else {
-        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
-      }
+    // 🧹 Удаление файла безопасно и в самом конце
+    if (fp) {
+      fs.promises.unlink(fp).then(() => {
+        console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
+      }).catch(err => {
+        if (err.code !== 'ENOENT') {
+          console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
+        }
+      });
     }
   }
 }
@@ -434,20 +411,21 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
 function getPersonalMessage(user) {
   const tariffName = getTariffName(user.premium_limit);
   
-  return `
-😎 Привет!
-Этот бот — не стартап и не команда разработчиков.
-Я делаю его один — чтобы был простой, честный и удобный инструмент.
-Без рекламы, без слежки, без наворотов — всё по-человечески.
+  return `Привет, ${user.first_name}!
 
-💼 Твой тариф: ${tariffName}
+😎 Этот бот — не стартап и не команда разработчиков.  
+Я делаю его сам, просто потому что хочется удобный и честный инструмент.  
+Без рекламы, без сбора данных — всё по-простому.
 
-⚠️ В ближайшее время лимиты немного сократим, чтобы бот продолжал работать стабильно.
-Проект держится на моих личных ресурсах — иногда приходится идти на такие шаги.
-Спасибо за понимание 🙏
+Если пользуешься — круто. Рад, что зашло.  
+Спасибо, что ты тут 🙌
 
-🎁 Сейчас идёт акция 1+1 на все тарифы — оплачиваешь месяц, получаешь два.
-Действует до 20 июля. Подробности: @SCM_BLOG`;
+💼 Текущий тариф: ${tariffName}
+
+⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.  
+Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
+
+Надеюсь на понимание. 🙏`;
 }
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlim (∞/день)';
@@ -521,7 +499,6 @@ app.use(expressLayouts); // Используем layout
 app.set('view engine', 'ejs'); // Указываем движок шаблонов
 app.set('views', path.join(__dirname, 'views')); // Папка с шаблонами
 app.set('layout', 'layout');
-const pgSession = pgSessionFactory(session);
 
 app.use(session({
   store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
@@ -537,7 +514,7 @@ app.use(async (req, res, next) => {
       const user = await getUserById(req.session.userId);
       if (user) {
         req.user = user;
-        res.locals.user = user;  // важно для ejs import { Parser } from '@json2csv/node';tials
+        res.locals.user = user;  // важно для ejs partials
       } else {
         res.locals.user = null;
       }
@@ -687,42 +664,22 @@ function getLastMonths(count = 6) {
 }
 
 // Получение диапазона дат по периоду (число дней или 'YYYY-MM')
-// Получение диапазона дат по периоду (число дней или 'YYYY-MM')
 function getFromToByPeriod(period) {
   const now = new Date();
-  
-  if (!period) {
-    console.warn('[getFromToByPeriod] Период не указан. Используется "all"');
-    return { from: new Date('2000-01-01'), to: now };
-  }
-  
-  if (period === 'all') {
-    return { from: new Date('2000-01-01'), to: now };
-  }
-  
-  if (/^\d+$/.test(period)) {
-    const days = parseInt(period, 10);
-    if (days <= 0 || days > 3650) {
-      throw new Error(`Неверное количество дней: ${days}`);
-    }
+  if (!isNaN(period)) {
+    const days = parseInt(period);
     return {
       from: new Date(now.getTime() - days * 86400000),
       to: now
     };
-  }
-  
-  if (/^\d{4}-\d{2}$/.test(period)) {
+  } else if (/^\d{4}-\d{2}$/.test(period)) {
     const [year, month] = period.split('-').map(Number);
-    if (year < 2000 || month < 1 || month > 12) {
-      throw new Error(`Неверный формат месяца: ${period}`);
-    }
     const from = new Date(year, month - 1, 1);
     const to = new Date(year, month, 1);
     return { from, to };
+  } else {
+    throw new Error('Некорректный формат периода');
   }
-  
-  console.error('[getFromToByPeriod] Некорректный формат:', period);
-  throw new Error('Некорректный формат периода. Используй "all", число дней или YYYY-MM');
 }
 // Дашборд
 app.get('/health', (req, res) => res.send('OK'));
@@ -945,6 +902,7 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
   let success = 0, error = 0;
   let audioBuffer = null;
 
+  // Читаем файл один раз в память
   if (audio) {
     try {
       audioBuffer = fs.readFileSync(audio.path);
@@ -959,6 +917,7 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     if (!u.active) continue;
 
     let sent = null;
+
     if (audioBuffer) {
       sent = await safeTelegramCall('sendAudio', u.id, {
         source: audioBuffer,
@@ -982,25 +941,22 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     await new Promise(r => setTimeout(r, 150)); // антиперебор
   }
 
-// Удаляем файл после рассылки
-if (audio) {
-  try {
-    // Удаляем файл с диска
+  // Удаляем файл после загрузки в память
+  if (audio) {
     fs.unlink(audio.path, err => {
       if (err) console.error('Ошибка удаления аудио:', err);
       else console.log(`🗑 Удалён файл рассылки: ${audio.originalname}`);
     });
-  } catch (err) {
-    console.error('Ошибка при удалении файла:', err);
   }
-}
 
+  // Отправляем администратору отчет
   try {
     await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
   } catch (err) {
     console.error('Ошибка отправки уведомления админу:', err);
   }
 
+  // Отдаем страницу с результатом
   res.locals.page = 'broadcast';
   res.render('broadcast-form', {
     title: 'Рассылка',
@@ -1015,7 +971,7 @@ app.get('/export', requireAuth, async (req, res) => {
     res.locals.page = 'export';
     const allUsers = await getAllUsers(true);
     const period = req.query.period || 'all';
-    
+
     const filteredUsers = allUsers.filter(user => {
       if (period === 'all') return true;
       if (period === '7' || period === '30') {
@@ -1028,16 +984,11 @@ app.get('/export', requireAuth, async (req, res) => {
       }
       return true;
     });
-    
+
     const fields = ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'created_at', 'last_active'];
-    
-    const csv = await json2csv(filteredUsers, {
-      keys: fields,
-      expandNestedObjects: true,
-      wrap: '"',
-      eol: '\n',
-    });
-    
+    const parser = new Parser({ fields });
+    const csv = parser.parse(filteredUsers);
+
     res.header('Content-Type', 'text/csv');
     res.attachment(`users_${period}.csv`);
     res.send(csv);
