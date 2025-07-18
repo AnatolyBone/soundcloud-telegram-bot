@@ -179,18 +179,6 @@ async function cleanCache() {
 setInterval(cleanCache, 3600 * 1000);
 setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
-async function logEvent(userId, event) {
-  try {
-    await client.rpush('logs', JSON.stringify({ userId, event }));
-    await supabase.from('events').insert({
-      user_id: userId,
-      event,
-      created_at: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Ошибка при логировании события:', error);
-  }
-}
 
 const texts = {
   start: '👋 Пришли ссылку на трек с SoundCloud.',
