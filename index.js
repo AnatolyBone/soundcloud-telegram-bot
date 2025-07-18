@@ -369,46 +369,58 @@ async function processTask(task) {
   }
 }
 
-// Основной цикл обработки очереди
-async function processNextInQueue() {
+// ==== Очередь загрузки ====
+
+const MAX_CONCURRENT_DOWNLOADS = 10;
+const globalQueue = [];
+let activeDownloadsCount = 0;
+
+// Добавление задачи в очередь
+function addToGlobalQueue(task) {
+  globalQueue.push(task);
+  globalQueue.sort((a, b) => b.priority - a.priority);
+  processNextInQueue(); // Запуск очереди
+}
+
+// Обработка следующего задания из очереди
+function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
-
-    // Не await, чтобы не блокировать цикл
+    
     processTask(task).finally(() => {
       activeDownloadsCount--;
-      processNextInQueue();
+      processNextInQueue(); // Рекурсивный вызов
     });
   }
 }
 
-// Функция добавления задач в очередь с проверками лимитов
+// Выполнение одного задания
 async function enqueue(ctx, userId, url) {
   try {
-    // 1. Разрешаем редирект, получаем окончательный URL
+    // 1. Разрешаем редирект
     url = await resolveRedirect(url);
     if (!url) throw new Error('Неверный URL после редиректа');
     
-    // 2. Логируем активность пользователя, сбрасываем лимит, если нужно
+    // 2. Логирование активности
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
     
-    // 3. Получаем пользователя из базы
+    // 3. Получение пользователя
     const user = await getUser(userId);
     if (!user) {
       await ctx.telegram.sendMessage(userId, '❌ Пользователь не найден.');
       return;
     }
     
-    // 4. Проверяем подписку
+    // 4. Проверка подписки
     const now = new Date();
     if (!user.premium_until || new Date(user.premium_until) < now) {
       await ctx.telegram.sendMessage(userId, '🔒 Ваша подписка истекла.');
       return;
     }
     
-    // 5. Проверяем лимит загрузок на сегодня
+    // 5. Проверка лимита
     const remainingLimit = user.premium_limit - user.downloads_today;
     if (remainingLimit <= 0) {
       await ctx.telegram.sendMessage(userId, '🔒 Вы достигли лимита загрузок на сегодня.',
@@ -419,7 +431,7 @@ async function enqueue(ctx, userId, url) {
       return;
     }
     
-    // 6. Получаем информацию о треке или плейлисте
+    // 6. Получение информации
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
@@ -457,13 +469,10 @@ async function enqueue(ctx, userId, url) {
       await logEvent(userId, 'download');
     }
     
-    // 8. Уведомляем о позиции в очереди
+    // 8. Позиция в очереди
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
       globalQueue.filter(task => task.userId === userId).length
     ));
-    
-    // 9. Запускаем очередь
-    processNextInQueue();
     
   } catch (e) {
     console.error('Ошибка в enqueue:', e);
