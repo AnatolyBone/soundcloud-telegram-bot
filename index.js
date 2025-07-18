@@ -34,7 +34,7 @@ async function resolveRedirect(url) {
     });
     return response.request?.res?.responseUrl || url;
   } catch (err) {
-    console.warn('import { Telegraf, Markup ошибка при разворачивании ссылки:', err.message);
+    console.warn('Ошибка при разворачивании ссылки:', err.message);
     return url;
   }
 }
