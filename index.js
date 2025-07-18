@@ -12,17 +12,12 @@ import axios from 'axios';
 import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
-import pkg from 'pg';
-import * as json2csv from '@json2csv/node';
+import { pool } from './db.js';
+import { json2csv } from 'json-2-csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-
-// Инициализация сессии для pg
-const pgSession = pgSessionFactory(session);
-
-const { Pool } = pkg;
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -39,7 +34,7 @@ async function resolveRedirect(url) {
     });
     return response.request?.res?.responseUrl || url;
   } catch (err) {
-    console.warn('Ошибка при разворачивании ссылки:', err.message);
+    console.warn('import { Telegraf, Markup ошибка при разворачивании ссылки:', err.message);
     return url;
   }
 }
