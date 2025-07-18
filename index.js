@@ -413,14 +413,43 @@ async function processTask(task) {
   }
 }
 
-// Основной цикл обработки очереди
+// Функция обработки одной задачи с профилированием
+async function processTask({ ctx, userId, url, playlistUrl }) {
+  console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
+  console.time(`⏱️ Обработка ${url}`);
+  
+  try {
+    console.time(`🧲 Скачивание ${url}`);
+    const filePath = await downloadTrack(url, userId); // твоя функция скачивания
+    console.timeEnd(`🧲 Скачивание ${url}`);
+    
+    console.time(`📝 ID3-теги ${filePath}`);
+    await writeID3Tags(filePath); // если используешь
+    console.timeEnd(`📝 ID3-теги ${filePath}`);
+    
+    console.time(`📤 Отправка Telegram`);
+    await ctx.replyWithAudio({ source: filePath });
+    console.timeEnd(`📤 Отправка Telegram`);
+    
+    console.time(`🧹 Очистка кеша`);
+    await fs.promises.unlink(filePath);
+    console.timeEnd(`🧹 Очистка кеша`);
+    
+    console.log(`✅ Задача завершена: ${url} (userId: ${userId})`);
+  } catch (err) {
+    console.error(`❌ Ошибка в processTask для ${url}:`, err);
+    throw err;
+  } finally {
+    console.timeEnd(`⏱️ Обработка ${url}`);
+  }
+}
+
 // Основной цикл обработки очереди
 async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
     
-    // Обёртка для асинхронной обработки, без await, чтобы не блокировать цикл
     (async () => {
       try {
         await processTask(task);
@@ -433,41 +462,44 @@ async function processNextInQueue() {
         }
       } finally {
         activeDownloadsCount--;
-        processNextInQueue(); // Продолжаем обработку следующего
+        processNextInQueue(); // Продолжаем обработку очереди
       }
     })();
   }
 }
 
-// Функция добавления задач в очередь с проверками лимитов
-// Функция добавления задач в очередь с проверками лимитов
+// Функция добавления задач в очередь с профилированием и логикой лимитов
 async function enqueue(ctx, userId, url) {
-  try {
-    url = await resolveRedirect(url);
-  } catch (err) {
-    console.error(`❌ Ошибка при разрешении редиректа URL ${url}:`, err);
-    await ctx.telegram.sendMessage(userId, 'Некорректный или недоступный URL.');
-    return;
-  }
+  const label = `enqueue:${userId}`;
+  console.time(label);
   
   try {
+    console.time(`resolve:${userId}`);
+    url = await resolveRedirect(url);
+    console.timeEnd(`resolve:${userId}`);
+    
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
-    
     const user = await getUser(userId);
-    const remainingLimit = user.premium_limit - user.downloads_today;
     
+    const remainingLimit = user.premium_limit - user.downloads_today;
     if (remainingLimit <= 0) {
-      return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
+      await ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ]));
+      console.timeEnd(label);
+      return;
     }
     
+    console.time(`ytdl:${userId}`);
     const info = await ytdl(url, { dumpSingleJson: true });
+    console.timeEnd(`ytdl:${userId}`);
+    
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
     
     if (isPlaylist) {
+      console.time(`playlistParse:${userId}`);
       entries = info.entries.filter(e => e?.webpage_url).map(e => e.webpage_url);
       
       const playlistKey = `${user.id}:${url}`;
@@ -480,11 +512,13 @@ async function enqueue(ctx, userId, url) {
       }
       
       await logEvent(userId, 'download_playlist');
+      console.timeEnd(`playlistParse:${userId}`);
     } else {
       entries = [url];
     }
     
     for (const entryUrl of entries) {
+      console.time(`queueAdd:${entryUrl}`);
       addToGlobalQueue({
         ctx,
         userId,
@@ -493,6 +527,7 @@ async function enqueue(ctx, userId, url) {
         priority: user.premium_limit
       });
       await logEvent(userId, 'download');
+      console.timeEnd(`queueAdd:${entryUrl}`);
     }
     
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
@@ -501,7 +536,9 @@ async function enqueue(ctx, userId, url) {
     
     processNextInQueue();
     
+    console.timeEnd(label);
   } catch (e) {
+    console.timeEnd(label);
     console.error(`❌ Ошибка в enqueue для userId ${userId}:`, e);
     try {
       await ctx.telegram.sendMessage(userId, texts.error);
@@ -1430,8 +1467,17 @@ app.post(WEBHOOK_PATH, express.json(), (req, res) => {
 (async () => {
   try {
     await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-    app.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
-    console.log('🤖 Бот запущен и ожидает обновлений...');
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Сервер запущен на порту ${PORT}`);
+      console.log('🤖 Бот запущен и ожидает обновлений...');
+      
+      // Мониторинг очереди
+      setInterval(() => {
+        console.log(`⏳ Очередь: ${globalQueue.length} задач`);
+      }, 30000);
+    });
+    
   } catch (e) {
     console.error('Ошибка при старте:', e);
     process.exit(1);
