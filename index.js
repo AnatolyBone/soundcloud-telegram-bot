@@ -117,7 +117,11 @@ async function getTrackInfo(url) {
 // Функция логирования
 async function logEvent(userId, event) {
   try {
-    await global.redisClient.rpush('logs', JSON.stringify({ userId, event }));
+    await global.redisClient.rPush(
+      `log:${userId}`,
+      JSON.stringify({ event, timestamp: Date.now() })
+    );
+    
     await supabase.from('events').insert({
       user_id: userId,
       event,
