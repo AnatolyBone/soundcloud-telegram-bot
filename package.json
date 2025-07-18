@@ -28,7 +28,8 @@
     "telegraf": "^4.13.3",
     "youtube-dl-exec": "^2.1.1",
     "multer": "^2.0.0",
-    "rate-limiter-flexible": "^2.4.1"
+    "rate-limiter-flexible": "^2.4.1",
+"ioredis": "^5.3.2"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
