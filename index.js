@@ -12,17 +12,21 @@ import axios from 'axios';
 import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
-import { pool } from './db.js';
-import { json2csv } from 'json-2-csv';
+import pkg from 'pg';
+import { Parser } from 'json2csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
-import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
+
+// Инициализация сессии для pg
+const pgSession = pgSessionFactory(session);
+
+const { Pool } = pkg;
 
 const upload = multer({ dest: 'uploads/' });
 
 const playlistTracker = new Map();
-const pgSession = connectPgSimple(session);
+
 // Утилиты
 const writeID3 = util.promisify(NodeID3.write);
 
@@ -39,14 +43,14 @@ async function resolveRedirect(url) {
   }
 }
 
-import {
+const {
   createUser, getUser, updateUserField, incrementDownloads, setPremium,
   getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
   getLatestReviews, resetDailyLimitIfNeeded, getRegistrationsByDate,
   getDownloadsByDate, getActiveUsersByDate, getExpiringUsers, getReferralSourcesStats,
   markSubscribedBonusUsed, getUserActivityByDayHour, logUserActivity, getUserById,
   getExpiringUsersCount, getExpiringUsersPaginated
-} from './db.js';
+} = require('./db');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
@@ -67,6 +71,10 @@ if (isNaN(ADMIN_ID)) {
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
@@ -128,25 +136,20 @@ const texts = {
   noTracks: 'Сегодня нет треков.',
   limitReached: `🚫 Лимит достигнут ❌
 
-💡 Чтобы качать больше треков, переходи на тариф Plus или выше.
-
-📣 Подпишись на канал с новостями: @SCM_BLOG`,
+🔔 Получи 7 дней Plus!
+Подпишись на канал @BAZAproject и нажми кнопку ниже, чтобы получить бонус.`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
-🆓 Free — 5 🟢  
-Plus — 20 🎯 (59₽)  
-Pro — 50 💪 (119₽)  
+🆓 Free — 5 🟢
+Plus — 20 🎯 (59₽)
+Pro — 50 💪 (119₽)
 Unlimited — 💎 (199₽)
 
-👉 Донат: https://boosty.to/anatoly_bone/donate  
+👉 Донат: https://boosty.to/anatoly_bone/donate
 ✉️ После оплаты напиши: @anatolybone
 
-📣 Новости и фишки: @SCM_BLOG`,
-  helpInfo: `ℹ️ Просто пришли ссылку и получишь mp3.  
-🔓 Расширить — оплати и подтверди.  
-🎵 Мои треки — список за сегодня.  
-📋 Меню — тариф, лимиты, рефералы.  
-📣 Канал: @SCM_BLOG`,
+👫 Пригласи друзей и получи 1 день тарифа Plus за каждого.`,
+  helpInfo: 'ℹ️ Просто пришли ссылку и получишь mp3.\n🔓 Расширить — оплати и подтверди.\n🎵 Мои треки — список за сегодня.\n📋 Меню — текущий тариф, лимиты, рефералы.',
   queuePosition: pos => `⏳ Трек добавлен в очередь (#${pos})`,
   adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
 };
@@ -261,47 +264,34 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
 }
 
 // Управление глобальной очередью загрузок
-const globalQueue = [];
-let activeDownloadsCount = 0;
-const MAX_CONCURRENT_DOWNLOADS = 3;
-
-// Добавление задачи в очередь с сортировкой по приоритету
 function addToGlobalQueue(task) {
   globalQueue.push(task);
   globalQueue.sort((a, b) => b.priority - a.priority);
 }
 
-// Обработка одного таска
-async function processTask(task) {
-  const { ctx, userId, url, playlistUrl } = task;
-  try {
-    await processTrackByUrl(ctx, userId, url, playlistUrl);
-  } catch (e) {
-    console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-    try {
-      await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
-    } catch {}
-  }
-}
-
-// Основной цикл обработки очереди
 async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
+    const { ctx, userId, url, playlistUrl } = task;
 
-    // Не await, чтобы не блокировать цикл
-    processTask(task).finally(() => {
-      activeDownloadsCount--;
-      processNextInQueue();
-    });
+    try {
+      await processTrackByUrl(ctx, userId, url, playlistUrl);
+    } catch (e) {
+      console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
+      try {
+        await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
+      } catch {}
+    }
+
+    activeDownloadsCount--;
+    processNextInQueue();
   }
 }
 
-// Функция добавления задач в очередь с проверками лимитов
+// Добавление задачи загрузки в очередь с проверками лимита
 async function enqueue(ctx, userId, url) {
-  url = await resolveRedirect(url);
-
+url = await resolveRedirect(url);
   try {
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
@@ -328,7 +318,7 @@ async function enqueue(ctx, userId, url) {
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
         entries = entries.slice(0, remainingLimit);
       }
-      await logEvent(userId, 'download_playlist');
+      await logEvent(userId, isPlaylist ? 'download_playlist' : 'download_track');
     } else {
       entries = [url];
     }
@@ -349,7 +339,6 @@ async function enqueue(ctx, userId, url) {
     ));
 
     processNextInQueue();
-
   } catch (e) {
     console.error('Ошибка в enqueue:', e);
     await ctx.telegram.sendMessage(userId, texts.error);
@@ -400,8 +389,18 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
   }
 }
 function getPersonalMessage(user) {
-  const tariffName = getTariffName(user.premium_limit);
-  
+  const now = new Date();
+  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
+
+  const tariffName =
+    user.premium_limit === 5 ? 'Free (10/день)' :
+    user.premium_limit === 20 ? 'Plus (50/день)' :
+    user.premium_limit === 50 ? 'Pro (100/день)' :
+    'Unlimited';
+
+  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
+
   return `Привет, ${user.first_name}!
 
 😎 Этот бот — не стартап и не команда разработчиков.  
@@ -411,63 +410,54 @@ function getPersonalMessage(user) {
 Если пользуешься — круто. Рад, что зашло.  
 Спасибо, что ты тут 🙌
 
-💼 Текущий тариф: ${tariffName}
-
 ⚠️ Скоро немного снизим лимиты, чтобы бот продолжал работать стабильно.  
 Проект держится на моих ресурсах, и иногда приходится идти на такие меры.
 
-Надеюсь на понимание. 🙏`;
-}
-function getTariffName(limit) {
-  if (limit >= 1000) return 'Unlim (∞/день)';
-  if (limit >= 100) return 'Pro (100/день)';
-  if (limit >= 50) return 'Plus (50/день)';
-  return 'Free (10/день)';
-}
-function getReferralLink(userId) {
-  return `https://t.me/SCloudMusicBot?start=${userId}`;
-}
-function getDaysLeft(premiumUntil) {
-  if (!premiumUntil) return 0;
-  const now = new Date();
-  const until = new Date(premiumUntil);
-  const diff = until - now;
-  return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
+Надеюсь на понимание.  `;
 }
 // Формат меню пользователя
 function formatMenuMessage(user) {
-  const tariffLabel = getTariffName(user.premium_limit);
-  const downloadsToday = user.downloads_today || 0;
-  const invited = user.invited_count || 0;
-  const bonusDays = user.bonus_days || 0;
-  const refLink = getReferralLink(user.id);
-  const daysLeft = getDaysLeft(user.premium_until);
+  const now = new Date();
+  const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+  const daysLeft = premiumUntil ? Math.ceil((premiumUntil - now) / 86400000) : 0;
+
+const tariffName =
+  user.premium_limit === 5 ? 'Free (5/день)' :
+  user.premium_limit === 20 ? 'Plus (20/день)' :
+  user.premium_limit === 50 ? 'Pro (50/день)' :
+  'Unlimited';
+
+  const refLink = `https://t.me/SCloudMusicBot?start=${user.id}`;
 
   return `
 👋 Привет, ${user.first_name}!
 
-📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
+📥 Бот качает треки и целые плейлисты с SoundCloud в MP3.  
 Просто пришли ссылку — и всё 🧙‍♂️
 
-📣 Хочешь быть в курсе новостей, фишек и бонусов?  
-Подпишись на наш канал 👉 @SCM_BLOG
-
 🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
-🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
-📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
+🎯 Платные тарифы (Plus / Pro / Unlimited) идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже. Всё честно.
 
-💼 Тариф: ${tariffLabel}  
-⏳ Осталось дней: ${daysLeft}
+💼 Тариф: ${tariffName}  
+⏳ Осталось дней: ${daysLeft > 0 ? daysLeft : '0'}
 
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+🎧 Сегодня скачано: ${user.downloads_today || 0} из ${user.premium_limit}
 
-👫 Приглашено: ${invited}  
-🎁 Получено дней Plus по рефералам: ${bonusDays}
+🎁 Хочешь больше?
+
+Подпишись на канал @BAZAproject — получи 7 дней тарифа Plus бесплатно.
+
+Нажми «✅ Я подписался», чтобы получить бонус.
+
+👫 Приглашено: ${user.referred_count || 0}  
+🎁 Получено дней Plus по рефералам: ${user.referred_count || 0}
 
 🔗 Твоя реферальная ссылка:  
 ${refLink}
-  `.trim();
+`;
 }
+
 // Вспомогательная функция извлечения ссылки SoundCloud из текста
 function extractUrl(text) {
   const regex = /(https?:\/\/[^\s]+)/g;
@@ -476,19 +466,6 @@ function extractUrl(text) {
   return matches.find(url => url.includes('soundcloud.com')) || matches[0];
 }
 // // === Настройка Express ===
-app.use(session({
-  store: new pgSession({
-    pool: pool,
-    tableName: 'session',
-    createTableIfMissing: true,
-  }),
-  secret: 'your secret here',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 30 * 24 * 60 * 60 * 1000, // например, 30 дней
-  }
-}));
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
   res.locals.page = null;        // по умолчанию пусто
@@ -531,6 +508,18 @@ app.use(async (req, res, next) => {
   }
   next();
 });
+
+function getLastMonths(n = 6) {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = d.toISOString().slice(0, 7); // 'YYYY-MM'
+    const display = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    months.push({ value: `month:${ym}`, label: display });
+  }
+  return months;
+}
 // Middleware авторизации админки
 async function requireAuth(req, res, next) {
   if (req.session.authenticated && req.session.userId === ADMIN_ID) {
@@ -584,109 +573,28 @@ app.post('/admin', (req, res) => {
   }
 });
 // ===== Утилиты для фильтрации статистики =====
-
-// Конвертация объекта {date: count, ...} в массив [{date, count}, ...]
-function convertObjToArray(dataObj) {
-  if (!dataObj) return [];
-  return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
+function toYMD(date) {
+  return date.toISOString().split('T')[0];
 }
 
-// Фильтрация массива статистики по периоду (число дней или 'YYYY-MM')
 function filterStatsByPeriod(data, period) {
   if (!Array.isArray(data)) return [];
 
-  const now = new Date();
-
-  // Если period — число дней
-  if (!isNaN(period)) {
-    const days = parseInt(period);
-    const cutoff = new Date(now.getTime() - days * 86400000);
-    return data.filter(item => new Date(item.date) >= cutoff);
-  }
-
-  // Если period — формат 'YYYY-MM'
-  if (/^\d{4}-\d{2}$/.test(period)) {
+  if (period === '7') {
+    const fromYMD = toYMD(new Date(Date.now() - 7 * 86400000));
+    return data.filter(item => item.date >= fromYMD);
+  } 
+  if (period === '30') {
+    const fromYMD = toYMD(new Date(Date.now() - 30 * 86400000));
+    return data.filter(item => item.date >= fromYMD);
+  } 
+  if (/^\d{4}-\d{2}$/.test(period)) {  // формат 'YYYY-MM'
     return data.filter(item => item.date && item.date.startsWith(period));
   }
 
-  // Иначе возвращаем все данные
-  return data;
-}
-
-// Подготовка данных для графиков Chart.js из трёх массивов с датами и значениями
-function prepareChartData(registrations, downloads, active) {
-  const dateSet = new Set([
-    ...registrations.map(r => r.date),
-    ...downloads.map(d => d.date),
-    ...active.map(a => a.date)
-  ]);
-  const dates = Array.from(dateSet).sort();
-
-  const regMap = new Map(registrations.map(r => [r.date, r.count]));
-  const dlMap = new Map(downloads.map(d => [d.date, d.count]));
-  const actMap = new Map(active.map(a => [a.date, a.count]));
-
-  return {
-    labels: dates,
-    datasets: [
-      {
-        label: 'Регистрации',
-        data: dates.map(d => regMap.get(d) || 0),
-        borderColor: 'rgba(75, 192, 192, 1)',
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        fill: false,
-      },
-      {
-        label: 'Загрузки',
-        data: dates.map(d => dlMap.get(d) || 0),
-        borderColor: 'rgba(255, 99, 132, 1)',
-        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-        fill: false,
-      },
-      {
-        label: 'Активные пользователи',
-        data: dates.map(d => actMap.get(d) || 0),
-        borderColor: 'rgba(54, 162, 235, 1)',
-        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-        fill: false,
-      }
-    ]
-  };
-}
-
-// Получение последних N месяцев в виде [{value: 'YYYY-MM', label: 'Месяц Год'}, ...]
-function getLastMonths(count = 6) {
-  const months = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
-    const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
-    months.push({ value, label });
-  }
-  return months;
-}
-
-// Получение диапазона дат по периоду (число дней или 'YYYY-MM')
-function getFromToByPeriod(period) {
-  const now = new Date();
-  if (!isNaN(period)) {
-    const days = parseInt(period);
-    return {
-      from: new Date(now.getTime() - days * 86400000),
-      to: now
-    };
-  } else if (/^\d{4}-\d{2}$/.test(period)) {
-    const [year, month] = period.split('-').map(Number);
-    const from = new Date(year, month - 1, 1);
-    const to = new Date(year, month, 1);
-    return { from, to };
-  } else {
-    throw new Error('Некорректный формат периода');
-  }
+  return data; // если ничего не подошло — вернуть все данные
 }
 // Дашборд
-app.get('/health', (req, res) => res.send('OK'));
 app.get('/dashboard', requireAuth, async (req, res) => {
   try {
     res.locals.page = 'dashboard';
@@ -696,19 +604,86 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const expiringLimit = parseInt(req.query.expiringLimit) || 10;
     const expiringOffset = parseInt(req.query.expiringOffset) || 0;
 
+    console.log('📌 Параметры запроса:', { period, showInactive, expiringLimit, expiringOffset });
+
     const expiringSoon = await getExpiringUsersPaginated(expiringLimit, expiringOffset);
     const expiringCount = await getExpiringUsersCount();
+    console.log('🕓 expiringSoon:', expiringSoon.length);
+
     const users = await getAllUsers(showInactive);
+    console.log('👥 Всего пользователей:', users.length);
 
     const downloadsByDateRaw = await getDownloadsByDate();
     const registrationsByDateRaw = await getRegistrationsByDate();
     const activeByDateRaw = await getActiveUsersByDate();
 
+    console.log('📊 Сырые данные:');
+    console.log('Загрузки:', downloadsByDateRaw);
+    console.log('Регистрации:', registrationsByDateRaw);
+    console.log('Активные:', activeByDateRaw);
+
+    // Функция для конвертации объекта { 'date': count, ... } в массив [{date, count}, ...]
+    function convertObjToArray(dataObj) {
+      if (!dataObj) return [];
+      return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
+    }
+
+    // Конвертируем сырые данные в массивы перед фильтрацией
     const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
     const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
     const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
 
+    console.log('📅 После фильтрации:');
+    console.log('Регистрации:', filteredRegistrations);
+    console.log('Загрузки:', filteredDownloads);
+    console.log('Активные:', filteredActive);
+
+    function prepareChartData(registrations, downloads, active) {
+      const dateSet = new Set([
+        ...registrations.map(r => r.date),
+        ...downloads.map(d => d.date),
+        ...active.map(a => a.date)
+      ]);
+      const dates = Array.from(dateSet).sort();
+
+      const regMap = new Map(registrations.map(r => [r.date, r.count]));
+      const dlMap = new Map(downloads.map(d => [d.date, d.count]));
+      const actMap = new Map(active.map(a => [a.date, a.count]));
+
+      const regData = dates.map(date => regMap.get(date) || 0);
+      const dlData = dates.map(date => dlMap.get(date) || 0);
+      const actData = dates.map(date => actMap.get(date) || 0);
+
+      return {
+        labels: dates,
+        datasets: [
+          {
+            label: 'Регистрации',
+            data: regData,
+            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            fill: false,
+          },
+          {
+            label: 'Загрузки',
+            data: dlData,
+            borderColor: 'rgba(255, 99, 132, 1)',
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            fill: false,
+          },
+          {
+            label: 'Активные пользователи',
+            data: actData,
+            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            fill: false,
+          }
+        ]
+      };
+    }
+
     const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+    console.log('📈 chartDataCombined:', chartDataCombined);
 
     const stats = {
       totalUsers: users.length,
@@ -721,16 +696,34 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       downloadsByDate: filteredDownloads,
       activeByDate: filteredActive
     };
+    console.log('📦 stats:', stats);
 
     const activityByDayHour = await getUserActivityByDayHour();
     const activityByHour = computeActivityByHour(activityByDayHour);
     const activityByWeekday = computeActivityByWeekday(activityByDayHour);
 
+    console.log('⏱ activityByHour:', activityByHour);
+    console.log('📅 activityByWeekday:', activityByWeekday);
+
     const referralStats = await getReferralSourcesStats();
+    console.log('🔗 referralStats:', referralStats);
 
-    const { from: fromDate, to: toDate } = getFromToByPeriod(period);
+    function getLastMonths(count = 6) {
+      const months = [];
+      const now = new Date();
+      for (let i = 0; i < count; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const value = d.toISOString().slice(0, 7); // 'YYYY-MM'
+        const label = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+        months.push({ value, label });
+      }
+      return months;
+    }
+const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - parseInt(period, 10)); // период из параметра
+    const toDate = new Date();
+
     const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
-
     const chartDataFunnel = {
       labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
       datasets: [{
@@ -743,98 +736,39 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
       }]
     };
+    const lastMonths = getLastMonths(6);
+    console.log('📆 lastMonths:', lastMonths);
 
     const chartDataHourActivity = {
-      labels: [...Array(24).keys()].map(h => `${h}:00`),
-      datasets: [{
-        label: 'Активность по часам',
-        data: activityByHour,
-        backgroundColor: 'rgba(54, 162, 235, 0.7)',
-      }]
-    };
-
-    const chartDataWeekdayActivity = {
-      labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-      datasets: [{
-        label: 'Активность по дням недели',
-        data: activityByWeekday,
-        backgroundColor: 'rgba(255, 206, 86, 0.7)',
-      }]
-    };
-
-    const chartDataDownloads = {
-      labels: chartDataCombined.labels,
-      datasets: [chartDataCombined.datasets[1]] // Только "Загрузки"
-    };
-
-    const lastMonths = getLastMonths(6);
-    const retentionResult = await pool.query(`
-  WITH cohorts AS (
-    SELECT
-      id AS user_id,
-      DATE(created_at) AS cohort_date
-    FROM users
-    WHERE created_at IS NOT NULL
-  ),
-  activities AS (
-    SELECT DISTINCT
-      user_id,
-      DATE(downloaded_at) AS activity_day
-    FROM downloads_log
-  ),
-  cohort_activity AS (
-    SELECT
-      c.cohort_date,
-      a.activity_day,
-      COUNT(DISTINCT c.user_id) AS active_users
-    FROM cohorts c
-    JOIN activities a ON c.user_id = a.user_id
-    WHERE a.activity_day >= c.cohort_date
-    GROUP BY c.cohort_date, a.activity_day
-  ),
-  cohort_sizes AS (
-    SELECT
-      cohort_date,
-      COUNT(*) AS cohort_size
-    FROM cohorts
-    GROUP BY cohort_date
-  ),
-  retention AS (
-    SELECT
-      ca.cohort_date,
-      (ca.activity_day - ca.cohort_date) AS days_since_signup,
-      ca.active_users,
-      cs.cohort_size,
-      ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
-    FROM cohort_activity ca
-    JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date
-    WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
-    ORDER BY ca.cohort_date, days_since_signup
-  )
-  SELECT * FROM retention;
-`);
-const retentionRows = retentionResult.rows;
-
-const cohortsMap = {};
-retentionRows.forEach(row => {
-  const date = row.cohort_date.toISOString().split('T')[0];
-  if (!cohortsMap[date]) {
-    cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
-  }
-  cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
-});
-
-const chartDataRetention = {
-  labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
-  datasets: Object.values(cohortsMap).map(cohort => ({
-    label: cohort.label,
-    data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
-    fill: false,
-    borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
-    tension: 0.1
-  }))
+  labels: [...Array(24).keys()].map(h => `${h}:00`),
+  datasets: [{
+    label: 'Активность по часам',
+    data: activityByHour,
+    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+  }],
 };
-    res.render('dashboard', {
+
+const chartDataWeekdayActivity = {
+  labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+  datasets: [{
+    label: 'Активность по дням недели',
+    data: activityByWeekday,
+    backgroundColor: 'rgba(255, 206, 86, 0.7)',
+  }],
+};
+const chartDataDownloads = {
+    labels: ['2025-07-01', '2025-07-02', '2025-07-03'],
+datasets: [{
+  label: 'Загрузки',
+  data: [81, 281, 243],
+  backgroundColor: 'rgba(75, 192, 192, 0.2)',
+  borderColor: 'rgba(75, 192, 192, 1)',
+  borderWidth: 1
+}]
+  };
+console.log('chartDataDownloads:', chartDataDownloads);
+
+res.render('dashboard', {
       title: 'Панель управления',
       stats,
       users,
@@ -851,9 +785,9 @@ const chartDataRetention = {
       showInactive,
       period,
       retentionData: [],
-      funnelData: funnelCounts,
-      chartDataFunnel,
-      chartDataRetention,
+      funnelData: funnelCounts,        // можно оставить сырые цифры
+      chartDataFunnel,                 // сюда подставляем подготовленный объект для Chart.js
+      chartDataRetention: {},          // чтобы убрать ошибку, если еще нет
       chartDataUserFunnel: {},
       chartDataDownloads,
       lastMonths,
@@ -879,61 +813,32 @@ app.get('/broadcast', requireAuth, (req, res) => {
   res.locals.page = 'broadcast';
   res.render('broadcast-form', { title: 'Рассылка', error: null });
 });
-// ✅ Универсальный безопасный вызов Telegram API
-async function safeTelegramCall(method, ...args) {
-  try {
-    return await bot.telegram[method](...args);
-  } catch (err) {
-    const chatId = args?.[0];
-    if (err?.response?.error_code === 403) {
-      console.warn(`🚫 Пользователь ${chatId} заблокировал бота`);
-      return null;
-    }
-    console.error(`❌ Ошибка при ${method} ${chatId}:`, err.message);
-    return null;
-  }
-}
+
 app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
   const { message } = req.body;
   const audio = req.file;
 
   if (!message && !audio) {
-    res.locals.page = 'broadcast';
     return res.status(400).render('broadcast-form', { error: 'Текст или файл обязательны' });
   }
 
   const users = await getAllUsers();
   let success = 0, error = 0;
-  let audioBuffer = null;
-
-  // Читаем файл один раз в память
-  if (audio) {
-    try {
-      audioBuffer = fs.readFileSync(audio.path);
-    } catch (err) {
-      console.error('❌ Ошибка чтения аудиофайла:', err);
-      res.locals.page = 'broadcast';
-      return res.status(500).render('broadcast-form', { error: 'Ошибка при чтении файла' });
-    }
-  }
 
   for (const u of users) {
     if (!u.active) continue;
-
-    let sent = null;
-
-    if (audioBuffer) {
-      sent = await safeTelegramCall('sendAudio', u.id, {
-        source: audioBuffer,
-        filename: audio.originalname
-      }, { caption: message || '' });
-    } else {
-      sent = await safeTelegramCall('sendMessage', u.id, message);
-    }
-
-    if (sent) {
+    try {
+      if (audio) {
+        await bot.telegram.sendAudio(u.id, {
+          source: fs.createReadStream(audio.path),
+          filename: audio.originalname
+        }, { caption: message || '' });
+      } else {
+        await bot.telegram.sendMessage(u.id, message);
+      }
       success++;
-    } else {
+      await new Promise(r => setTimeout(r, 150));
+    } catch (e) {
       error++;
       try {
         await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [u.id]);
@@ -941,34 +846,17 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
         console.error('Ошибка обновления статуса пользователя:', err);
       }
     }
-
-    await new Promise(r => setTimeout(r, 150)); // антиперебор
   }
 
-  // Удаляем файл после загрузки в память
   if (audio) {
     fs.unlink(audio.path, err => {
       if (err) console.error('Ошибка удаления аудио:', err);
-      else console.log(`🗑 Удалён файл рассылки: ${audio.originalname}`);
     });
   }
 
-  // Отправляем администратору отчет
-  try {
-    await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
-  } catch (err) {
-    console.error('Ошибка отправки уведомления админу:', err);
-  }
-
-  // Отдаем страницу с результатом
-  res.locals.page = 'broadcast';
-  res.render('broadcast-form', {
-    title: 'Рассылка',
-    success,
-    error,
-    errorMessage: null,
-  });
+  res.send(`✅ Успешно: ${success}, ошибок: ${error}`);
 });
+
 // Экспорт пользователей CSV
 app.get('/export', requireAuth, async (req, res) => {
   try {
@@ -1025,6 +913,7 @@ app.get('/expiring-users', requireAuth, async (req, res) => {
   }
 });
 
+// Установка тарифа пользователю
 app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, async (req, res) => {
   const { userId, limit } = req.body;
   if (!userId || !limit) return res.status(400).send('Отсутствуют параметры');
@@ -1035,17 +924,7 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 
   try {
-    // Например, здесь всегда 30 дней — можно кастомизировать
-    const bonusApplied = await setPremium(userId, limitNum, 30);
-
-    // (Опционально) можно уведомить пользователя о подарке:
-    const user = await getUserById(userId);
-    if (user) {
-      let msg = '✅ Подписка активирована на 30 дней.\n';
-      if (bonusApplied) msg += '🎁 +30 дней в подарок! Акция 1+1 применена.';
-      await bot.telegram.sendMessage(userId, msg);
-    }
-
+    await setPremium(userId, limitNum, null);
     res.redirect('/dashboard');
   } catch (e) {
     console.error('Ошибка установки тарифа:', e);
@@ -1053,11 +932,7 @@ app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, asy
   }
 });
 // === Telegraf бот ===
-app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
-  const userId = req.params.id;
-  await updateUserField(userId, 'promo_1plus1_used', false);
-  res.redirect('/dashboard');
-});
+
 // Команды бота
 bot.start(async ctx => {
   const user = ctx.from;
@@ -1231,6 +1106,8 @@ bot.action('check_subscription', async ctx => {
   }
   await ctx.answerCbQuery();
 });
+
+// Обработка сообщений с ссылками
 bot.on('text', async ctx => {
   const url = extractUrl(ctx.message.text);
   if (!url) {
@@ -1238,19 +1115,16 @@ bot.on('text', async ctx => {
     return;
   }
 
-  try {
-    await ctx.reply('🔄 Загружаю трек... Это может занять пару минут.');
-  } catch (e) {
-    console.error('Ошибка при отправке сообщения:', e);
-  }
+  // Сразу отвечаем — чтобы не ждать
+  ctx.reply('🔄 Загружаю трек... Это может занять пару минут.').catch(console.error);
 
-  enqueue(ctx, ctx.from.id, url).catch(async e => {
+  // Асинхронная обработка — без ctx
+  enqueue(ctx, ctx.from.id, url).catch(e => {
     console.error('Ошибка в enqueue:', e);
-    try {
-      await bot.telegram.sendMessage(ctx.chat.id, '❌ Ошибка при обработке ссылки.');
-    } catch {}
+    bot.telegram.sendMessage(ctx.chat.id, '❌ Ошибка при обработке ссылки.').catch(console.error);
   });
 });
+
 // Telegram webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   res.sendStatus(200);
