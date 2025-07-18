@@ -369,12 +369,6 @@ async function processTask(task) {
   }
 }
 
-// ==== Очередь загрузки ====
-
-const MAX_CONCURRENT_DOWNLOADS = 10;
-const globalQueue = [];
-let activeDownloadsCount = 0;
-
 // Добавление задачи в очередь
 function addToGlobalQueue(task) {
   globalQueue.push(task);
