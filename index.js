@@ -1474,15 +1474,12 @@ bot.command('admin', async (ctx) => {
     
   } catch (e) {
     console.error(`ADMIN COMMAND ERROR: ${e.stack}`);
-    
     await ctx.reply(`⚠️ Критическая ошибка: ${e.message.slice(0,50)}...`);
-    
     await sendEmergencyAlert({
       error: e,
       context: ctx.update,
       userId: ctx.from.id
     });
-    
     metrics.increment('admin.command_errors');
   }
 });
@@ -1494,7 +1491,7 @@ async function validateAdmin(userId) {
 }
 
 async function getDatabaseStats() {
-  return db.query(`
+  const result = await pool.query(`
     SELECT 
       COUNT(*) as total_users,
       COUNT(last_active >= NOW() - INTERVAL '24 HOURS') as active24h,
@@ -1503,6 +1500,7 @@ async function getDatabaseStats() {
       SUM(downloads_today) as downloadsToday
     FROM users
   `);
+  return result.rows[0];
 }
 
 async function getTopStatistics() {
