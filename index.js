@@ -378,20 +378,20 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
       console.error(`⚠️ Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
     }
   } finally {
-    if (fp) {
-      try {
-        await fs.promises.access(fp);
-        await fs.promises.unlink(fp);
-        console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-      } catch (err) {
-        if (err.code !== 'ENOENT') {
-          console.error(`⚠️ Ошибка удаления файла ${fp}:`, err);
-        } else {
-          console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
-        }
+  if (fp) {
+    try {
+      await fs.promises.access(fp, fs.constants.F_OK);
+      await fs.promises.unlink(fp);
+      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
+      } else {
+        console.error(`⚠️ Ошибка удаления файла ${fp}:`, err);
       }
     }
   }
+}
 }
 // Управление глобальной очередью загрузок
 const globalQueue = [];
