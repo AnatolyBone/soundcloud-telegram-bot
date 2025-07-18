@@ -276,15 +276,18 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
   } finally {
-    // 🧹 Удаление файла безопасно и в самом конце
-    if (fp) {
-      fs.promises.unlink(fp).then(() => {
-        console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-      }).catch(err => {
-        if (err.code !== 'ENOENT') {
-          console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
-        }
-      });
+  // Удаление файла только если он ещё существует
+  if (fp) {
+    try {
+      await fs.promises.access(fp); // проверка на существование
+      await fs.promises.unlink(fp);
+      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
+      } else {
+        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
+      }
     }
   }
 }
@@ -982,12 +985,21 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
   }
 
   // Удаляем файл после загрузки в память
-  if (audio) {
+ if (audio) {
+  try {
+    await NodeID3.write(tags, audio.path); // или пропусти, если не используешь
+    await ctx.replyWithAudio({ source: fs.createReadStream(audio.path) });
+    
+    // Удаляем файл только после отправки
     fs.unlink(audio.path, err => {
       if (err) console.error('Ошибка удаления аудио:', err);
       else console.log(`🗑 Удалён файл рассылки: ${audio.originalname}`);
     });
+    
+  } catch (err) {
+    console.error('Ошибка при отправке аудио:', err);
   }
+}
 
   // Отправляем администратору отчет
   try {
