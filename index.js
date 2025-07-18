@@ -1287,25 +1287,33 @@ bot.hears(texts.mytracks, async ctx => {
     
     await ctx.reply(`Скачано сегодня ${tracks.length} из ${user.premium_limit || 10}`).catch(console.error);
     
-    const formattedTracks = tracks.map((track, index) => `${index + 1}. ${track.name || 'Трек'}`);
-    
-    for (let i = 0; i < formattedTracks.length; i += 5) {
-      const chunk = formattedTracks.slice(i, i + 5).join('\n');
-      await ctx.reply(`Треки ${i + 1}-${Math.min(i + 5, formattedTracks.length)}:\n${chunk}`).catch(console.error);
+    // Разбиваем на пачки по 5
+    for (let i = 0; i < tracks.length; i += 5) {
+      const chunk = tracks.slice(i, i + 5);
+      
+      // Формируем mediaGroup для каждой пачки
+      const mediaGroup = chunk
+        .filter(t => t.fileId) // отправляем только те, у кого уже есть fileId
+        .map(t => ({
+          type: 'audio',
+          media: t.fileId,
+          title: t.name || 'Трек',
+          performer: t.artist || undefined,
+        }));
+      
+      try {
+        await ctx.replyWithMediaGroup(mediaGroup);
+      } catch (e) {
+        console.error('Ошибка отправки аудио-пачки:', e);
+        await handleFailedMediaGroup(ctx, chunk); // пробуем по одному
+      }
     }
+    
   } catch (e) {
     console.error('Ошибка в команде mytracks:', e);
     ctx.reply('Произошла ошибка. Попробуйте позже.').catch(console.error);
   }
 });
-
-// Улучшенная обработка отправки треков
-try {
-  await ctx.replyWithMediaGroup(mediaGroup);
-} catch (e) {
-  console.error('Ошибка отправки аудио-пачки:', e);
-  await handleFailedMediaGroup(ctx, mediaGroup); // Заменили chunk на mediaGroup
-}
 
 // Вынесение сложной логики в отдельные функции
 async function handleFailedMediaGroup(ctx, chunk) {
