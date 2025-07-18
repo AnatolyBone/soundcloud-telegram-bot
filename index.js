@@ -1569,47 +1569,43 @@ async function checkRateLimit(userId, key, windowSeconds, maxCount = 5) {
 }
 
 // Обработка текстовых сообщений — загрузка треков
+// --- Обработка текстовых сообщений: загрузка треков ---
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
-
+  
   try {
-    // Лимит: максимум 5 запросов за 10 минут (600 секунд)
+    // Лимит: 5 запросов за 10 минут
     if (await checkRateLimit(userId, 'download_requests', 600)) {
       return ctx.reply('⚠️ Слишком много запросов. Подождите 10 минут.');
     }
-
+    
     const text = ctx.message.text;
     const urls = extractSoundCloudUrls(text);
-    if (!urls.length) {
-      return ctx.replyWithMarkdown(
-        `❌ *Неверная ссылка*\n\nПримеры:\n- \`https://soundcloud.com/artist/track\`\n- \`https://soundcloud.com/user/sets/playlist\``
-      );
-    }
-
-    const { isValid, error } = await Urls(urls);
+    
+    const { isValid, error } = await validateUrls(urls);
     if (!isValid) {
       return ctx.reply(`❌ Ошибка: ${error}`);
     }
-
+    
     const user = await getUser(userId);
     if (user.downloads_today >= user.premium_limit) {
       return ctx.reply('🔒 Вы достигли лимита загрузок на сегодня.');
     }
-
+    
     const job = await enqueueDownload({
       userId,
       urls,
       priority: user.is_premium ? 'high' : 'normal'
     });
-
+    
     await ctx.replyWithMarkdown(
       `✅ *Задача добавлена в очередь*\n\nID: ${job.id}\nТип: ${
         user.is_premium ? 'приоритетная' : 'обычная'
       }\n\nПрогресс: /status_${job.id}`
     );
-
+    
     trackDownloadProgress(job.id, ctx);
-
+    
   } catch (e) {
     console.error(`Ошибка обработки текста: ${e.stack}`);
     await ctx.reply('⚠️ Критическая ошибка при загрузке. Попробуйте позже.');
