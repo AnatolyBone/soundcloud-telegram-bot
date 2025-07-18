@@ -348,7 +348,7 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
 // Управление глобальной очередью загрузок
 const globalQueue = [];
 let activeDownloadsCount = 0;
-const MAX_CONCURRENT_DOWNLOADS = 3;
+const MAX_CONCURRENT_DOWNLOADS = 6;
 
 // Добавление задачи в очередь с сортировкой по приоритету
 function addToGlobalQueue(task) {
