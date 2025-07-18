@@ -1503,18 +1503,6 @@ async function getDatabaseStats() {
   return result.rows[0];
 }
 
-async function getTopStatistics() {
-  return {
-    topTracks: await db.query(`
-      SELECT title as name, COUNT(*) 
-      FROM downloads 
-      GROUP BY title 
-      ORDER BY count DESC 
-      LIMIT 2
-    `)
-  };
-}
-
 // Проверка подписки и выдача бонуса
 bot.action('check_subscription', async (ctx) => {
   try {
