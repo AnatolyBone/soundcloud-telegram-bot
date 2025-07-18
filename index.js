@@ -20,6 +20,20 @@ import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 import Redis from 'ioredis';
 
+// Импорты
+import { Telegraf } from 'telegraf';
+// ... остальные импорты
+
+// Заглушка metrics — чтобы не было ошибок ReferenceError
+const metrics = {
+  track: (event, data) => {
+    console.log(`METRICS track: ${event}`, data);
+  },
+  increment: (event) => {
+    console.log(`METRICS increment: ${event}`);
+  }
+};
+
 const redis = new Redis(process.env.REDIS_URL); 
 
 const upload = multer({ dest: 'uploads/' });
@@ -1415,13 +1429,6 @@ bot.command('admin', async (ctx) => {
         userId: ctx.from.id,
         metadata: ctx.update
       });
-      return;
-    }
-
-    // Проверка частоты запросов
-    const lastExecuted = await getAdminCommandCooldown(ctx.from.id);
-    if (Date.now() - lastExecuted < ADMIN_COOLDOWN) {
-      await ctx.reply(`⌛ Слишком частые запросы. Лимит: ${ADMIN_COOLDOWN/1000} сек`);
       return;
     }
 
