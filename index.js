@@ -535,7 +535,15 @@ async function addOrUpdateUserInSupabase(id, first_name, username, referralSourc
   }
 }
 function getPersonalMessage(user) {
+  if (!user || typeof user.premium_limit !== 'number') {
+    return '⚠️ Ошибка: данные пользователя отсутствуют или некорректны.';
+  }
+  
   const tariffName = getTariffName(user.premium_limit);
+  const activeUntil = user.premium_until ?
+    new Date(user.premium_until).toLocaleDateString() :
+    '—';
+  const bonusUsed = user.subscribed_bonus_used ? '✅ Да' : '❌ Нет';
   
   return `
 😎 Привет!
@@ -543,14 +551,18 @@ function getPersonalMessage(user) {
 Я делаю его один — чтобы был простой, честный и удобный инструмент.
 Без рекламы, без слежки, без наворотов — всё по-человечески.
 
-💼 Твой тариф: ${tariffName}
+👤 <b>Ваш тариф:</b> ${tariffName}
+🎚 <b>Лимит:</b> ${user.premium_limit} треков/день
+📅 <b>До:</b> ${activeUntil}
+🎁 <b>Бонус за подписку:</b> ${bonusUsed}
 
 ⚠️ В ближайшее время лимиты немного сократим, чтобы бот продолжал работать стабильно.
 Проект держится на моих личных ресурсах — иногда приходится идти на такие шаги.
 Спасибо за понимание 🙏
 
 🎁 Сейчас идёт акция 1+1 на все тарифы — оплачиваешь месяц, получаешь два.
-Действует до 20 июля. Подробности: @SCM_BLOG`;
+Действует до 20 июля. Подробности: @SCM_BLOG
+  `.trim();
 }
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlim (∞/день)';
@@ -1271,8 +1283,14 @@ bot.start(async ctx => {
     await addOrUpdateUserInSupabase(user.id, user.first_name, user.username);
     await logEvent(user.id, 'registered');
     
-    const fullUser = await getUser(user.id);
-    await ctx.reply(getPersonalMessage(fullUser)).catch(console.error);
+   const fullUser = await getUser(user.id);
+
+if (!fullUser || typeof fullUser.premium_limit !== 'number') {
+  await ctx.reply('⚠️ Не удалось загрузить данные пользователя. Попробуйте позже.');
+  return;
+}
+
+await ctx.reply(getPersonalMessage(fullUser), { parse_mode: 'HTML' }).catch(console.error);
     
     await ctx.replyWithChatAction('typing');
     await new Promise(resolve => setTimeout(resolve, 1000));
