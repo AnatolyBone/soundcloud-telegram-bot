@@ -1543,12 +1543,38 @@ bot.action('check_subscription', async (ctx) => {
   }
 });
 
+// Подключение к Redis через переменную окружения
+
+/**
+ * Проверяет лимит запросов пользователя по ключу и интервалу
+ * @param {number} userId - ID пользователя
+ * @param {string} key - уникальный ключ лимита (например, 'download_requests')
+ * @param {number} windowSeconds - время в секундах, например 600 (10 минут)
+ * @param {number} maxCount - максимально допустимое число запросов (по умолчанию 5)
+ * @returns {Promise<boolean>} - true, если лимит превышен, иначе false
+ */
+async function checkRateLimit(userId, key, windowSeconds, maxCount = 5) {
+  const redisKey = `ratelimit:${userId}:${key}`;
+  try {
+    const current = await redis.incr(redisKey);
+    if (current === 1) {
+      await redis.expire(redisKey, windowSeconds);
+    }
+    return current > maxCount;
+  } catch (e) {
+    console.error('Ошибка в checkRateLimit:', e);
+    // Чтобы не блокировать пользователей из-за ошибок Redis
+    return false;
+  }
+}
+
 // Обработка текстовых сообщений — загрузка треков
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
 
   try {
-    if (await checkRateLimit(userId, 'download_requests', 5)) {
+    // Лимит: максимум 5 запросов за 10 минут (600 секунд)
+    if (await checkRateLimit(userId, 'download_requests', 600)) {
       return ctx.reply('⚠️ Слишком много запросов. Подождите 10 минут.');
     }
 
