@@ -130,15 +130,6 @@ async function logEvent(userId, event) {
   }
 }
 // Кэширование инфрмации о треках
-
-  
-  const info = await ytdl(url, { dumpSingleJson: true });
-  await client.setEx(url, 3600, JSON.stringify(info));
-  return info;
-
-
-
-
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Отсутствуют необходимые переменные окружения!');
   process.exit(1);
