@@ -324,7 +324,17 @@
     </div>
   </div>
 </section>
-
+<!-- Логи задач -->
+<section class="mt-5">
+  <h3>Логи задач</h3>
+  <% if (taskLogs && taskLogs.length) { %>
+    <pre style="max-height: 300px; overflow-y: auto; background: #222; color: #eee; padding: 1rem; border-radius: 4px;">
+<%= taskLogs.join('\n') %>
+    </pre>
+  <% } else { %>
+    <p>Логи отсутствуют.</p>
+  <% } %>
+</section>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
