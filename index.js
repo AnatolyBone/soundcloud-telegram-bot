@@ -404,30 +404,14 @@ async function processTask({ ctx, userId, url, playlistUrl }) {
   console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
   console.time(`⏱️ Обработка ${url}`);
   
-  try {
-    console.time(`🧲 Скачивание ${url}`);
-    const filePath = await downloadTrack(url, userId); // твоя функция скачивания
-    console.timeEnd(`🧲 Скачивание ${url}`);
-    
-    console.time(`📝 ID3-теги ${filePath}`);
-    await writeID3Tags(filePath); // если используешь
-    console.timeEnd(`📝 ID3-теги ${filePath}`);
-    
-    console.time(`📤 Отправка Telegram`);
-    await ctx.replyWithAudio({ source: filePath });
-    console.timeEnd(`📤 Отправка Telegram`);
-    
-    console.time(`🧹 Очистка кеша`);
-    await fs.promises.unlink(filePath);
-    console.timeEnd(`🧹 Очистка кеша`);
-    
-    console.log(`✅ Задача завершена: ${url} (userId: ${userId})`);
-  } catch (err) {
-    console.error(`❌ Ошибка в processTask для ${url}:`, err);
-    throw err;
-  } finally {
-    console.timeEnd(`⏱️ Обработка ${url}`);
-  }
+try {
+  await processTrackByUrl(ctx, userId, url, playlistUrl);
+} catch (err) {
+  console.error(`❌ Ошибка в processTask для ${url}:`, err);
+  throw err;
+} finally {
+  console.timeEnd(`⏱️ Обработка ${url}`);
+}
 }
 
 // Основной цикл обработки очереди
