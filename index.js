@@ -336,39 +336,53 @@ async function processNextInQueue() {
 
 // Функция добавления задач в очередь с проверками лимитов
 async function enqueue(ctx, userId, url) {
-  url = await resolveRedirect(url);
-
   try {
+    url = await resolveRedirect(url);
+    if (!url) throw new Error('Неверный URL после редиректа');
+    
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
-
+    
     const user = await getUser(userId);
+    
+    const isPremiumActive = user.premium_until && new Date(user.premium_until) > new Date();
+    if (!isPremiumActive) {
+      return ctx.telegram.sendMessage(userId, texts.subscriptionExpired);
+    }
+    
     const remainingLimit = user.premium_limit - user.downloads_today;
     if (remainingLimit <= 0) {
       return ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ]));
     }
-
+    
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
-
+    
     if (isPlaylist) {
       entries = info.entries.filter(e => e && e.webpage_url).map(e => e.webpage_url);
+      
+      const MAX_PLAYLIST_SIZE = 200;
+      if (entries.length > MAX_PLAYLIST_SIZE) {
+        throw new Error(`Плейлист слишком большой (${entries.length} треков)`);
+      }
+      
       const playlistKey = `${user.id}:${url}`;
       playlistTracker.set(playlistKey, entries.length);
-
+      
       if (entries.length > remainingLimit) {
         await ctx.telegram.sendMessage(userId,
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
         entries = entries.slice(0, remainingLimit);
       }
+      
       await logEvent(userId, 'download_playlist');
     } else {
       entries = [url];
     }
-
+    
     for (const entryUrl of entries) {
       addToGlobalQueue({
         ctx,
@@ -379,44 +393,64 @@ async function enqueue(ctx, userId, url) {
       });
       await logEvent(userId, 'download');
     }
-
+    
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
       globalQueue.filter(task => task.userId === userId).length
     ));
-
+    
     processNextInQueue();
-
+    
   } catch (e) {
     console.error('Ошибка в enqueue:', e);
     await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
-
 // Рассылка сообщений ботом
 async function broadcastMessage(bot, pool, message) {
-  const users = await getAllUsers();
-  let successCount = 0;
-  let errorCount = 0;
-
-  for (const user of users) {
-    if (!user.active) continue;
-    try {
-      await bot.telegram.sendMessage(user.id, message);
-      successCount++;
-      await new Promise(r => setTimeout(r, 150));
-    } catch (e) {
-      console.log(`Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
-      errorCount++;
+  try {
+    const users = await getAllUsers();
+    if (!users || users.length === 0) {
+      throw new Error('Список пользователей пуст');
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    let messagesSent = 0;
+    const MAX_MESSAGES_PER_MINUTE = 30;
+    
+    for (const user of users) {
+      if (!user.active) continue;
+      
       try {
-        await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
-      } catch (err) {
-        console.error('Ошибка при обновлении статуса пользователя:', err);
+        if (messagesSent >= MAX_MESSAGES_PER_MINUTE) {
+          await new Promise(r => setTimeout(r, 60_000));
+          messagesSent = 0;
+        }
+        
+        await bot.telegram.sendMessage(user.id, message);
+        successCount++;
+        messagesSent++;
+        
+        await new Promise(r => setTimeout(r, 150));
+      } catch (e) {
+        console.log(`❌ Ошибка при отправке пользователю ${user.id}:`, e.description || e.message);
+        errorCount++;
+        try {
+          await pool.query('UPDATE users SET active = FALSE WHERE id = $1', [user.id]);
+        } catch (err) {
+          console.error('Ошибка при обновлении статуса пользователя:', err);
+        }
       }
     }
+    
+    console.log(`📣 Рассылка завершена. Успешно: ${successCount}, Ошибок: ${errorCount}`);
+    return { successCount, errorCount };
+    
+  } catch (e) {
+    console.error('🔥 Критическая ошибка при рассылке:', e);
+    return { successCount: 0, errorCount: 0 };
   }
-  return { successCount, errorCount };
 }
-
 // Добавление или обновление пользователя в Supabase
 async function addOrUpdateUserInSupabase(id, first_name, username, referralSource) {
   if (!id) return;
@@ -1083,36 +1117,66 @@ app.get('/expiring-users', requireAuth, async (req, res) => {
 
 app.post('/set-tariff', express.urlencoded({ extended: true }), requireAuth, async (req, res) => {
   const { userId, limit } = req.body;
-  if (!userId || !limit) return res.status(400).send('Отсутствуют параметры');
-
-  let limitNum = parseInt(limit);
+  
+  // Проверка формата параметров
+  if (typeof userId !== 'string' || typeof limit !== 'string') {
+    return res.status(400).send('Неверный формат параметров');
+  }
+  
+  const userIdNum = parseInt(userId);
+  const limitNum = parseInt(limit);
+  
+  if (isNaN(userIdNum) || isNaN(limitNum)) {
+    return res.status(400).send('Неверный формат ID или лимита');
+  }
+  
   if (![10, 50, 100, 1000].includes(limitNum)) {
     return res.status(400).send('Неизвестный тариф');
   }
-
+  
   try {
-    // Например, здесь всегда 30 дней — можно кастомизировать
-    const bonusApplied = await setPremium(userId, limitNum, 30);
-
-    // (Опционально) можно уведомить пользователя о подарке:
-    const user = await getUserById(userId);
-    if (user) {
-      let msg = '✅ Подписка активирована на 30 дней.\n';
-      if (bonusApplied) msg += '🎁 +30 дней в подарок! Акция 1+1 применена.';
-      await bot.telegram.sendMessage(userId, msg);
+    console.log(`Установка тарифа для пользователя ${userIdNum}: ${limitNum}`);
+    
+    const user = await getUserById(userIdNum);
+    if (!user) {
+      throw new Error('Пользователь не найден');
     }
-
+    
+    const bonusApplied = await setPremium(userIdNum, limitNum, 30);
+    
+    let msg = '✅ Подписка активирована на 30 дней.\n';
+    if (bonusApplied) msg += '🎁 +30 дней в подарок! Акция 1+1 применена.';
+    await bot.telegram.sendMessage(userIdNum, msg);
+    
     res.redirect('/dashboard');
   } catch (e) {
     console.error('Ошибка установки тарифа:', e);
     res.status(500).send('Ошибка сервера');
   }
 });
-// === Telegraf бот ===
 app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
   const userId = req.params.id;
-  await updateUserField(userId, 'promo_1plus1_used', false);
-  res.redirect('/dashboard');
+  
+  try {
+    const userIdNum = parseInt(userId);
+    if (isNaN(userIdNum)) {
+      throw new Error('Неверный формат ID');
+    }
+    
+    const user = await getUserById(userIdNum);
+    if (!user) {
+      throw new Error('Пользователь не найден');
+    }
+    
+    await updateUserField(userIdNum, 'promo_1plus1_used', false);
+    
+    console.log(`🔄 Сброс промокода для пользователя ${userIdNum} выполнен администратором`);
+    
+    res.redirect('/dashboard?success=Промокод%20сброшен');
+  } catch (e) {
+    console.error('❌ Ошибка сброса промокода:', e);
+    res.redirect('/dashboard?error=Ошибка%20при%20сбросе%20промокода');
+  }
 });
 // Команды бота
 bot.start(async ctx => {
