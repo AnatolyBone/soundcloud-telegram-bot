@@ -1604,11 +1604,9 @@ bot.on('text', async (ctx) => {
       priority: user.is_premium ? 'high' : 'normal'
     });
     
-    await ctx.replyWithMarkdown(
-      `✅ *Задача добавлена в очередь*\n\nID: ${job.id}\nТип: ${
-        user.is_premium ? 'приоритетная' : 'обычная'
-      }\n\nПрогресс: /status_${job.id}`
-    );
+    await ctx.reply(
+  `✅ Задача добавлена в очередь\n\nID: ${job.id}\nТип: ${user.is_premium ? 'приоритетная' : 'обычная'}\n\nПрогресс: /status_${job.id}`
+);
     
     trackDownloadProgress(job.id, ctx);
     
