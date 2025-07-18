@@ -49,6 +49,7 @@ const metrics = {
     console.log(`METRICS increment: ${event}`);
   }
 };
+const DASHBOARD_URL = 'https://soundcloud-telegram-bot.onrender.com/admin';
 
 const redis = new Redis(process.env.REDIS_URL); 
 
