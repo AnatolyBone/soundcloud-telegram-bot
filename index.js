@@ -438,15 +438,18 @@ async function processNextInQueue() {
   }
 }
 
-// Функция добавления задач в очередь с профилированием и логикой лимитов
+let enqueueCounter = 0;
+
 async function enqueue(ctx, userId, url) {
-  const label = `enqueue:${userId}`;
+  enqueueCounter++;
+  const label = `enqueue:${userId}:${enqueueCounter}`;
   console.time(label);
   
   try {
-    console.time(`resolve:${userId}`);
+    const resolveLabel = `resolve:${userId}:${enqueueCounter}`;
+    console.time(resolveLabel);
     url = await resolveRedirect(url);
-    console.timeEnd(`resolve:${userId}`);
+    console.timeEnd(resolveLabel);
     
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
@@ -461,15 +464,17 @@ async function enqueue(ctx, userId, url) {
       return;
     }
     
-    console.time(`ytdl:${userId}`);
+    const ytdlLabel = `ytdl:${userId}:${enqueueCounter}`;
+    console.time(ytdlLabel);
     const info = await ytdl(url, { dumpSingleJson: true });
-    console.timeEnd(`ytdl:${userId}`);
+    console.timeEnd(ytdlLabel);
     
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
     
     if (isPlaylist) {
-      console.time(`playlistParse:${userId}`);
+      const playlistParseLabel = `playlistParse:${userId}:${enqueueCounter}`;
+      console.time(playlistParseLabel);
       entries = info.entries.filter(e => e?.webpage_url).map(e => e.webpage_url);
       
       const playlistKey = `${user.id}:${url}`;
@@ -482,13 +487,14 @@ async function enqueue(ctx, userId, url) {
       }
       
       await logEvent(userId, 'download_playlist');
-      console.timeEnd(`playlistParse:${userId}`);
+      console.timeEnd(playlistParseLabel);
     } else {
       entries = [url];
     }
     
     for (const entryUrl of entries) {
-      console.time(`queueAdd:${entryUrl}`);
+      const queueAddLabel = `queueAdd:${entryUrl}:${enqueueCounter}`;
+      console.time(queueAddLabel);
       addToGlobalQueue({
         ctx,
         userId,
@@ -497,7 +503,7 @@ async function enqueue(ctx, userId, url) {
         priority: user.premium_limit
       });
       await logEvent(userId, 'download');
-      console.timeEnd(`queueAdd:${entryUrl}`);
+      console.timeEnd(queueAddLabel);
     }
     
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
