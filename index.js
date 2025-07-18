@@ -19,7 +19,40 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 import Redis from 'ioredis';
+// Получаем статистику пользователей и загрузок
+async function getDatabaseStats() {
+  const result = await pool.query(`
+    SELECT 
+      COUNT(*) as total_users,
+      COUNT(CASE WHEN last_active >= NOW() - INTERVAL '24 HOURS' THEN 1 END) as active24h,
+      COUNT(CASE WHEN created_at >= CURRENT_DATE THEN 1 END) as newToday,
+      COALESCE(SUM(total_downloads), 0) as total_downloads,
+      COALESCE(SUM(downloads_today), 0) as downloadsToday
+    FROM users
+  `);
+  return result.rows[0];
+}
 
+// Получаем топ 2 трека по количеству загрузок
+async function getTopStatistics() {
+  const result = await pool.query(`
+    SELECT title as name, COUNT(*) as count
+    FROM downloads 
+    GROUP BY title 
+    ORDER BY count DESC 
+    LIMIT 2
+  `);
+  return { topTracks: result.rows };
+}
+
+// Системные метрики — память, нагрузка, uptime
+async function getSystemMetrics() {
+  return {
+    memoryUsage: (process.memoryUsage().rss / 1024 / 1024).toFixed(2),  // в MB
+    cpuLoad: (process.cpuUsage().user / 1000000).toFixed(2),            // примерное значение в процентах
+    uptime: Math.floor(process.uptime()),                              // в секундах
+  };
+}
 const metrics = {
   track: (event, data) => {
     console.log(`METRICS track: ${event}`, data);
@@ -1413,64 +1446,50 @@ function truncateTitle(title, maxLength = 35) {
  : title;
 }
 
-// Улучшенная версия команды /admin
 bot.command('admin', async (ctx) => {
   try {
-    // Проверка прав администратора
-    if (!(await validateAdmin(ctx.from.id))) {
-      await ctx.reply('🚫 Неавторизованный доступ. Ваш ID: ' + ctx.from.id);
-      await logSecurityEvent({
-        type: 'unauthorized_admin_access',
-        userId: ctx.from.id,
-        metadata: ctx.update
-      });
-      return;
-    }
-
-    // Получение статистики
     const [basicStats, topData, systemInfo] = await Promise.all([
       getDatabaseStats(),
       getTopStatistics(),
       getSystemMetrics()
     ]);
-
-    // Формирование сообщения
+    
     const message = `
 📊 *Расширенная статистика бота* 📊
 
 *👥 Пользователи:*
-- Всего: ${basicStats.totalUsers}
+- Всего: ${basicStats.total_users}
 - Активных (24ч): ${basicStats.active24h}
 - Новых сегодня: ${basicStats.newToday}
 
 *📥 Загрузки:*
-- Всего: ${basicStats.totalDownloads}
+- Всего: ${basicStats.total_downloads}
 - За сегодня: ${basicStats.downloadsToday}
 - Топ треков:
-  1. ${topData.topTracks[0].name} (${topData.topTracks[0].count})
-  2. ${topData.topTracks[1].name} (${topData.topTracks[1].count})
+  1. ${topData.topTracks[0]?.name || '—'} (${topData.topTracks[0]?.count || 0})
+  2. ${topData.topTracks[1]?.name || '—'} (${topData.topTracks[1]?.count || 0})
 
 *⚙️ Система:*
 - Память: ${systemInfo.memoryUsage} MB
 - Нагрузка: ${systemInfo.cpuLoad}%
-- Uptime: ${systemInfo.uptime}
+- Uptime: ${Math.floor(systemInfo.uptime / 60)} мин
 
 *🔗 Панель управления:* [Перейти](${DASHBOARD_URL})`;
-
-    // Отправка и логирование
+    
     await ctx.replyWithMarkdown(message);
+    
     await setAdminCommandCooldown(ctx.from.id);
     await logAdminActivity({
       userId: ctx.from.id,
       command: 'admin_stats',
       details: basicStats
     });
-
+    
   } catch (e) {
-    // Расширенная обработка ошибок
     console.error(`ADMIN COMMAND ERROR: ${e.stack}`);
     
     await ctx.reply(`⚠️ Критическая ошибка: ${e.message.slice(0,50)}...`);
+    
     await sendEmergencyAlert({
       error: e,
       context: ctx.update,
@@ -1481,7 +1500,7 @@ bot.command('admin', async (ctx) => {
   }
 });
 
-// Вспомогательные функции
+// Вспомогательная функция — отдельно, вне обработчика
 async function validateAdmin(userId) {
   const admins = await getCachedAdmins();
   return admins.includes(userId);
