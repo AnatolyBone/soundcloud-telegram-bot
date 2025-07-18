@@ -1,4 +1,5 @@
 // ESM
+// ESM
 import { Telegraf, Markup } from 'telegraf';
 import compression from 'compression';
 import express from 'express';
@@ -12,21 +13,16 @@ import axios from 'axios';
 import util from 'util';
 import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
-import pkg from 'pg';
-import { Parser } from 'json2csv';
+import { pool } from './db.js';
+import { json2csv } from 'json-2-csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
-
-// Инициализация сессии для pg
-const pgSession = pgSessionFactory(session);
-
-const { Pool } = pkg;
+import { getFunnelData } from './db.js'; // или путь к твоему модулю с функциями
 
 const upload = multer({ dest: 'uploads/' });
 
 const playlistTracker = new Map();
-
 // Утилиты
 const writeID3 = util.promisify(NodeID3.write);
 
