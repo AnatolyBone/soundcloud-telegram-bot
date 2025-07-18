@@ -19,19 +19,6 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 import Redis from 'ioredis';
-// Получаем статистику пользователей и загрузок
-async function getDatabaseStats() {
-  const result = await pool.query(`
-    SELECT 
-      COUNT(*) as total_users,
-      COUNT(CASE WHEN last_active >= NOW() - INTERVAL '24 HOURS' THEN 1 END) as active24h,
-      COUNT(CASE WHEN created_at >= CURRENT_DATE THEN 1 END) as newToday,
-      COALESCE(SUM(total_downloads), 0) as total_downloads,
-      COALESCE(SUM(downloads_today), 0) as downloadsToday
-    FROM users
-  `);
-  return result.rows[0];
-}
 
 // Получаем топ 2 трека по количеству загрузок
 async function getTopStatistics() {
