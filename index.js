@@ -194,20 +194,18 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
     return message.audio.file_id;
   } catch (e) {
     console.error(`❌ Ошибка отправки аудио пользователю ${userId}:`, e);
-    
-    // Если бот заблокирован пользователем — отключаем его
+
     if (e.description === 'Forbidden: bot was blocked by the user') {
       console.warn(`🚫 Пользователь ${userId} заблокировал бота. Помечаем как inactive.`);
       await pool.query('UPDATE users SET active = false WHERE telegram_id = $1', [userId]);
     } else {
-      // Только если ошибка не связана с блокировкой — пробуем отправить сообщение
       try {
         await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
       } catch (innerErr) {
         console.error(`Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
       }
     }
-    
+
     return null;
   }
 }
@@ -216,13 +214,24 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   let fp = null;
   
   try {
-    url = await resolveRedirect(url);
+    // Разрешаем редиректы
+    try {
+      url = await resolveRedirect(url);
+    } catch (e) {
+      throw new Error(`Ошибка разрешения URL: ${e.message}`);
+    }
+    
+    // Гарантируем наличие кеш-директории
+    if (!fs.existsSync(cacheDir)) {
+      await fs.promises.mkdir(cacheDir, { recursive: true });
+      console.log(`Создана директория кеша: ${cacheDir}`);
+    }
     
     const info = await ytdl(url, { dumpSingleJson: true });
     
     let name = info.title || 'track';
     name = sanitizeFilename(name);
-    if (name.length > 64) name = name.slice(0, 64);
+    if (name.length > 255) name = name.slice(0, 255);
     
     fp = path.join(cacheDir, `${name}.mp3`);
     
@@ -274,19 +283,14 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     }
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
+    await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
   } finally {
-  // Удаление файла только если он ещё существует
-  if (fp) {
-    try {
-      await fs.promises.access(fp); // проверка на существование
-      await fs.promises.unlink(fp);
-      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
-      } else {
-        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
+    if (fp && fs.existsSync(fp)) {
+      try {
+        await fs.promises.unlink(fp);
+        console.log(`🗑 Удалён файл кэша: ${path.basename(fp)}`);
+      } catch (err) {
+        console.warn(`⚠️ Не удалось удалить файл ${path.basename(fp)}:`, err);
       }
     }
   }
@@ -537,7 +541,7 @@ app.use(async (req, res, next) => {
       const user = await getUserById(req.session.userId);
       if (user) {
         req.user = user;
-        res.locals.user = user;  // важно для ejs import { Parser } from '@json2csv/node';tials
+        res.locals.user = user;  // важно для ejs
       } else {
         res.locals.user = null;
       }
@@ -945,7 +949,6 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
   let success = 0, error = 0;
   let audioBuffer = null;
 
-  // Читаем файл один раз в память
   if (audio) {
     try {
       audioBuffer = fs.readFileSync(audio.path);
@@ -960,7 +963,6 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     if (!u.active) continue;
 
     let sent = null;
-
     if (audioBuffer) {
       sent = await safeTelegramCall('sendAudio', u.id, {
         source: audioBuffer,
@@ -984,31 +986,32 @@ app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => 
     await new Promise(r => setTimeout(r, 150)); // антиперебор
   }
 
-  // Удаляем файл после загрузки в память
- if (audio) {
+// Удаляем файл после рассылки
+if (audio && audio.path) {
   try {
-    await NodeID3.write(tags, audio.path); // или пропусти, если не используешь
-    await ctx.replyWithAudio({ source: fs.createReadStream(audio.path) });
+    // Проверяем существование файла
+    await fs.promises.access(audio.path);
     
-    // Удаляем файл только после отправки
-    fs.unlink(audio.path, err => {
-      if (err) console.error('Ошибка удаления аудио:', err);
-      else console.log(`🗑 Удалён файл рассылки: ${audio.originalname}`);
-    });
-    
+    // Удаляем файл с диска
+    await fs.promises.unlink(audio.path);
+    console.log(`🗑 Удалён файл рассылки: ${path.basename(audio.originalname)}`);
   } catch (err) {
-    console.error('Ошибка при отправке аудио:', err);
+    if (err.code === 'ENOENT') {
+      // Файл уже удален или не существует
+      console.warn(`Файл ${audio.originalname} уже удален`);
+    } else {
+      console.error('Ошибка удаления аудио:', err);
+    }
   }
 }
 
-  // Отправляем администратору отчет
+
   try {
     await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
   } catch (err) {
     console.error('Ошибка отправки уведомления админу:', err);
   }
 
-  // Отдаем страницу с результатом
   res.locals.page = 'broadcast';
   res.render('broadcast-form', {
     title: 'Рассылка',
@@ -1310,7 +1313,7 @@ app.post(WEBHOOK_PATH, express.json(), (req, res) => {
   bot.handleUpdate(req.body).catch(err => console.error('Ошибка handleUpdate:', err));
 });
 
-// Запуск сервера и webhook бота
+
 (async () => {
   try {
     await bot.telegram.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
