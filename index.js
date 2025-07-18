@@ -18,8 +18,9 @@ import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-import Redis from 'ioredis';      
-const redis = new Redis(); 
+import Redis from 'ioredis';
+
+const redis = new Redis(process.env.REDIS_URL); 
 
 const upload = multer({ dest: 'uploads/' });
 
