@@ -867,6 +867,7 @@ const chartDataRetention = {
     tension: 0.1
   }))
 };
+const taskLogs = getTaskLogs(); // допустим возвращает массив строк логов
     res.render('dashboard', {
       title: 'Панель управления',
       stats,
