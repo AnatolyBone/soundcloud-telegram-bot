@@ -20,11 +20,6 @@ import https from 'https';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 import Redis from 'ioredis';
 
-// Импорты
-import { Telegraf } from 'telegraf';
-// ... остальные импорты
-
-// Заглушка metrics — чтобы не было ошибок ReferenceError
 const metrics = {
   track: (event, data) => {
     console.log(`METRICS track: ${event}`, data);
