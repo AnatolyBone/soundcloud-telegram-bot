@@ -17,6 +17,7 @@ import { json2csv } from 'json-2-csv';
 import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
+import { createClient } from 'redis';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 
 const upload = multer({ dest: 'uploads/' });
@@ -63,8 +64,8 @@ const PORT = process.env.PORT ?? 3000;
       console.error('❌ Переменная окружения REDIS_URL не найдена!');
       process.exit(1);
     }
-
-    const client = redis.createClient({
+    
+    const client = createClient({
       url: redisUrl,
       socket: {
         connectTimeout: 10000,
@@ -74,18 +75,16 @@ const PORT = process.env.PORT ?? 3000;
         }
       }
     });
-
+    
     client.on('error', (err) => {
       console.error('Ошибка подключения к Redis:', err);
     });
-
+    
     await client.connect();
     console.log('✅ Redis подключён');
-
-    // Сохраняем клиент в глобальную область видимости
+    
     global.redisClient = client;
-
-    // Мониторинг состояния Redis
+    
     setInterval(async () => {
       try {
         await global.redisClient.ping();
@@ -94,13 +93,12 @@ const PORT = process.env.PORT ?? 3000;
         console.warn('⚠️ Потеряно соединение с Redis:', err);
       }
     }, 60000);
-
+    
   } catch (err) {
     console.error('Ошибка инициализации Redis:', err);
     process.exit(1);
   }
 })();
-
 // Теперь используем глобальный клиент Redis
 async function getTrackInfo(url) {
   try {
