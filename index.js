@@ -227,32 +227,54 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     fp = path.join(cacheDir, `${name}.mp3`);
     
     if (!fs.existsSync(fp)) {
-      await ytdl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: fp,
-        preferFreeFormats: true,
-        noCheckCertificates: true,
-      });
+      try {
+        await ytdl(url, {
+          extractAudio: true,
+          audioFormat: 'mp3',
+          output: fp,
+          preferFreeFormats: true,
+          noCheckCertificates: true,
+        });
+      } catch (err) {
+        console.error(`Ошибка при скачивании трека ${name}:`, err);
+        throw err; // дальше кидаем, чтобы catch обработал
+      }
       
       try {
         await writeID3({ title: name, artist: 'SoundCloud' }, fp);
         console.log(`🎵 ID3 теги записаны для ${name}`);
       } catch (err) {
-        console.warn(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
+        console.error(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
       }
     }
     
-    await incrementDownloads(userId, name);
+    try {
+      await incrementDownloads(userId, name);
+    } catch (err) {
+      console.error(`Ошибка увеличения счётчика загрузок для пользователя ${userId}:`, err);
+    }
     
-    const fileId = await sendAudioSafe(ctx, userId, fp, name);
+    let fileId = null;
+    try {
+      fileId = await sendAudioSafe(ctx, userId, fp, name);
+    } catch (err) {
+      console.error(`Ошибка при отправке аудио ${name} пользователю ${userId}:`, err);
+    }
     
     if (fileId) {
-      await saveTrackForUser(userId, name, fileId);
-      await pool.query(
-        'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
-        [userId, name]
-      );
+      try {
+        await saveTrackForUser(userId, name, fileId);
+      } catch (err) {
+        console.error(`Ошибка сохранения трека для пользователя ${userId}:`, err);
+      }
+      try {
+        await pool.query(
+          'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
+          [userId, name]
+        );
+      } catch (err) {
+        console.error(`Ошибка записи лога загрузки для пользователя ${userId}:`, err);
+      }
     } else {
       console.warn(`Не удалось получить fileId для трека ${name}`);
     }
@@ -265,7 +287,11 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
       if (playlistTracker.has(playlistKey)) {
         let remaining = playlistTracker.get(playlistKey) - 1;
         if (remaining <= 0) {
-          await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
+          try {
+            await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
+          } catch (err) {
+            console.error(`Ошибка отправки сообщения о завершении плейлиста пользователю ${userId}:`, err);
+          }
           playlistTracker.delete(playlistKey);
         } else {
           playlistTracker.set(playlistKey, remaining);
@@ -274,23 +300,27 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     }
   } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
-    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
-  } finally {
-  // Удаление файла только если он ещё существует
-  if (fp) {
     try {
-      await fs.promises.access(fp); // проверка на существование
-      await fs.promises.unlink(fp);
-      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.warn(`⚠️ Ошибка удаления файла ${fp}:`, err);
-      } else {
-        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
+      await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
+    } catch (sendErr) {
+      console.error(`Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
+    }
+  } finally {
+    // Удаление файла только если он ещё существует
+    if (fp) {
+      try {
+        await fs.promises.access(fp); // проверка на существование
+        await fs.promises.unlink(fp);
+        console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          console.error(`⚠️ Ошибка удаления файла ${fp}:`, err);
+        } else {
+          console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
+        }
       }
     }
   }
-}
 }
 
 // Управление глобальной очередью загрузок
@@ -300,8 +330,12 @@ const MAX_CONCURRENT_DOWNLOADS = 3;
 
 // Добавление задачи в очередь с сортировкой по приоритету
 function addToGlobalQueue(task) {
-  globalQueue.push(task);
-  globalQueue.sort((a, b) => b.priority - a.priority);
+  try {
+    globalQueue.push(task);
+    globalQueue.sort((a, b) => b.priority - a.priority);
+  } catch (err) {
+    console.error('Ошибка при добавлении задачи в глобальную очередь:', err);
+  }
 }
 
 // Обработка одного таска
@@ -313,32 +347,44 @@ async function processTask(task) {
     console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
     try {
       await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
-    } catch {}
+    } catch (sendErr) {
+      console.error(`Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
+    }
   }
 }
 
 // Основной цикл обработки очереди
 async function processNextInQueue() {
-  while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
-    const task = globalQueue.shift();
-    activeDownloadsCount++;
-
-    // Не await, чтобы не блокировать цикл
-    processTask(task).finally(() => {
-      activeDownloadsCount--;
-      processNextInQueue();
-    });
+  try {
+    while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
+      const task = globalQueue.shift();
+      activeDownloadsCount++;
+      
+      // Не await, чтобы не блокировать цикл
+      processTask(task).finally(() => {
+        activeDownloadsCount--;
+        processNextInQueue();
+      });
+    }
+  } catch (err) {
+    console.error('Ошибка в процессе обработки очереди:', err);
   }
 }
 
 // Функция добавления задач в очередь с проверками лимитов
 async function enqueue(ctx, userId, url) {
-  url = await resolveRedirect(url);
-
+  try {
+    url = await resolveRedirect(url);
+  } catch (err) {
+    console.error(`Ошибка при разрешении редиректа URL ${url}:`, err);
+    await ctx.telegram.sendMessage(userId, 'Некорректный URL.');
+    return;
+  }
+  
   try {
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
-
+    
     const user = await getUser(userId);
     const remainingLimit = user.premium_limit - user.downloads_today;
     if (remainingLimit <= 0) {
@@ -346,16 +392,16 @@ async function enqueue(ctx, userId, url) {
         Markup.button.callback('✅ Я подписался', 'check_subscription')
       ]));
     }
-
+    
     const info = await ytdl(url, { dumpSingleJson: true });
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
-
+    
     if (isPlaylist) {
       entries = info.entries.filter(e => e && e.webpage_url).map(e => e.webpage_url);
       const playlistKey = `${user.id}:${url}`;
       playlistTracker.set(playlistKey, entries.length);
-
+      
       if (entries.length > remainingLimit) {
         await ctx.telegram.sendMessage(userId,
           `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
@@ -365,7 +411,7 @@ async function enqueue(ctx, userId, url) {
     } else {
       entries = [url];
     }
-
+    
     for (const entryUrl of entries) {
       addToGlobalQueue({
         ctx,
@@ -376,19 +422,22 @@ async function enqueue(ctx, userId, url) {
       });
       await logEvent(userId, 'download');
     }
-
+    
     await ctx.telegram.sendMessage(userId, texts.queuePosition(
       globalQueue.filter(task => task.userId === userId).length
     ));
-
+    
     processNextInQueue();
-
+    
   } catch (e) {
     console.error('Ошибка в enqueue:', e);
-    await ctx.telegram.sendMessage(userId, texts.error);
+    try {
+      await ctx.telegram.sendMessage(userId, texts.error);
+    } catch (sendErr) {
+      console.error('Ошибка отправки сообщения об ошибке в enqueue:', sendErr);
+    }
   }
 }
-
 // Рассылка сообщений ботом
 async function broadcastMessage(bot, pool, message) {
   const users = await getAllUsers();
