@@ -1301,21 +1301,21 @@ bot.hears(texts.mytracks, async ctx => {
 
 // Улучшенная обработка отправки треков
 try {
- await ctx.replyWithMediaGroup(mediaGroup);
+  await ctx.replyWithMediaGroup(mediaGroup);
 } catch (e) {
- console.error('Ошибка отправки аудио-пачки:', e);
- await handleFailedMediaGroup(ctx, chunk);
+  console.error('Ошибка отправки аудио-пачки:', e);
+  await handleFailedMediaGroup(ctx, mediaGroup); // Заменили chunk на mediaGroup
 }
 
 // Вынесение сложной логики в отдельные функции
 async function handleFailedMediaGroup(ctx, chunk) {
- for (const t of chunk) {
- try {
- await attemptSendWithFileId(ctx, t);
- } catch (error) {
- await handleFileIdError(ctx, t, error);
- }
- }
+  for (const t of chunk) {
+    try {
+      await attemptSendWithFileId(ctx, t);
+    } catch (error) {
+      await handleFileIdError(ctx, t, error);
+    }
+  }
 }
 
 async function attemptSendWithFileId(ctx, track) {
