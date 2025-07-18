@@ -272,6 +272,12 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
     return null;
   }
 }
+// Добавление задачи в очередь с сортировкой по приоритету
+function addToGlobalQueue(task) {
+  globalQueue.push(task);
+  globalQueue.sort((a, b) => b.priority - a.priority);
+}
+
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   let fp = null;
