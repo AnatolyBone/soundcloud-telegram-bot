@@ -22,7 +22,7 @@ import { getFunnelData } from './db.js';  // или путь к твоему м�
 const upload = multer({ dest: 'uploads/' });
 
 const playlistTracker = new Map();
-
+const pgSession = connectPgSimple(session);
 // Утилиты
 const writeID3 = util.promisify(NodeID3.write);
 
@@ -476,6 +476,19 @@ function extractUrl(text) {
   return matches.find(url => url.includes('soundcloud.com')) || matches[0];
 }
 // // === Настройка Express ===
+app.use(session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session',
+    createTableIfMissing: true,
+  }),
+  secret: 'your secret here',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // например, 30 дней
+  }
+}));
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
   res.locals.page = null;        // по умолчанию пусто
