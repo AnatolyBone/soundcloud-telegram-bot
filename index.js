@@ -107,7 +107,16 @@ if (isNaN(ADMIN_ID)) {
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
+async function setAdminCommandCooldown(userId) {
+  const cooldownKey = `admin_command_cooldown:${userId}`;
+  const ttlSeconds = 60; // 1 минута
 
+  const exists = await redis.exists(cooldownKey);
+  if (exists) {
+    throw new Error('Команда в ожидании. Подождите перед следующим вызовом.');
+  }
+  await redis.set(cooldownKey, '1', 'EX', ttlSeconds);
+}
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
