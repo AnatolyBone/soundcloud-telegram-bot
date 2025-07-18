@@ -1551,7 +1551,7 @@ bot.on('text', async (ctx) => {
       );
     }
 
-    const { isValid, error } = await validateUrls(urls);
+    const { isValid, error } = await Urls(urls);
     if (!isValid) {
       return ctx.reply(`❌ Ошибка: ${error}`);
     }
@@ -1610,6 +1610,49 @@ async function setPremiumWithCheck(userId, options) {
 
     return true;
   });
+}
+// ================== Утилиты ==================
+
+function extractSoundCloudUrls(text) {
+  const regex = /https?:\/\/(soundcloud\.com|on\.soundcloud\.com)\/[^\s]+/g;
+  return text.match(regex) || [];
+}
+
+async function validateUrls(urls) {
+  if (!urls.length) return { isValid: false, error: 'Ссылки не найдены' };
+  if (urls.some(url => !url.startsWith('http'))) {
+    return { isValid: false, error: 'Некорректный формат ссылок' };
+  }
+  return { isValid: true };
+}
+
+async function handleCriticalError(error, ctx) {
+  console.error('Критическая ошибка:', error);
+  try {
+    await bot.telegram.sendMessage(ADMIN_ID, `⚠️ Ошибка у пользователя ${ctx.from?.username || ctx.from?.id}:\n\n${error.message}`);
+  } catch (err) {
+    console.error('Ошибка при уведомлении админа:', err);
+  }
+}
+
+async function enqueueDownload({ userId, urls, priority = 'normal' }) {
+  // Заглушка для постановки в очередь
+  const jobId = Math.floor(Math.random() * 1000000);
+  // Тут должна быть твоя логика очереди/записи в БД
+  return { id: jobId };
+}
+
+async function trackDownloadProgress(jobId, ctx) {
+  // Заглушка для отслеживания прогресса
+  console.log(`Трекинг загрузки задачи #${jobId}`);
+}
+
+async function notifyAdmin(message) {
+  try {
+    await bot.telegram.sendMessage(ADMIN_ID, `🔔 ${message}`);
+  } catch (e) {
+    console.error('Ошибка уведомления админа:', e);
+  }
 }
 // Telegram webhook
 app.post(WEBHOOK_PATH, express.json(), (req, res) => {
