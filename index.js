@@ -28,7 +28,13 @@ const playlistTracker = new Map();
 
 // Утилиты
 const writeID3 = util.promisify(NodeID3.write);
+async function getCachedAdmins() {
+  return [2018254756];
+}
 
+async function sendEmergencyAlert(message) {
+  console.warn('EMERGENCY ALERT:', message);
+}
 async function resolveRedirect(url) {
   try {
     const response = await axios.head(url, {
