@@ -1477,11 +1477,11 @@ bot.command('admin', async (ctx) => {
     await ctx.replyWithMarkdown(message);
     
     await setAdminCommandCooldown(ctx.from.id);
-    await logAdminActivity({
-      userId: ctx.from.id,
-      command: 'admin_stats',
-      details: basicStats
-    });
+    //await logAdminActivity({
+      //userId: ctx.from.id,
+     // command: 'admin_stats',
+      //details: basicStats
+   // });
     
   } catch (e) {
     console.error(`ADMIN COMMAND ERROR: ${e.stack}`);
