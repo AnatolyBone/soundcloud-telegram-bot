@@ -398,20 +398,6 @@ const globalQueue = [];
 let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 8;
 
-// Обработка одного таска
-async function processTask(task) {
-  const { ctx, userId, url, playlistUrl } = task;
-  try {
-    await processTrackByUrl(ctx, userId, url, playlistUrl);
-  } catch (e) {
-    console.error(`Ошибка при загрузке трека ${url} для пользователя ${userId}:`, e);
-    try {
-      await ctx.telegram.sendMessage(userId, '❌ Ошибка при загрузке трека.');
-    } catch (sendErr) {
-      console.error(`Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
-    }
-  }
-}
 
 // Функция обработки одной задачи с профилированием
 async function processTask({ ctx, userId, url, playlistUrl }) {
