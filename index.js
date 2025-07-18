@@ -67,10 +67,6 @@ if (isNaN(ADMIN_ID)) {
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
