@@ -53,6 +53,93 @@ const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PATH = '/telegram';
 const PORT = process.env.PORT ?? 3000;
+// Настройка Redis
+// Инициализация Redis в отдельном блоке
+// Инициализация Redis в отдельном блоке
+(async () => {
+  try {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      console.error('❌ Переменная окружения REDIS_URL не найдена!');
+      process.exit(1);
+    }
+
+    const client = redis.createClient({
+      url: redisUrl,
+      socket: {
+        connectTimeout: 10000,
+        retryStrategy: (times) => {
+          if (times > 5) return null;
+          return Math.min(times * 1000, 3000);
+        }
+      }
+    });
+
+    client.on('error', (err) => {
+      console.error('Ошибка подключения к Redis:', err);
+    });
+
+    await client.connect();
+    console.log('✅ Redis подключён');
+
+    // Сохраняем клиент в глобальную область видимости
+    global.redisClient = client;
+
+    // Мониторинг состояния Redis
+    setInterval(async () => {
+      try {
+        await global.redisClient.ping();
+        console.log('🔍 Redis доступен');
+      } catch (err) {
+        console.warn('⚠️ Потеряно соединение с Redis:', err);
+      }
+    }, 60000);
+
+  } catch (err) {
+    console.error('Ошибка инициализации Redis:', err);
+    process.exit(1);
+  }
+})();
+
+// Теперь используем глобальный клиент Redis
+async function getTrackInfo(url) {
+  try {
+    const cached = await global.redisClient.get(url);
+    if (cached) return JSON.parse(cached);
+    
+    const info = await ytdl(url, { dumpSingleJson: true });
+    await global.redisClient.setEx(url, 3600, JSON.stringify(info));
+    return info;
+  } catch (err) {
+    console.error('Ошибка работы с Redis:', err);
+    throw err;
+  }
+}
+
+// Функция логирования
+async function logEvent(userId, event) {
+  try {
+    await global.redisClient.rpush('logs', JSON.stringify({ userId, event }));
+    await supabase.from('events').insert({
+      user_id: userId,
+      event,
+      created_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Ошибка при логировании события:', error);
+  }
+}
+// Кэширование инфрмации о треках
+async function getTrackInfo(url) {
+  const cached = await client.get(url);
+  if (cached) return JSON.parse(cached);
+  
+  const info = await ytdl(url, { dumpSingleJson: true });
+  await client.setEx(url, 3600, JSON.stringify(info));
+  return info;
+}
+
+
 
 if (!BOT_TOKEN || !ADMIN_ID || !process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   console.error('❌ Отсутствуют необходимые переменные окружения!');
@@ -105,13 +192,12 @@ setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
 
 async function logEvent(userId, event) {
   try {
-    await supabase.from('events').insert([
-      {
-        user_id: userId,
-        event,
-        created_at: new Date().toISOString()
-      }
-    ]);
+    await client.rpush('logs', JSON.stringify({ userId, event }));
+    await supabase.from('events').insert({
+      user_id: userId,
+      event,
+      created_at: new Date().toISOString()
+    });
   } catch (error) {
     console.error('Ошибка при логировании события:', error);
   }
@@ -241,12 +327,11 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
       }
       
       try {
-        await writeID3({ title: name, artist: 'SoundCloud' }, fp);
-        console.log(`🎵 ID3 теги записаны для ${name}`);
-      } catch (err) {
-        console.error(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
-      }
-    }
+  await writeID3({ title: name, artist: 'SoundCloud' }, fp);
+} catch (err) {
+  console.error('Ошибка записи ID3 тегов:', err);
+}
+
     
     try {
       await incrementDownloads(userId, name);
@@ -298,7 +383,7 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
         }
       }
     }
-  } catch (e) {
+ } catch (e) {
     console.error(`Ошибка при загрузке ${url}:`, e);
     try {
       await ctx.telegram.sendMessage(userId, 'Произошла ошибка при загрузке трека.');
@@ -328,16 +413,6 @@ const globalQueue = [];
 let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 8;
 
-// Добавление задачи в очередь с сортировкой по приоритету
-function addToGlobalQueue(task) {
-  try {
-    globalQueue.push(task);
-    globalQueue.sort((a, b) => b.priority - a.priority);
-  } catch (err) {
-    console.error('Ошибка при добавлении задачи в глобальную очередь:', err);
-  }
-}
-
 // Обработка одного таска
 async function processTask(task) {
   const { ctx, userId, url, playlistUrl } = task;
@@ -360,17 +435,17 @@ async function processNextInQueue() {
       const task = globalQueue.shift();
       activeDownloadsCount++;
       
-      // Не await, чтобы не блокировать цикл
-      processTask(task).finally(() => {
-        activeDownloadsCount--;
-        processNextInQueue();
-      });
+      processTask(task)
+        .finally(() => {
+          activeDownloadsCount--;
+          processNextInQueue();
+        })
+        .catch(err => console.error('Ошибка обработки задачи:', err));
     }
   } catch (err) {
     console.error('Ошибка в процессе обработки очереди:', err);
   }
 }
-
 // Функция добавления задач в очередь с проверками лимитов
 async function enqueue(ctx, userId, url) {
   try {
