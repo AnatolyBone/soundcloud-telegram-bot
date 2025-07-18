@@ -369,13 +369,6 @@ async function processTask(task) {
   }
 }
 
-// Добавление задачи в очередь
-function addToGlobalQueue(task) {
-  globalQueue.push(task);
-  globalQueue.sort((a, b) => b.priority - a.priority);
-  processNextInQueue(); // Запуск очереди
-}
-
 // Обработка следующего задания из очереди
 function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
