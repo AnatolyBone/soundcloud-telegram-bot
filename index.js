@@ -24,9 +24,10 @@ import Redis from 'ioredis';
 async function getTopStatistics() {
   const result = await pool.query(`
     SELECT title as name, COUNT(*) as count
-    FROM downloads 
-    GROUP BY title 
-    ORDER BY count DESC 
+    FROM downloads
+    WHERE downloaded_at >= CURRENT_DATE
+    GROUP BY title
+    ORDER BY count DESC
     LIMIT 2
   `);
   return { topTracks: result.rows };
