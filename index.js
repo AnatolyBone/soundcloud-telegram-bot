@@ -253,11 +253,28 @@ async function getNextTask() {
 }
 
 // Обработка одной задачи
+// Глобальный массив для логов задач (можно потом показывать на странице админки)
+const taskLogs = [];
+
+function logTask(message) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] ${message}`;
+  console.log(logEntry);
+  taskLogs.push(logEntry);
+  
+  // Можно держать максимум, например, 100 последних сообщений
+  if (taskLogs.length > 100) {
+    taskLogs.shift();
+  }
+}
+
 async function processTask(task) {
   const { ctxData, userId, url, playlistUrl } = task;
   const chatId = ctxData.chatId;
   
   try {
+    logTask(`Начинаю загрузку трека для пользователя ${userId}: ${url}`);
+    
     // Разрешаем редиректы
     const resolvedUrl = await resolveRedirect(url);
     
@@ -268,6 +285,8 @@ async function processTask(task) {
     name = sanitizeFilename(name);
     if (name.length > 255) name = name.slice(0, 255);
     
+    logTask(`Название трека: ${name}`);
+    
     // Поток аудио без записи на диск
     const audioStream = ytdl(resolvedUrl, {
       filter: 'audioonly',
@@ -275,7 +294,8 @@ async function processTask(task) {
       highWaterMark: 1 << 25 // 32MB буфер для скорости
     });
     
-    const message = await ctx.telegram.sendAudio(chatId, { source: audioStream }, {
+    // Отправка аудио через bot.telegram
+    const message = await bot.telegram.sendAudio(chatId, { source: audioStream }, {
       title: name,
       performer: 'SoundCloud',
     });
@@ -284,118 +304,49 @@ async function processTask(task) {
     await pool.query('INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)', [userId, name]);
     await incrementDownloads(userId, name);
     
+    logTask(`Трек успешно отправлен пользователю ${userId}`);
+    
     if (playlistUrl) {
       const playlistKey = `${userId}:${playlistUrl}`;
       if (playlistTracker.has(playlistKey)) {
         let remaining = playlistTracker.get(playlistKey) - 1;
         if (remaining <= 0) {
-          await ctx.telegram.sendMessage(chatId, '✅ Все треки из плейлиста загружены.');
+          await bot.telegram.sendMessage(chatId, '✅ Все треки из плейлиста загружены.');
           playlistTracker.delete(playlistKey);
+          logTask(`Плейлист для пользователя ${userId} полностью загружен.`);
         } else {
           playlistTracker.set(playlistKey, remaining);
+          logTask(`Осталось треков из плейлиста для пользователя ${userId}: ${remaining}`);
         }
       }
     }
-    
-    console.log(`✅ Трек ${name} отправлен пользователю ${userId}.`);
   } catch (e) {
-    console.error(`Ошибка при загрузке ${url}:`, e);
+    logTask(`Ошибка при загрузке ${url} для пользователя ${userId}: ${e.message || e}`);
     try {
-      await ctx.telegram.sendMessage(chatId, '❌ Ошибка при загрузке трека.');
+      await bot.telegram.sendMessage(chatId, '❌ Ошибка при загрузке трека.');
     } catch {}
   }
 }
 
-// Запускаем обработку задач из очереди Redis с лимитом concurrency
 async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS) {
     const task = await getNextTask();
-    if (!task) break;
+    if (!task) {
+      logTask('Очередь задач пуста, ожидаю новых задач...');
+      break;
+    }
     activeDownloadsCount++;
+    logTask(`Начинаю обработку задачи для пользователя ${task.userId}, активных задач: ${activeDownloadsCount}`);
     
     processTask(task)
       .catch(err => {
-        console.error('Ошибка в процессе задачи:', err);
-        // Отправка сообщения об ошибке внутри processTask
+        logTask(`Ошибка в процессе задачи: ${err.message || err}`);
       })
       .finally(() => {
         activeDownloadsCount--;
+        logTask(`Задача завершена, активных задач осталось: ${activeDownloadsCount}`);
         setImmediate(processNextInQueue);
       });
-  }
-}
-
-// Enqueue - проверка лимитов и добавление в Redis очередь с мгновенным ответом пользователю
-async function enqueue(ctx, userId, url) {
-  try {
-    const [_, __, user] = await Promise.all([
-      logUserActivity(userId),
-      resetDailyLimitIfNeeded(userId),
-      getUser(userId),
-    ]);
-    
-    if (!user) {
-      return ctx.telegram.sendMessage(userId, '❌ Пользователь не найден.');
-    }
-    
-    if (!user.premium_until || new Date(user.premium_until) < new Date()) {
-      return ctx.telegram.sendMessage(userId, '🔒 Ваша подписка истекла.');
-    }
-    
-    const remainingLimit = user.premium_limit - user.downloads_today;
-    if (remainingLimit <= 0) {
-      return ctx.telegram.sendMessage(userId, '🔒 Вы достигли лимита загрузок на сегодня.',
-        Markup.inlineKeyboard([
-          Markup.button.callback('✅ Я подписался', 'check_subscription')
-        ])
-      );
-    }
-    
-    const info = await ytdl(url, { dumpSingleJson: true });
-    const isPlaylist = Array.isArray(info.entries);
-    let entries = [];
-    
-    if (isPlaylist) {
-      entries = info.entries.filter(e => e && e.webpage_url).map(e => e.webpage_url);
-      
-      if (entries.length > 200) {
-        return ctx.telegram.sendMessage(userId, `⚠️ Плейлист слишком большой (${entries.length} треков).`);
-      }
-      
-      if (entries.length > remainingLimit) {
-        await ctx.telegram.sendMessage(userId,
-          `⚠️ В плейлисте ${entries.length} треков, но доступно только ${remainingLimit}. Загружаю первые ${remainingLimit}.`);
-        entries = entries.slice(0, remainingLimit);
-      }
-      
-      await ctx.telegram.sendMessage(userId, `📥 Добавлено в очередь плейлист из ${entries.length} треков.`);
-      await logEvent(userId, 'download_playlist');
-    } else {
-      entries = [url];
-      await ctx.telegram.sendMessage(userId, '🔄 Добавлен в очередь трек...');
-    }
-    
-    // Добавляем задачи в Redis очередь
-    for (const entryUrl of entries) {
-      await addToQueueRedis({
-        ctxData: { chatId: ctx.chat.id, messageId: ctx.message.message_id }, // передаём минимально нужные данные
-        userId,
-        url: entryUrl,
-        playlistUrl: isPlaylist ? url : null,
-        priority: user.premium_limit
-      });
-      await logEvent(userId, 'download');
-    }
-    
-    // Запускаем обработку очереди
-    setImmediate(processNextInQueue);
-    
-    // Мгновенно сообщаем пользователю
-    await ctx.telegram.sendMessage(userId, `✅ Ваша задача добавлена в очередь на обработку.`);
-    
-  } catch (e) {
-    console.error('Ошибка в enqueue:', e);
-    await ctx.telegram.sendMessage(userId, texts.error);
   }
 }
 // Рассылка сообщений ботом
@@ -941,7 +892,8 @@ const chartDataRetention = {
       lastMonths,
       customStyles: '',
       customScripts: '',
-      chartDataHeatmap: {}
+      chartDataHeatmap: {},
+      taskLogs
     });
 
   } catch (e) {
@@ -955,7 +907,10 @@ app.get('/logout', (req, res) => {
     res.redirect('/admin');
   });
 });
-
+//логи
+app.get('/admin/logs', (req, res) => {
+  res.render('logs', { logs: taskLogs });
+});
 // Рассылка
 app.get('/broadcast', requireAuth, (req, res) => {
   res.locals.page = 'broadcast';
