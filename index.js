@@ -23,10 +23,10 @@ import Redis from 'ioredis';
 // Получаем топ 2 трека по количеству загрузок
 async function getTopStatistics() {
   const result = await pool.query(`
-    SELECT title as name, COUNT(*) as count
-    FROM downloads
+    SELECT track_title as name, COUNT(*) as count
+    FROM downloads_log
     WHERE downloaded_at >= CURRENT_DATE
-    GROUP BY title
+    GROUP BY track_title
     ORDER BY count DESC
     LIMIT 2
   `);
