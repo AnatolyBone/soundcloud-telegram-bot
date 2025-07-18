@@ -56,6 +56,13 @@ const redis = new Redis(process.env.REDIS_URL);
 const upload = multer({ dest: 'uploads/' });
 
 const playlistTracker = new Map();
+// === Конфигурация канала для проверки подписки ===
+const CHANNEL_ID = process.env.CHANNEL_ID;
+const CHANNEL_URL = process.env.CHANNEL_URL;
+
+if (!CHANNEL_ID || !CHANNEL_URL) {
+  console.warn('⚠️ Не установлены CHANNEL_ID или CHANNEL_URL. Проверка подписки может не работать.');
+}
 
 // Утилиты
 const writeID3 = util.promisify(NodeID3.write);
