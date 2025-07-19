@@ -439,12 +439,12 @@ async function cleanupTemporaryFile(filePath) {
 // === Очередь загрузки треков ===
 
 // Очередь задач и системные параметры
+const QUEUE_CHECK_INTERVAL = 1000;
 const globalQueue = [];
 let activeDownloadsCount = 0;
-
 const MAX_CONCURRENT_DOWNLOADS = 8;
-const QUEUE_CHECK_INTERVAL = 500; // мс между проверками очереди
 
+setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 /**
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
