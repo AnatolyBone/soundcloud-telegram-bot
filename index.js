@@ -295,11 +295,35 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
 }
 
 // Вынесенная логика отправки сообщения об ошибке
-async function handleErrorNotification(ctx, userId, error) {
-  try {
-    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
-  } catch (innerErr) {
-    console.error(`⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
+async function handleErrorNotification(ctx, userId, error, options = {}) {
+  // Валидация обязательных параметров
+  if (!userId || !ctx || !ctx.telegram) {
+    throw new Error('Обязательны параметры: ctx, userId');
+  }
+  
+  const {
+    message = 'Произошла ошибка при отправке трека.',
+      maxRetries = 1,
+      retryDelay = 1000 // в миллисекундах
+  } = options;
+  
+  let attempt = 0;
+  
+  while (attempt <= maxRetries) {
+    try {
+      await ctx.telegram.sendMessage(userId, message);
+      return true;
+    } catch (innerErr) {
+      attempt++;
+      if (attempt > maxRetries) {
+        console.error(
+          `⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId} после ${maxRetries} попыток:`,
+          innerErr
+        );
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
   }
 }
 // Добавление задачи в очередь с сортировкой по приоритету
