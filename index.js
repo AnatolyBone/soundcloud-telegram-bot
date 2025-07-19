@@ -244,7 +244,24 @@ const isSubscribed = async userId => {
 
 
 async function sendAudioSafe(ctx, userId, filePath, title) {
+  // Валидация входных параметров
+  if (!userId || !filePath || !title) {
+    throw new Error('Обязательны параметры: userId, filePath, title');
+  }
+  
   try {
+    // Проверка существования файла
+    if (!fs.existsSync(filePath)) {
+      throw new Error('Файл не найден');
+    }
+    
+    // Проверка размера файла (лимит Telegram — 50 MB)
+    const stats = await fs.promises.stat(filePath);
+    if (stats.size > 50 * 1024 * 1024) {
+      throw new Error('Файл слишком большой (превышает 50MB)');
+    }
+    
+    // Отправка аудио
     const message = await ctx.telegram.sendAudio(
       userId,
       {
@@ -256,24 +273,33 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
         performer: 'SoundCloud'
       }
     );
+    
     return message.audio.file_id;
   } catch (e) {
     console.error(`❌ Ошибка отправки аудио пользователю ${userId}:`, e);
     
-    // Если бот заблокирован пользователем — отключаем его
+    // Обработка ошибок Telegram API
     if (e.description === 'Forbidden: bot was blocked by the user') {
       console.warn(`🚫 Пользователь ${userId} заблокировал бота. Помечаем как inactive.`);
-      await pool.query('UPDATE users SET active = false WHERE telegram_id = $1', [userId]);
-    } else {
-      // Только если ошибка не связана с блокировкой — пробуем отправить сообщение
       try {
-        await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
-      } catch (innerErr) {
-        console.error(`Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
+        await pool.query('UPDATE users SET active = false WHERE telegram_id = $1', [userId]);
+      } catch (dbErr) {
+        console.error('Ошибка при обновлении статуса пользователя:', dbErr);
       }
+    } else {
+      await handleErrorNotification(ctx, userId, e);
     }
     
     return null;
+  }
+}
+
+// Вынесенная логика отправки сообщения об ошибке
+async function handleErrorNotification(ctx, userId, error) {
+  try {
+    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
+  } catch (innerErr) {
+    console.error(`⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
   }
 }
 // Добавление задачи в очередь с сортировкой по приоритету
