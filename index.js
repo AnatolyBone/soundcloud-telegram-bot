@@ -436,27 +436,33 @@ async function cleanupTemporaryFile(filePath) {
   }
 }
 // Управление глобальной очередью загрузок
+// === Очередь загрузки треков ===
+
 const globalQueue = [];
 let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 8;
+const QUEUE_CHECK_INTERVAL = 500; // интервал проверки очереди, мс
 
-
-// Функция обработки одной задачи с профилированием
+/**
+ * Обработка одной задачи с профилированием
+ */
 async function processTask({ ctx, userId, url, playlistUrl }) {
   console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
   console.time(`⏱️ Обработка ${url}`);
   
-try {
-  await processTrackByUrl(ctx, userId, url, playlistUrl);
-} catch (err) {
-  console.error(`❌ Ошибка в processTask для ${url}:`, err);
-  throw err;
-} finally {
-  console.timeEnd(`⏱️ Обработка ${url}`);
-}
+  try {
+    await processTrackByUrl(ctx, userId, url, playlistUrl);
+  } catch (err) {
+    console.error(`❌ Ошибка в processTask для ${url}:`, err);
+    throw err;
+  } finally {
+    console.timeEnd(`⏱️ Обработка ${url}`);
+  }
 }
 
-// Основной цикл обработки очереди
+/**
+ * Цикл обработки очереди с интервалом
+ */
 async function processNextInQueue() {
   while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
     const task = globalQueue.shift();
@@ -467,6 +473,7 @@ async function processNextInQueue() {
         await processTask(task);
       } catch (err) {
         console.error(`❌ Ошибка обработки задачи (userId: ${task.userId}, url: ${task.url}):`, err);
+        
         try {
           await task.ctx.telegram.sendMessage(task.userId, '❌ Ошибка при загрузке трека.');
         } catch (sendErr) {
@@ -474,11 +481,16 @@ async function processNextInQueue() {
         }
       } finally {
         activeDownloadsCount--;
-        processNextInQueue(); // Продолжаем обработку очереди
       }
     })();
   }
+  
+  // Повторно вызываем проверку через интервал
+  setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 }
+
+// Запуск начальной проверки очереди
+setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 
 let enqueueCounter = 0;
 
