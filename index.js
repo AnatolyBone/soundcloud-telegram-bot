@@ -438,15 +438,29 @@ async function cleanupTemporaryFile(filePath) {
 // Управление глобальной очередью загрузок
 // === Очередь загрузки треков ===
 
+// Очередь задач и системные параметры
 const globalQueue = [];
 let activeDownloadsCount = 0;
+
 const MAX_CONCURRENT_DOWNLOADS = 8;
-const QUEUE_CHECK_INTERVAL = 500; // интервал проверки очереди, мс
+const QUEUE_CHECK_INTERVAL = 500; // мс между проверками очереди
 
 /**
- * Обработка одной задачи с профилированием
+ * Добавляет задачу в глобальную очередь с приоритетной сортировкой
+ * @param {Object} task - { ctx, userId, url, playlistUrl, priority }
  */
-async function processTask({ ctx, userId, url, playlistUrl }) {
+export function addToGlobalQueue(task) {
+  globalQueue.push(task);
+  globalQueue.sort((a, b) => b.priority - a.priority); // приоритет выше — раньше
+}
+
+/**
+ * Обрабатывает одну задачу загрузки
+ * @param {Object} task
+ */
+async function processTask(task) {
+  const { ctx, userId, url, playlistUrl } = task;
+  
   console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
   console.time(`⏱️ Обработка ${url}`);
   
@@ -461,10 +475,13 @@ async function processTask({ ctx, userId, url, playlistUrl }) {
 }
 
 /**
- * Цикл обработки очереди с интервалом
+ * Основной цикл обработки очереди
  */
 async function processNextInQueue() {
-  while (activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS && globalQueue.length > 0) {
+  while (
+    activeDownloadsCount < MAX_CONCURRENT_DOWNLOADS &&
+    globalQueue.length > 0
+  ) {
     const task = globalQueue.shift();
     activeDownloadsCount++;
     
@@ -472,12 +489,20 @@ async function processNextInQueue() {
       try {
         await processTask(task);
       } catch (err) {
-        console.error(`❌ Ошибка обработки задачи (userId: ${task.userId}, url: ${task.url}):`, err);
-        
+        console.error(
+          `❌ Ошибка обработки задачи (userId: ${task.userId}, url: ${task.url}):`,
+          err
+        );
         try {
-          await task.ctx.telegram.sendMessage(task.userId, '❌ Ошибка при загрузке трека.');
+          await task.ctx.telegram.sendMessage(
+            task.userId,
+            '❌ Ошибка при загрузке трека.'
+          );
         } catch (sendErr) {
-          console.error(`⚠️ Ошибка отправки сообщения об ошибке пользователю ${task.userId}:`, sendErr);
+          console.error(
+            `⚠️ Ошибка отправки сообщения пользователю ${task.userId}:`,
+            sendErr
+          );
         }
       } finally {
         activeDownloadsCount--;
@@ -485,58 +510,79 @@ async function processNextInQueue() {
     })();
   }
   
-  // Повторно вызываем проверку через интервал
   setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 }
 
+// Автоматический запуск цикла
+processNextInQueue();
+
 // Запуск начальной проверки очереди
-setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
+setTimeout(processNextInQueue, QUEUE_CHECKINTERVAL);
 
 let enqueueCounter = 0;
 
-async function enqueue(ctx, userId, url) {
+/**
+ * Добавление задач в очередь с валидацией, лимитами и логированием
+ * @param {Object} ctx - Telegram-контекст
+ * @param {number} userId - ID пользователя
+ * @param {string} url - Ссылка на трек или плейлист
+ */
+export async function enqueue(ctx, userId, url) {
   enqueueCounter++;
   const label = `enqueue:${userId}:${enqueueCounter}`;
   console.time(label);
   
   try {
+    // Разрешаем редиректы
     const resolveLabel = `resolve:${userId}:${enqueueCounter}`;
     console.time(resolveLabel);
     url = await resolveRedirect(url);
     console.timeEnd(resolveLabel);
     
+    // Проверка лимитов
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
     const user = await getUser(userId);
-    
     const remainingLimit = user.premium_limit - user.downloads_today;
+    
     if (remainingLimit <= 0) {
-      await ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([
-        Markup.button.callback('✅ Я подписался', 'check_subscription')
-      ]));
+      await ctx.telegram.sendMessage(
+        userId,
+        texts.limitReached,
+        Markup.inlineKeyboard([
+          Markup.button.callback('✅ Я подписался', 'check_subscription')
+        ])
+      );
       console.timeEnd(label);
       return;
     }
     
+    // Получаем инфу о треке/плейлисте
     const ytdlLabel = `ytdl:${userId}:${enqueueCounter}`;
     console.time(ytdlLabel);
     const info = await ytdl(url, { dumpSingleJson: true });
     console.timeEnd(ytdlLabel);
     
+    // Если это плейлист
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
     
     if (isPlaylist) {
       const playlistParseLabel = `playlistParse:${userId}:${enqueueCounter}`;
       console.time(playlistParseLabel);
-      entries = info.entries.filter(e => e?.webpage_url).map(e => e.webpage_url);
+      
+      entries = info.entries
+        .filter(e => e?.webpage_url)
+        .map(e => e.webpage_url);
       
       const playlistKey = `${user.id}:${url}`;
       playlistTracker.set(playlistKey, entries.length);
       
       if (entries.length > remainingLimit) {
-        await ctx.telegram.sendMessage(userId,
-          `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`);
+        await ctx.telegram.sendMessage(
+          userId,
+          `⚠️ В плейлисте ${entries.length} треков, но тебе доступно только ${remainingLimit}. Будет загружено первые ${remainingLimit}.`
+        );
         entries = entries.slice(0, remainingLimit);
       }
       
@@ -546,6 +592,7 @@ async function enqueue(ctx, userId, url) {
       entries = [url];
     }
     
+    // Добавляем все задачи в очередь
     for (const entryUrl of entries) {
       const queueAddLabel = `queueAdd:${entryUrl}:${enqueueCounter}`;
       console.time(queueAddLabel);
@@ -560,11 +607,13 @@ async function enqueue(ctx, userId, url) {
       console.timeEnd(queueAddLabel);
     }
     
-    await ctx.telegram.sendMessage(userId, texts.queuePosition(
-      globalQueue.filter(task => task.userId === userId).length
-    ));
-    
-    processNextInQueue();
+    // Показываем пользователю его место в очереди
+    await ctx.telegram.sendMessage(
+      userId,
+      texts.queuePosition(
+        globalQueue.filter(task => task.userId === userId).length
+      )
+    );
     
     console.timeEnd(label);
   } catch (e) {
@@ -573,7 +622,10 @@ async function enqueue(ctx, userId, url) {
     try {
       await ctx.telegram.sendMessage(userId, texts.error);
     } catch (sendErr) {
-      console.error(`⚠️ Ошибка при отправке сообщения об ошибке пользователю ${userId}:`, sendErr);
+      console.error(
+        `⚠️ Ошибка при отправке сообщения об ошибке пользователю ${userId}:`,
+        sendErr
+      );
     }
   }
 }
