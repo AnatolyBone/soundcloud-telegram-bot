@@ -508,7 +508,7 @@ async function processNextInQueue() {
 processNextInQueue();
 
 // Запуск начальной проверки очереди
-setTimeout(processNextInQueue, QUEUE_CHECKINTERVAL);
+setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 
 let enqueueCounter = 0;
 
