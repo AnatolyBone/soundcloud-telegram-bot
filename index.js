@@ -295,153 +295,145 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
 }
 
 // Вынесенная логика отправки сообщения об ошибке
-async function handleErrorNotification(ctx, userId, error, options = {}) {
-  // Валидация обязательных параметров
-  if (!userId || !ctx || !ctx.telegram) {
-    throw new Error('Обязательны параметры: ctx, userId');
-  }
-  
-  const {
-    message = 'Произошла ошибка при отправке трека.',
-      maxRetries = 1,
-      retryDelay = 1000 // в миллисекундах
-  } = options;
-  
-  let attempt = 0;
-  
-  while (attempt <= maxRetries) {
-    try {
-      await ctx.telegram.sendMessage(userId, message);
-      return true;
-    } catch (innerErr) {
-      attempt++;
-      if (attempt > maxRetries) {
-        console.error(
-          `⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId} после ${maxRetries} попыток:`,
-          innerErr
-        );
-        return false;
-      }
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
-    }
+async function handleErrorNotification(ctx, userId, error) {
+  try {
+    await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
+  } catch (innerErr) {
+    console.error(`⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
   }
 }
 // Добавление задачи в очередь с сортировкой по приоритету
+// Добавляем задачу в глобальную очередь с проверкой приоритета
 function addToGlobalQueue(task) {
+  if (!task || typeof task.priority !== 'number') {
+    throw new Error('Задача должна содержать валидный приоритет');
+  }
   globalQueue.push(task);
   globalQueue.sort((a, b) => b.priority - a.priority);
 }
 
+// Основная функция обработки трека
 async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   const start = Date.now();
   let fp = null;
+  let trackName = 'track';
   
   try {
-    url = await resolveRedirect(url);
-    const info = await ytdl(url, { dumpSingleJson: true });
+    const processedUrl = await resolveRedirect(url);
+    const info = await ytdl(processedUrl, { dumpSingleJson: true });
     
-    let name = info.title || 'track';
-    name = sanitizeFilename(name);
-    if (name.length > 64) name = name.slice(0, 64);
+    trackName = sanitizeFilename(info.title || trackName).slice(0, 64);
+    fp = path.join(cacheDir, `${trackName}.mp3`);
     
-    fp = path.join(cacheDir, `${name}.mp3`);
-    
+    // Скачиваем трек и пишем ID3 теги, если файл не существует
     if (!fs.existsSync(fp)) {
-      try {
-        await ytdl(url, {
-          extractAudio: true,
-          audioFormat: 'mp3',
-          output: fp,
-          preferFreeFormats: true,
-          noCheckCertificates: true,
-        });
-      } catch (err) {
-        console.error(`❌ Ошибка при скачивании трека ${name}:`, err);
-        throw err; // прерываем дальнейшее выполнение
-      }
-      
-      try {
-        await writeID3({ title: name, artist: 'SoundCloud' }, fp);
-        console.log(`🎵 ID3 теги записаны для ${name}`);
-      } catch (err) {
-        console.error(`⚠️ Ошибка записи ID3 тегов для ${name}:`, err);
-      }
+      await downloadAndTagTrack(fp, processedUrl, trackName);
     }
     
-    try {
-      await incrementDownloads(userId, name);
-    } catch (err) {
-      console.error(`⚠️ Ошибка увеличения счётчика загрузок для пользователя ${userId}:`, err);
-    }
+    // Увеличиваем счётчик загрузок для пользователя
+    await incrementDownloads(userId, trackName);
     
-    let fileId = null;
-    try {
-      fileId = await sendAudioSafe(ctx, userId, fp, name);
-    } catch (err) {
-      console.error(`❌ Ошибка при отправке аудио ${name} пользователю ${userId}:`, err);
-    }
+    // Отправляем аудио пользователю
+    const fileId = await sendAudioSafe(ctx, userId, fp, trackName);
     
     if (fileId) {
-      try {
-        await saveTrackForUser(userId, name, fileId);
-      } catch (err) {
-        console.error(`⚠️ Ошибка сохранения трека для пользователя ${userId}:`, err);
-      }
-      
-      try {
-        await pool.query(
-          'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
-          [userId, name]
-        );
-      } catch (err) {
-        console.error(`⚠️ Ошибка записи лога загрузки для пользователя ${userId}:`, err);
-      }
+      // Сохраняем информацию о треке и логируем загрузку
+      await handleSuccessfulDownload(userId, trackName, fileId);
     } else {
-      console.warn(`⚠️ Не удалось получить fileId для трека ${name}`);
+      throw new Error('Не удалось получить fileId для отправленного аудио');
     }
     
     const duration = ((Date.now() - start) / 1000).toFixed(1);
-    console.log(`✅ Трек ${name} загружен за ${duration} сек.`);
+    console.log(`✅ Трек ${trackName} загружен за ${duration} сек.`);
     
-    // Плейлист трекер
+    // Отслеживаем прогресс плейлиста, если передан URL плейлиста
     if (playlistUrl) {
-      const playlistKey = `${userId}:${playlistUrl}`;
-      if (playlistTracker.has(playlistKey)) {
-        let remaining = playlistTracker.get(playlistKey) - 1;
-        if (remaining <= 0) {
-          try {
-            await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
-          } catch (err) {
-            console.error(`⚠️ Ошибка отправки сообщения о завершении плейлиста пользователю ${userId}:`, err);
-          }
-          playlistTracker.delete(playlistKey);
-        } else {
-          playlistTracker.set(playlistKey, remaining);
-        }
-      }
+      await handlePlaylistProgress(ctx, userId, playlistUrl);
     }
-  } catch (e) {
-    console.error(`❌ Ошибка при загрузке ${url}:`, e);
-    try {
-      await ctx.telegram.sendMessage(userId, '❌ Произошла ошибка при загрузке трека.');
-    } catch (sendErr) {
-      console.error(`⚠️ Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
-    }
+    
+  } catch (error) {
+    await handleError(ctx, userId, error, trackName);
   } finally {
-  if (fp) {
-    try {
-      await fs.promises.access(fp, fs.constants.F_OK);
-      await fs.promises.unlink(fp);
-      console.log(`🗑 Удалён кеш: ${path.basename(fp)}`);
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        console.log(`⚠️ Файл уже удалён: ${path.basename(fp)}`);
-      } else {
-        console.error(`⚠️ Ошибка удаления файла ${fp}:`, err);
+    await cleanupTemporaryFile(fp);
+  }
+}
+
+// Функция скачивания трека и записи ID3 тегов
+async function downloadAndTagTrack(filePath, url, trackName) {
+  try {
+    await ytdl(url, {
+      extractAudio: true,
+      audioFormat: 'mp3',
+      output: filePath,
+      preferFreeFormats: true,
+      noCheckCertificates: true,
+    });
+    
+    await writeID3({ title: trackName, artist: 'SoundCloud' }, filePath);
+    console.log(`🎵 ID3 теги записаны для ${trackName}`);
+    
+  } catch (err) {
+    throw new Error(`Ошибка при скачивании и тегировании трека: ${err.message}`);
+  }
+}
+
+// Функция обработки успешного сохранения трека
+async function handleSuccessfulDownload(userId, trackName, fileId) {
+  try {
+    await saveTrackForUser(userId, trackName, fileId);
+    await pool.query(
+      'INSERT INTO downloads_log (user_id, track_title) VALUES ($1, $2)',
+      [userId, trackName]
+    );
+  } catch (err) {
+    console.error(`⚠️ Ошибка сохранения данных для пользователя ${userId}:`, err);
+  }
+}
+
+// Обработка ошибок с информированием пользователя
+async function handleError(ctx, userId, error, trackName = '') {
+  console.error(`❌ Ошибка при обработке трека ${trackName}:`, error);
+  try {
+    await ctx.telegram.sendMessage(userId, '❌ Произошла ошибка при загрузке трека.');
+  } catch (sendErr) {
+    console.error(`⚠️ Ошибка отправки сообщения об ошибке пользователю ${userId}:`, sendErr);
+  }
+}
+
+// Отслеживание прогресса загрузки плейлиста
+async function handlePlaylistProgress(ctx, userId, playlistUrl) {
+  const playlistKey = `${userId}:${playlistUrl}`;
+  if (playlistTracker.has(playlistKey)) {
+    let remaining = playlistTracker.get(playlistKey) - 1;
+    
+    if (remaining <= 0) {
+      try {
+        await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
+      } catch (err) {
+        console.error(`⚠️ Ошибка отправки сообщения о завершении плейлиста пользователю ${userId}:`, err);
       }
+      playlistTracker.delete(playlistKey);
+    } else {
+      playlistTracker.set(playlistKey, remaining);
     }
   }
 }
+
+// Очистка временного файла после обработки
+async function cleanupTemporaryFile(filePath) {
+  if (!filePath) return;
+  
+  try {
+    await fs.promises.access(filePath, fs.constants.F_OK);
+    await fs.promises.unlink(filePath);
+    console.log(`🗑 Удалён кеш: ${path.basename(filePath)}`);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.log(`⚠️ Файл уже удалён: ${path.basename(filePath)}`);
+    } else {
+      console.error(`⚠️ Ошибка удаления файла ${filePath}:`, err);
+    }
+  }
 }
 // Управление глобальной очередью загрузок
 const globalQueue = [];
