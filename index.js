@@ -446,17 +446,8 @@ const MAX_CONCURRENT_DOWNLOADS = 8;
 const QUEUE_CHECK_INTERVAL = 500; // мс между проверками очереди
 
 /**
- * Добавляет задачу в глобальную очередь с приоритетной сортировкой
- * @param {Object} task - { ctx, userId, url, playlistUrl, priority }
- */
-export function addToGlobalQueue(task) {
-  globalQueue.push(task);
-  globalQueue.sort((a, b) => b.priority - a.priority); // приоритет выше — раньше
-}
-
-/**
- * Обрабатывает одну задачу загрузки
- * @param {Object} task
+ * Обрабатывает задачу загрузки трека
+ * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
  */
 async function processTask(task) {
   const { ctx, userId, url, playlistUrl } = task;
