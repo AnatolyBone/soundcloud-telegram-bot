@@ -429,26 +429,24 @@ async function cleanupTemporaryFile(filePath) {
     }
   }
 }
-// Управление глобальной очередью загрузок
 // === Очередь загрузки треков ===
 
-// Очередь задач и системные параметры
 const QUEUE_CHECK_INTERVAL = 1000;
 const globalQueue = [];
 let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 8;
-
-setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
+let enqueueCounter = 0;
 
 // Добавление задачи в глобальную очередь с сортировкой по приоритету
 function addToGlobalQueue(task) {
   if (!task || typeof task.priority !== 'number') {
     throw new Error('Задача должна содержать валидный приоритет');
   }
-
+  
   globalQueue.push(task);
   globalQueue.sort((a, b) => b.priority - a.priority);
 }
+
 /**
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
@@ -501,20 +499,17 @@ async function processNextInQueue() {
         }
       } finally {
         activeDownloadsCount--;
+        processNextInQueue(); // продолжаем очередь сразу после освобождения слота
       }
     })();
   }
   
+  // Проверка на случай простаивания очереди
   setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
 }
 
 // Автоматический запуск цикла
 processNextInQueue();
-
-// Запуск начальной проверки очереди
-setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
-
-let enqueueCounter = 0;
 
 /**
  * Добавление задач в очередь с валидацией, лимитами и логированием
@@ -528,13 +523,11 @@ export async function enqueue(ctx, userId, url) {
   console.time(label);
   
   try {
-    // Разрешаем редиректы
     const resolveLabel = `resolve:${userId}:${enqueueCounter}`;
     console.time(resolveLabel);
     url = await resolveRedirect(url);
     console.timeEnd(resolveLabel);
     
-    // Проверка лимитов
     await logUserActivity(userId);
     await resetDailyLimitIfNeeded(userId);
     const user = await getUser(userId);
@@ -552,13 +545,12 @@ export async function enqueue(ctx, userId, url) {
       return;
     }
     
-    // Получаем инфу о треке/плейлисте
+    // Получаем информацию о треке/плейлисте
     const ytdlLabel = `ytdl:${userId}:${enqueueCounter}`;
     console.time(ytdlLabel);
     const info = await ytdl(url, { dumpSingleJson: true });
     console.timeEnd(ytdlLabel);
     
-    // Если это плейлист
     const isPlaylist = Array.isArray(info.entries);
     let entries = [];
     
@@ -602,7 +594,6 @@ export async function enqueue(ctx, userId, url) {
       console.timeEnd(queueAddLabel);
     }
     
-    // Показываем пользователю его место в очереди
     await ctx.telegram.sendMessage(
       userId,
       texts.queuePosition(
@@ -610,9 +601,7 @@ export async function enqueue(ctx, userId, url) {
       )
     );
     
-    console.timeEnd(label);
   } catch (e) {
-    console.timeEnd(label);
     console.error(`❌ Ошибка в enqueue для userId ${userId}:`, e);
     try {
       await ctx.telegram.sendMessage(userId, texts.error);
@@ -622,6 +611,8 @@ export async function enqueue(ctx, userId, url) {
         sendErr
       );
     }
+  } finally {
+    console.timeEnd(label);
   }
 }
 // Рассылка сообщений ботом
