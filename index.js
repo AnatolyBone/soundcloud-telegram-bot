@@ -242,26 +242,39 @@ const isSubscribed = async userId => {
   }
 };
 
+// Проверка кэша по file_id
+const fileIdKey = `fileId:${processedUrl}`;
+const cachedFileId = await redisClient.get(fileIdKey);
 
+if (cachedFileId) {
+  console.log(`Отправка по кэшированному file_id: ${cachedFileId}`);
+  await ctx.replyWithAudio(cachedFileId, {
+    title,
+    performer: 'SoundCloud'
+  });
+  return;
+}
+const fileId = message.audio?.file_id;
+if (fileId) {
+  const fileIdKey = `fileId:${processedUrl}`; // убедись, что processedUrl определён
+  await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // храним 30 дней
+}
+// Отправка аудио с безопасной обработкой
 async function sendAudioSafe(ctx, userId, filePath, title) {
-  // Валидация входных параметров
   if (!userId || !filePath || !title) {
     throw new Error('Обязательны параметры: userId, filePath, title');
   }
   
   try {
-    // Проверка существования файла
     if (!fs.existsSync(filePath)) {
       throw new Error('Файл не найден');
     }
     
-    // Проверка размера файла (лимит Telegram — 50 MB)
     const stats = await fs.promises.stat(filePath);
     if (stats.size > 50 * 1024 * 1024) {
       throw new Error('Файл слишком большой (превышает 50MB)');
     }
     
-    // Отправка аудио
     const message = await ctx.telegram.sendAudio(
       userId,
       {
@@ -278,7 +291,6 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
   } catch (e) {
     console.error(`❌ Ошибка отправки аудио пользователю ${userId}:`, e);
     
-    // Обработка ошибок Telegram API
     if (e.description === 'Forbidden: bot was blocked by the user') {
       console.warn(`🚫 Пользователь ${userId} заблокировал бота. Помечаем как inactive.`);
       try {
@@ -294,22 +306,13 @@ async function sendAudioSafe(ctx, userId, filePath, title) {
   }
 }
 
-// Вынесенная логика отправки сообщения об ошибке
+// Отправка сообщения об ошибке пользователю
 async function handleErrorNotification(ctx, userId, error) {
   try {
     await ctx.telegram.sendMessage(userId, 'Произошла ошибка при отправке трека.');
   } catch (innerErr) {
     console.error(`⚠️ Не удалось отправить сообщение об ошибке пользователю ${userId}:`, innerErr);
   }
-}
-// Добавление задачи в очередь с сортировкой по приоритету
-// Добавляем задачу в глобальную очередь с проверкой приоритета
-function addToGlobalQueue(task) {
-  if (!task || typeof task.priority !== 'number') {
-    throw new Error('Задача должна содержать валидный приоритет');
-  }
-  globalQueue.push(task);
-  globalQueue.sort((a, b) => b.priority - a.priority);
 }
 
 // Основная функция обработки трека
@@ -320,24 +323,32 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   
   try {
     const processedUrl = await resolveRedirect(url);
-    const info = await ytdl(processedUrl, { dumpSingleJson: true });
+    const fileIdKey = `fileId:${processedUrl}`;
+    const cachedFileId = await redisClient.get(fileIdKey);
     
+    if (cachedFileId) {
+      console.log(`🎯 Отправка по кэшированному file_id: ${cachedFileId}`);
+      await ctx.replyWithAudio(cachedFileId, {
+        title: trackName,
+        performer: 'SoundCloud'
+      });
+      return;
+    }
+    
+    const info = await ytdl(processedUrl, { dumpSingleJson: true });
     trackName = sanitizeFilename(info.title || trackName).slice(0, 64);
     fp = path.join(cacheDir, `${trackName}.mp3`);
     
-    // Скачиваем трек и пишем ID3 теги, если файл не существует
     if (!fs.existsSync(fp)) {
       await downloadAndTagTrack(fp, processedUrl, trackName);
     }
     
-    // Увеличиваем счётчик загрузок для пользователя
     await incrementDownloads(userId, trackName);
     
-    // Отправляем аудио пользователю
     const fileId = await sendAudioSafe(ctx, userId, fp, trackName);
     
     if (fileId) {
-      // Сохраняем информацию о треке и логируем загрузку
+      await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // 30 дней
       await handleSuccessfulDownload(userId, trackName, fileId);
     } else {
       throw new Error('Не удалось получить fileId для отправленного аудио');
@@ -346,7 +357,6 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
     const duration = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`✅ Трек ${trackName} загружен за ${duration} сек.`);
     
-    // Отслеживаем прогресс плейлиста, если передан URL плейлиста
     if (playlistUrl) {
       await handlePlaylistProgress(ctx, userId, playlistUrl);
     }
@@ -354,10 +364,10 @@ async function processTrackByUrl(ctx, userId, url, playlistUrl = null) {
   } catch (error) {
     await handleError(ctx, userId, error, trackName);
   } finally {
-    await cleanupTemporaryFile(fp);
+    // Если хочешь удалять временные файлы, раскомментируй строку ниже:
+    // await cleanupTemporaryFile(fp);
   }
 }
-
 // Функция скачивания трека и записи ID3 тегов
 async function downloadAndTagTrack(filePath, url, trackName) {
   try {
