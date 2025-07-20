@@ -242,23 +242,7 @@ const isSubscribed = async userId => {
   }
 };
 
-// Проверка кэша по file_id
-const fileIdKey = `fileId:${processedUrl}`;
-const cachedFileId = await redisClient.get(fileIdKey);
 
-if (cachedFileId) {
-  console.log(`Отправка по кэшированному file_id: ${cachedFileId}`);
-  await ctx.replyWithAudio(cachedFileId, {
-    title,
-    performer: 'SoundCloud'
-  });
-  return;
-}
-const fileId = message.audio?.file_id;
-if (fileId) {
-  const fileIdKey = `fileId:${processedUrl}`; // убедись, что processedUrl определён
-  await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // храним 30 дней
-}
 // Отправка аудио с безопасной обработкой
 async function sendAudioSafe(ctx, userId, filePath, title) {
   if (!userId || !filePath || !title) {
