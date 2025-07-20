@@ -1,12 +1,13 @@
-import { exec } from 'child_process';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { mkdirSync, existsSync } from 'fs';
+import YTDlpWrap from 'yt-dlp-wrap';
 
-// Только если ты работаешь с ESM (что у тебя и есть)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const ytdlpWrap = new YTDlpWrap(); // автоматом подтянет бинарник
 
 export function downloadWithYtDlp(url, outDir = './downloads') {
   return new Promise((resolve, reject) => {
@@ -18,18 +19,26 @@ export function downloadWithYtDlp(url, outDir = './downloads') {
     }
 
     const filepath = path.join(fullOutDir, filename);
-    const command = `yt-dlp -x --audio-format mp3 -o "${filepath}" "${url}"`;
 
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error('yt-dlp error:', stderr || error.message);
-        return reject(stderr || error.message);
-      }
+    const args = [
+      url,
+      '-x',
+      '--audio-format', 'mp3',
+      '-o', filepath,
+    ];
 
-      // Иногда yt-dlp пишет в stderr прогресс — не пугайся
-      if (stderr) console.warn('yt-dlp warnings:', stderr.trim());
+    let stderr = '';
 
-      resolve(filepath);
-    });
+    ytdlpWrap
+      .exec(args)
+      .on('error', (err) => {
+        reject(stderr || err.message);
+      })
+      .on('stderr', (data) => {
+        stderr += data.toString();
+      })
+      .on('close', () => {
+        resolve(filepath);
+      });
   });
 }
