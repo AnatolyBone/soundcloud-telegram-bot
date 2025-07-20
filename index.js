@@ -19,8 +19,6 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { createClient } from 'redis';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-import { downloadWithYtDlp } from './utils/ytDownloader.js'; // путь подправь, если нужно
-if (!fs.existsSync('./downloads')) fs.mkdirSync('./downloads');
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -451,23 +449,22 @@ setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
  */
-
 async function processTask(task) {
-  const { ctx, userId, url } = task;
-
+  const { ctx, userId, url, playlistUrl } = task;
+  
   console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
   console.time(`⏱️ Обработка ${url}`);
-
+  
   try {
-    const filePath = await downloadWithYtDlp(url);
-    await ctx.replyWithAudio({ source: fs.createReadStream(filePath) });
+    await processTrackByUrl(ctx, userId, url, playlistUrl);
   } catch (err) {
-    console.error(`❌ Ошибка при скачивании ${url}:`, err);
-    await ctx.reply('⚠️ Не удалось скачать трек.');
+    console.error(`❌ Ошибка в processTask для ${url}:`, err);
+    throw err;
   } finally {
     console.timeEnd(`⏱️ Обработка ${url}`);
   }
 }
+
 /**
  * Основной цикл обработки очереди
  */
