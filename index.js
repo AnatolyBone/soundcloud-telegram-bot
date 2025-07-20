@@ -439,6 +439,16 @@ let activeDownloadsCount = 0;
 const MAX_CONCURRENT_DOWNLOADS = 8;
 
 setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
+
+// Добавление задачи в глобальную очередь с сортировкой по приоритету
+function addToGlobalQueue(task) {
+  if (!task || typeof task.priority !== 'number') {
+    throw new Error('Задача должна содержать валидный приоритет');
+  }
+
+  globalQueue.push(task);
+  globalQueue.sort((a, b) => b.priority - a.priority);
+}
 /**
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
