@@ -8,26 +8,35 @@
     "start": "node index.js"
   },
   "dependencies": {
-  "@supabase/supabase-js": "^2.39.6",
-  "axios": "^1.6.8",
-  "better-sqlite3": "^8.4.0",
-  "compression": "^1.7.4",
-  "connect-pg-simple": "^8.0.0",
-  "ejs": "^3.1.9",
-  "express": "^4.19.2",
-  "express-ejs-layouts": "^2.5.1",
-  "express-session": "^1.17.3",
-  "googleapis": "^118.0.0",
-  "json-2-csv": "^5.5.9",
-  "multer": "^1.4.5-lts.1",
-  "node-id3": "^0.2.0",
-  "redis": "^4.6.7",
-  "telegraf": "^4.16.3",
-  "youtube-dl-exec": "^2.0.1"
-},
+    "@supabase/supabase-js": "^2.39.6",
+    "axios": "^1.6.8",
+    "better-sqlite3": "^8.4.0",
+    "compression": "^1.7.4",
+    "connect-pg-simple": "^8.0.0",
+    "ejs": "^3.1.9",
+    "express": "^4.19.2",
+    "express-ejs-layouts": "^2.5.1",
+    "express-session": "^1.17.3",
+    "googleapis": "^118.0.0",
+    "json-2-csv": "^5.5.9",
+    "multer": "^1.4.5-lts.1",
+    "node-id3": "^0.2.0",
+    "redis": "^4.6.7",
+    "telegraf": "^4.16.3",
+    "youtube-dl-exec": "^2.0.1"
+  },
   "engines": {
     "node": ">=16"
   },
   "author": "Anatoly Bone",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnatolyBone/soundcloud-telegram-bot.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/AnatolyBone/soundcloud-telegram-bot/issues"
+  },
+  "homepage": "https://github.com/AnatolyBone/soundcloud-telegram-bot#readme"
 }
