@@ -19,7 +19,7 @@ import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { createClient } from 'redis';
 import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
-import fs from 'fs';
+import { downloadWithYtDlp } from './utils/ytDownloader.js'; // путь подправь, если нужно
 if (!fs.existsSync('./downloads')) fs.mkdirSync('./downloads');
 
 const upload = multer({ dest: 'uploads/' });
@@ -451,8 +451,6 @@ setTimeout(processNextInQueue, QUEUE_CHECK_INTERVAL);
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
  */
-import { downloadWithYtDlp } from './utils/ytDownloader.js'; // путь подправь, если нужно
-import fs from 'fs';
 
 async function processTask(task) {
   const { ctx, userId, url } = task;
