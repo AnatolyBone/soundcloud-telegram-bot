@@ -14,11 +14,20 @@ import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import { pool } from './db.js';
 import json2csv from 'json-2-csv';
-import { supabase } from './db.js'; // указывай расширение!
+import { supabase } from './db.js';
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { createClient } from 'redis';
-import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
+import { getFunnelData } from './db.js';
+import { savePaymentAndActivateSubscription } from './db/payments.js';
+import { registerPaymentHandlers } from './paymentsHandlers.js'; // проверь путь
+import { sendInvoice } from './invoice.js'; // проверь путь
+
+const bot = new Telegraf(process.env.BOT_TOKEN);
+
+registerPaymentHandlers(bot); // обработчики оплаты
+
+bot.launch();
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -1505,6 +1514,16 @@ bot.action('check_subscription', async ctx => {
   }
   await ctx.answerCbQuery();
 });
+bot.command('premium', (ctx) => {
+  return ctx.reply('Выберите тариф:', Markup.inlineKeyboard([
+    [Markup.button.callback('1 месяц – 299 ₽', 'buy_monthly')],
+    [Markup.button.callback('3 месяца – 799 ₽', 'buy_quarterly')]
+  ]));
+});
+
+bot.action('buy_monthly', (ctx) => sendInvoice(ctx.chat.id, 'monthly'));
+bot.action('buy_quarterly', (ctx) => sendInvoice(ctx.chat.id, 'quarterly'));
+
 bot.on('text', async ctx => {
   const url = extractUrl(ctx.message.text);
   if (!url) {
