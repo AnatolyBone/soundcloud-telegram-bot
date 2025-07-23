@@ -1,4 +1,4 @@
-export const INVOICE_PAYLOAD_PREFIX = 'avandy-news';
+export const INVOICE_PAYLOAD_PREFIX = 'scloudmusicbot';
 export const START_PARAMETER = 'payment-invoice';
 
 export const PLANS = {
