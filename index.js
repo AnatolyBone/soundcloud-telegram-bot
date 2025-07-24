@@ -454,5 +454,18 @@ function setupTelegramBot() {
 // === ЗАПУСК ПРИЛОЖЕНИЯ ===
 startApp();
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Стало (более надежный вариант):
+const stopBot = (signal) => {
+    console.log(`Получен сигнал ${signal}. Завершение работы...`);
+    // Проверяем, есть ли у bot.context.botInfo, что косвенно говорит о том, что бот был запущен
+    if (bot.context.botInfo) {
+        bot.stop(signal);
+        console.log('Бот остановлен.');
+    } else {
+        console.log('Бот не был запущен, просто выходим.');
+    }
+    process.exit(0);
+};
+
+process.once('SIGINT', () => stopBot('SIGINT'));
+process.once('SIGTERM', () => stopBot('SIGTERM'));
