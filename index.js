@@ -56,6 +56,7 @@ const WEBHOOK_PATH = '/telegram';
 const PORT = process.env.PORT ?? 3000;
 // Настройка Redis
 // Инициализация Redis в отдельном блоке
+global.redisClient = null;
 // Инициализация Redis в отдельном блоке
 (async () => {
   try {
@@ -99,6 +100,13 @@ const PORT = process.env.PORT ?? 3000;
     process.exit(1);
   }
 })();
+// Функция для безопасного доступа к Redis клиенту
+export function getRedisClient() {
+  if (!global.redisClient) {
+    throw new Error('Redis клиент ещё не инициализирован');
+  }
+  return global.redisClient;
+}
 // Теперь используем глобальный клиент Redis
 async function getTrackInfo(url) {
   try {
