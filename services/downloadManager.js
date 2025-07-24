@@ -41,11 +41,8 @@ async function trackDownloadProcessor(task) {
         });
         
         const stats = await fs.promises.stat(tempFilePath);
-        const fileSizeInMB = stats.size / (1024 * 1024);
-
-        if (fileSizeInMB > TELEGRAM_FILE_LIMIT_MB) {
-            console.warn(`⚠️ Файл "${trackName}" слишком большой (${fileSizeInMB.toFixed(2)} MB).`);
-            await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" не может быть отправлен, так как его размер (${fileSizeInMB.toFixed(2)} МБ) превышает лимит Telegram в 50 МБ.`);
+        if (stats.size / (1024 * 1024) > TELEGRAM_FILE_LIMIT_MB) {
+            await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" слишком большой и не может быть отправлен.`);
             return;
         }
 
@@ -55,9 +52,8 @@ async function trackDownloadProcessor(task) {
         });
         
         if (message?.audio?.file_id) {
-            const fileId = message.audio.file_id;
-            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId);
-            await saveTrackForUser(userId, trackName, fileId);
+            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, message.audio.file_id);
+            await saveTrackForUser(userId, trackName, message.audio.file_id);
         }
 
         if (playlistUrl) {
@@ -73,11 +69,8 @@ async function trackDownloadProcessor(task) {
             console.warn(`[UserDisconnectedError] Пользователь ${userId} заблокировал бота.`);
         } else {
             console.error(`❌ Ошибка обработки "${trackName}":`, err);
-            try {
-                await ctx.telegram.sendMessage(userId, `❌ Ошибка при загрузке трека: ${trackName}`);
-            } catch (sendErr) { /* ignore */ }
         }
-        throw err;
+        throw err; // Важно пробросить ошибку, чтобы TaskQueue продолжил работу
     } finally {
         if (tempFilePath && fs.existsSync(tempFilePath)) {
             await fs.promises.unlink(tempFilePath);
@@ -111,11 +104,16 @@ export async function enqueue(ctx, userId, url) {
         const cachedInfo = await redisClient.get(infoKey);
 
         if (cachedInfo) {
+            console.log(`[Cache] Метаданные для ${url} взяты из Redis.`);
             info = JSON.parse(cachedInfo);
         } else {
             info = await ytdl(url, { dumpSingleJson: true });
             if (info && typeof info === 'object') {
-                await redisClient.setEx(infoKey, 300, JSON.stringify(info));
+                try {
+                    await redisClient.setEx(infoKey, 300, JSON.stringify(info));
+                } catch (e) {
+                    console.error(`[Cache] Ошибка кэширования метаданных:`, e);
+                }
             }
         }
         
@@ -138,10 +136,9 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = trackInfos.slice(0, remainingLimit);
         }
 
-        // === ИСПРАВЛЕНИЕ ЗДЕСЬ: Объявляем массивы ДО их использования ===
+        // ОБЪЯВЛЯЕМ МАССИВЫ ЗДЕСЬ, ДО ИСПОЛЬЗОВАНИЯ
         const tasksForQueue = []; 
         const tasksFromCache = [];
-        // =============================================================
 
         await Promise.all(trackInfos.map(async (track) => {
             const fileIdKey = `fileId:${track.url}`;
@@ -174,7 +171,6 @@ export async function enqueue(ctx, userId, url) {
                             await ctx.telegram.sendAudio(userId, track.fileId, { title: track.trackName, performer: track.uploader });
                         } catch (err) {
                             if (err.description?.includes('FILE_REFERENCE_EXPIRED') || err.description?.includes('file reference')) {
-                                console.warn(`-- Невалидный file_id для ${track.url}. Отправляю на перезалив.`);
                                 await redisClient.del(`fileId:${track.url}`);
                                 tasksForQueue.push(track);
                             }
@@ -195,12 +191,12 @@ export async function enqueue(ctx, userId, url) {
                 await redisClient.setEx(playlistKey, 3600, tasksForQueue.length);
                 await logEvent(userId, 'download_playlist');
             }
-
+            
             await pool.query(
                 `UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`,
                 [tasksForQueue.length, userId]
             );
-
+            
             for (const track of tasksForQueue) {
                 downloadQueue.add({
                     ctx, userId, ...track,
