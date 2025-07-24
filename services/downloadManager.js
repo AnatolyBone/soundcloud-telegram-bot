@@ -1,3 +1,5 @@
+// services/downloadManager.js
+
 import path from 'path';
 import fs from 'fs';
 import util from 'util';
@@ -7,8 +9,8 @@ import { fileURLToPath } from 'url';
 import { Markup } from 'telegraf';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
-import { getRedisClient, texts } from '../index.js'; // Импортируем из index.js
-import { pool, getUser, logUserActivity, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent } from '../db.js';
+import { getRedisClient, texts } from '../index.js';
+import { getUser, logUserActivity, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent } from '../db.js';
 
 // --- Константы и утилиты ---
 const writeID3 = util.promisify(NodeID3.write);
@@ -25,7 +27,6 @@ function sanitizeFilename(name) {
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, playlistUrl } = task;
     const redisClient = getRedisClient();
-    const start = Date.now();
     let trackName = 'track';
     let tempFilePath = null;
 
@@ -64,7 +65,7 @@ async function trackDownloadProcessor(task) {
         
         if (message?.audio?.file_id) {
             const fileId = message.audio.file_id;
-            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // 30 дней
+            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId);
             await incrementDownloads(userId, trackName);
             await saveTrackForUser(userId, trackName, fileId);
         }
