@@ -356,104 +356,142 @@ function setupTelegramBot() {
         } catch { return false; }
     };
 
-    const extractUrl = (text = '') => {
-        const regex = /(https?:\/\/[^\s]+)/g;
-        const matches = text.match(regex);
-        return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
-    };
+    // === ФРАГМЕНТ ФАЙЛА index.js ДЛЯ ЗАМЕНЫ ===
+
+// Вспомогательные функции
+const extractUrl = (text = '') => {
+    const regex = /(https?:\/\/[^\s]+)/g;
+    const matches = text.match(regex);
+    return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
+};
+
+function getTariffName(limit) {
+    if (limit >= 1000) return 'Unlim (∞/день)';
+    if (limit >= 100) return 'Pro (100/день)';
+    if (limit >= 50) return 'Plus (50/день)';
+    return 'Free (10/день)';
+}
+
+function getDaysLeft(premiumUntil) {
+    if (!premiumUntil) return 0;
+    const diff = new Date(premiumUntil) - new Date();
+    return Math.max(Math.ceil(diff / 86400000), 0);
+}
+
+// ИСПРАВЛЕНИЕ №1: Функция теперь принимает 'ctx'
+function formatMenuMessage(user, ctx) {
+    const tariffLabel = getTariffName(user.premium_limit);
+    const downloadsToday = user.downloads_today || 0;
+    const invited = user.invited_count || 0;
+    const bonusDays = user.bonus_days || 0;
+    // Теперь эта строка будет работать, т.к. 'ctx' доступен
+    const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
+    const daysLeft = getDaysLeft(user.premium_until);
     
-    function getTariffName(limit) {
-        if (limit >= 1000) return 'Unlim (∞/день)';
-        if (limit >= 100) return 'Pro (100/день)';
-        if (limit >= 50) return 'Plus (50/день)';
-        return 'Free (10/день)';
-    }
-    
-    function getDaysLeft(premiumUntil) {
-        if (!premiumUntil) return 0;
-        const diff = new Date(premiumUntil) - new Date();
-        return Math.max(Math.ceil(diff / 86400000), 0);
-    }
-    
-    function formatMenuMessage(user) {
-        const tariffLabel = getTariffName(user.premium_limit);
-        return `👋 Привет, ${user.first_name}!\n\n... (ваш полный текст меню) ...\n\n💼 Тариф: ${tariffLabel}\n⏳ Осталось дней: ${getDaysLeft(user.premium_until)}\n...`.trim();
-    }
+    return `
+👋 Привет, ${user.first_name}!
 
-    // === MIDDLEWARE БОТА ===
-    bot.use(async (ctx, next) => {
-        const userId = ctx.from?.id;
-        if (!userId) return;
-        try {
-            let user = await getUser(userId, ctx.from.first_name, ctx.from.username);
-            ctx.state.user = user;
-        } catch (error) { console.error(`Ошибка в мидлваре для userId ${userId}:`, error); }
-        return next();
-    });
+📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
+Просто пришли ссылку — и всё 🧙‍♂️
 
-    // === ОБРАБОТЧИКИ КОМАНД БОТА ===
-    bot.start(async (ctx) => {
-        await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username, ctx.startPayload || null);
-        const fullUser = await getUser(ctx.from.id);
-        await ctx.reply(formatMenuMessage(fullUser), kb());
-    });
+📣 Хочешь быть в курсе новостей, фишек и бонусов?
+Подпишись на наш канал 👉 @SCM_BLOG
 
-    bot.hears(texts.menu, async (ctx) => {
-        const user = await getUser(ctx.from.id);
-        await ctx.reply(formatMenuMessage(user), kb());
-    });
+🎁 Бонус: 7 дней тарифа PLUS бесплатно
+(только для новых пользователей)
 
-    bot.hears(texts.mytracks, async (ctx) => {
-        const user = await getUser(ctx.from.id);
-        let tracks = [];
-        try { if (user.tracks_today) tracks = JSON.parse(user.tracks_today); } catch {}
-        if (!tracks.length) return ctx.reply(texts.noTracks);
-        for (let i = 0; i < tracks.length; i += 5) {
-            const chunk = tracks.slice(i, i + 5).filter(t => t.fileId);
-            if (chunk.length > 0) {
-                try {
-                    await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
-                } catch (e) { console.error('Ошибка отправки MediaGroup:', e); }
-            }
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
+🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
+
+💼 Тариф: ${tariffLabel}  
+⏳ Осталось дней: ${daysLeft}
+
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+
+👫 Приглашено: ${invited}  
+🎁 Получено дней Plus по рефералам: ${bonusDays}
+
+🔗 Твоя реферальная ссылка:  
+${refLink}
+        `.trim();
+}
+
+// === MIDDLEWARE БОТА ===
+bot.use(async (ctx, next) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    try {
+        let user = await getUser(userId, ctx.from.first_name, ctx.from.username);
+        ctx.state.user = user;
+    } catch (error) { console.error(`Ошибка в мидлваре для userId ${userId}:`, error); }
+    return next();
+});
+
+// === ОБРАБОТЧИКИ КОМАНД БОТА ===
+bot.start(async (ctx) => {
+    await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username, ctx.startPayload || null);
+    const fullUser = await getUser(ctx.from.id);
+    // ИСПРАВЛЕНИЕ №2: Передаем 'ctx' в функцию
+    await ctx.reply(formatMenuMessage(fullUser, ctx), kb());
+});
+
+bot.hears(texts.menu, async (ctx) => {
+    const user = await getUser(ctx.from.id);
+    // ИСПРАВЛЕНИЕ №3: Передаем 'ctx' в функцию
+    await ctx.reply(formatMenuMessage(user, ctx), kb());
+});
+
+bot.hears(texts.mytracks, async (ctx) => {
+    const user = await getUser(ctx.from.id);
+    let tracks = [];
+    try { if (user.tracks_today) tracks = JSON.parse(user.tracks_today); } catch {}
+    if (!tracks.length) return ctx.reply(texts.noTracks);
+    for (let i = 0; i < tracks.length; i += 5) {
+        const chunk = tracks.slice(i, i + 5).filter(t => t.fileId);
+        if (chunk.length > 0) {
+            try {
+                await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
+            } catch (e) { console.error('Ошибка отправки MediaGroup:', e); }
         }
-    });
+    }
+});
 
-    bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
-    bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
+bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
+bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
 
-    bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        const users = await getAllUsers();
-        await ctx.reply(`📊 Пользователей: ${users.length}\n... (ваша статистика)`);
-    });
+bot.command('admin', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return;
+    const users = await getAllUsers();
+    await ctx.reply(`📊 Пользователей: ${users.length}\n... (ваша статистика)`);
+});
 
-    bot.action('check_subscription', async (ctx) => {
-        if (await isSubscribed(ctx.from.id)) {
-            await setPremium(ctx.from.id, 50, 7);
-            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-            await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
-        } else {
-            await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
+bot.action('check_subscription', async (ctx) => {
+    if (await isSubscribed(ctx.from.id)) {
+        await setPremium(ctx.from.id, 50, 7);
+        await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+        await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
+    } else {
+        await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
+    }
+    await ctx.answerCbQuery();
+});
+
+bot.on('text', async (ctx) => {
+    const url = extractUrl(ctx.message.text);
+    if (url) {
+        await enqueue(ctx, ctx.from.id, url);
+    } else {
+        const knownCommands = [texts.menu, texts.mytracks, texts.help, texts.upgrade];
+        if (!knownCommands.includes(ctx.message.text)) {
+            await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист.');
         }
-        await ctx.answerCbQuery();
-    });
-
-    bot.on('text', async (ctx) => {
-        const url = extractUrl(ctx.message.text);
-        if (url) {
-            await enqueue(ctx, ctx.from.id, url);
-        } else {
-            const knownCommands = [texts.menu, texts.mytracks, texts.help, texts.upgrade];
-            if (!knownCommands.includes(ctx.message.text)) {
-                 await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист.');
-            }
-        }
-    });
+    }
+});
 }
 
 // === ЗАПУСК ПРИЛОЖЕНИЯ ===
 startApp();
-
 // Стало (более надежный вариант):
 const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
