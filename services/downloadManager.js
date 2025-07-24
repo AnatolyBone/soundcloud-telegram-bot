@@ -8,7 +8,7 @@ import { Markup } from 'telegraf';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
-import { getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
+import { pool, getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
 // --- Константы и утилиты ---
 const __filename = fileURLToPath(import.meta.url);
@@ -37,7 +37,6 @@ async function trackDownloadProcessor(task) {
             audioFormat: 'mp3',
             output: tempFilePath,
             embedMetadata: true,
-            // Добавляем аргументы для ffmpeg, чтобы записать правильного артиста
             postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}"`
         });
         
@@ -57,11 +56,10 @@ async function trackDownloadProcessor(task) {
         
         if (message?.audio?.file_id) {
             const fileId = message.audio.file_id;
-            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // Кэшируем на 30 дней
+            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId);
             await saveTrackForUser(userId, trackName, fileId);
         }
 
-        // Логика трекера плейлистов
         if (playlistUrl) {
             const playlistKey = `playlist:${userId}:${playlistUrl}`;
             const remaining = await redisClient.decr(playlistKey);
@@ -77,7 +75,7 @@ async function trackDownloadProcessor(task) {
             console.error(`❌ Ошибка обработки "${trackName}":`, err);
             try {
                 await ctx.telegram.sendMessage(userId, `❌ Ошибка при загрузке трека: ${trackName}`);
-            } catch (sendErr) { /* ignore if can't send */ }
+            } catch (sendErr) { /* ignore */ }
         }
         throw err;
     } finally {
@@ -94,14 +92,6 @@ export const downloadQueue = new TaskQueue({
 });
 
 // --- Основная функция, обрабатывающая запрос пользователя ---
-// services/downloadManager.js
-
-// ... (trackDownloadProcessor, downloadQueue и утилиты остаются без изменений) ...
-
-// services/downloadManager.js
-
-// ... (trackDownloadProcessor, downloadQueue и утилиты остаются без изменений) ...
-
 export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
@@ -114,7 +104,19 @@ export async function enqueue(ctx, userId, url) {
         }
 
         await ctx.reply('🔍 Анализирую ссылку, ищу треки в кэше...');
-        const info = await ytdl(url, { dumpSingleJson: true });
+        
+        const redisClient = getRedisClient();
+        const infoKey = `meta:${url}`;
+        let info;
+        const cachedInfo = await redisClient.get(infoKey);
+
+        if (cachedInfo) {
+            console.log(`[Cache] Метаданные для ${url} взяты из кэша Redis.`);
+            info = JSON.parse(cachedInfo);
+        } else {
+            info = await ytdl(url, { dumpSingleJson: true });
+            await redisClient.setEx(infoKey, 300, JSON.stringify(info)); // Кэш на 5 минут
+        }
         
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
@@ -135,7 +137,6 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = trackInfos.slice(0, remainingLimit);
         }
 
-        const redisClient = getRedisClient();
         const tasksForQueue = []; 
         const tasksFromCache = [];
 
@@ -160,18 +161,12 @@ export async function enqueue(ctx, userId, url) {
             const CHUNK_SIZE = 10;
             for (let i = 0; i < tasksFromCache.length; i += CHUNK_SIZE) {
                 const chunk = tasksFromCache.slice(i, i + CHUNK_SIZE);
-                const mediaGroup = chunk.map(track => ({
-                    type: 'audio',
-                    media: track.fileId,
-                    title: track.trackName,
-                    performer: track.uploader
-                }));
+                const mediaGroup = chunk.map(track => ({ type: 'audio', media: track.fileId, title: track.trackName, performer: track.uploader }));
                 
                 try {
                     await ctx.telegram.sendMediaGroup(userId, mediaGroup);
                 } catch (e) {
-                    // ИСПРАВЛЕНИЕ №1: Обработка ошибок, включая FILE_REFERENCE_EXPIRED
-                    console.warn(`⚠️ Ошибка отправки MediaGroup: ${e.message}. Пробую отправить по одному.`);
+                    console.warn(`⚠️ Ошибка MediaGroup: ${e.message}. Пробую отправить по одному.`);
                     for (const track of chunk) {
                         try {
                             await ctx.telegram.sendAudio(userId, track.fileId, { title: track.trackName, performer: track.uploader });
@@ -179,7 +174,7 @@ export async function enqueue(ctx, userId, url) {
                             if (err.description?.includes('FILE_REFERENCE_EXPIRED') || err.description?.includes('file reference')) {
                                 console.warn(`-- Невалидный file_id для ${track.url}. Отправляю на перезалив.`);
                                 await redisClient.del(`fileId:${track.url}`);
-                                tasksForQueue.push(track); // Добавляем в очередь на скачивание
+                                tasksForQueue.push(track);
                             } else {
                                 console.error(`-- Не удалось отправить трек ${track.trackName} по другой причине.`, err);
                             }
@@ -188,11 +183,9 @@ export async function enqueue(ctx, userId, url) {
                 }
             }
             
-            // ИСПРАВЛЕНИЕ №3: Фоновое сохранение истории
             tasksFromCache.forEach(track => {
                 saveTrackForUser(userId, track.trackName, track.fileId).catch(err => console.warn(`Ошибка фонового сохранения истории:`, err));
             });
-
             await ctx.reply(`✅ ${tasksFromCache.length} трек(ов) отправлено мгновенно из кэша!`);
         }
         
