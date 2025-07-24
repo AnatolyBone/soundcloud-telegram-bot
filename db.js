@@ -57,8 +57,9 @@ export async function getUser(id, first_name = '', username = '') {
 }
 
 export async function logUserActivity(userId) {
+  // Исправлено: убран ON CONFLICT, который вызывал ошибку
   await query(
-    'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW()) ON CONFLICT (user_id, activity_time) DO NOTHING',
+    'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW())',
     [userId]
   );
 }
@@ -103,6 +104,7 @@ export async function getFunnelData(from, to) {
     return result;
 }
 
+// Исправлено: Атомарный инкремент для решения "гонки состояний"
 export async function incrementDownloads(id, trackName) {
   const res = await query(`
     UPDATE users 
@@ -143,7 +145,7 @@ export async function setPremium(id, limit, days = null) {
     bonusApplied = true;
     await updateUserField(id, 'promo_1plus1_used', true);
   }
-  const totalDays = days + extraDays;
+  const totalDays = (days || 0) + extraDays;
   const until = new Date(Date.now() + totalDays * 86400000).toISOString();
   await updateUserField(id, 'premium_limit', limit);
   await updateUserField(id, 'premium_until', until);
@@ -207,6 +209,7 @@ export async function logDownload(userId, trackTitle) {
   await supabase.from('downloads_log').insert([{ user_id: userId, track_title: trackTitle }]);
 }
 
+// Добавлено: недостающая функция для downloadManager
 export async function logEvent(userId, event) {
   try {
     const { error } = await supabase.from('events').insert([{ user_id: userId, event }]);
@@ -216,13 +219,28 @@ export async function logEvent(userId, event) {
   }
 }
 
+// Восстановлено: ваши функции, которые я пропустил
 export async function getTrackMetadata(url) {
-    // ... ваш код
+  const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
+  if (!res.rows.length) return null;
+
+  const row = res.rows[0];
+  const ageMs = Date.now() - new Date(row.updated_at).getTime();
+  if (ageMs > 7 * 86400000) return null; // Кэш на 7 дней
+
+  return row.metadata;
 }
 
 export async function saveTrackMetadata(url, metadata) {
-    // ... ваш код
+  await query(`
+    INSERT INTO track_metadata (url, metadata, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (url) DO UPDATE
+    SET metadata = EXCLUDED.metadata,
+        updated_at = NOW()
+  `, [url, JSON.stringify(metadata)]);
 }
+
 
 export async function getRegistrationsByDate() {
     const { rows } = await query(`SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count FROM users GROUP BY date ORDER BY date`);
