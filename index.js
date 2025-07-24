@@ -41,7 +41,79 @@ const app = express();
 // ESM-совместимый __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+import {
+  createUser, getUser, updateUserField, incrementDownloads, setPremium,
+  getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview,
+  getLatestReviews, resetDailyLimitIfNeeded, getRegistrationsByDate,
+  getDownloadsByDate, getActiveUsersByDate, getExpiringUsers, getReferralSourcesStats,
+  markSubscribedBonusUsed, getUserActivityByDayHour, logUserActivity, getUserById,
+  getExpiringUsersCount, getExpiringUsersPaginated
+} from './db.js';
 
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN_ID = Number(process.env.ADMIN_ID);
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const WEBHOOK_PATH = '/telegram';
+const PORT = process.env.PORT ?? 3000;
+// Настройка Redis
+// Инициализация Redis в отдельном блоке
+// Инициализация Redis в отдельном блоке
+(async () => {
+  try {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      console.error('❌ Переменная окружения REDIS_URL не найдена!');
+      process.exit(1);
+    }
+    
+    const client = createClient({
+      url: redisUrl,
+      socket: {
+        connectTimeout: 10000,
+        retryStrategy: (times) => {
+          if (times > 5) return null;
+          return Math.min(times * 1000, 3000);
+        }
+      }
+    });
+    
+    client.on('error', (err) => {
+      console.error('Ошибка подключения к Redis:', err);
+    });
+    
+    await client.connect();
+    console.log('✅ Redis подключён');
+    
+    global.redisClient = client;
+    
+    setInterval(async () => {
+      try {
+        await global.redisClient.ping();
+        console.log('🔍 Redis доступен');
+      } catch (err) {
+        console.warn('⚠️ Потеряно соединение с Redis:', err);
+      }
+    }, 60000);
+    
+  } catch (err) {
+    console.error('Ошибка инициализации Redis:', err);
+    process.exit(1);
+  }
+})();
+// Теперь используем глобальный клиент Redis
+async function getTrackInfo(url) {
+  try {
+    const cached = await global.redisClient.get(url);
+    if (cached) return JSON.parse(cached);
+    
+    const info = await ytdl(url, { dumpSingleJson: true });
+    await global.redisClient.setEx(url, 3600, JSON.stringify(info));
+    return info;
+  } catch (err) {
+    console.error('Ошибка работы с Redis:', err);
+    throw err;
+  }
+}
 // === Глобальные переменные и утилиты ===
 let redisClient = null;
 
