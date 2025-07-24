@@ -449,19 +449,28 @@ function addToGlobalQueue(task) {
  * Обрабатывает задачу загрузки трека
  * @param {Object} task - Объект задачи { ctx, userId, url, playlistUrl }
  */
+import { logTask } from './utils/logger.js'; // адаптируй путь
+
 async function processTask(task) {
   const { ctx, userId, url, playlistUrl } = task;
   
+  const label = `⏱️ Обработка ${url}`;
+  const startTime = Date.now();
+  
+  await logTask(`🚀 Старт задачи: ${url} (userId: ${userId})`);
   console.log(`🚀 Старт задачи: ${url} (userId: ${userId})`);
-  console.time(`⏱️ Обработка ${url}`);
   
   try {
     await processTrackByUrl(ctx, userId, url, playlistUrl);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    await logTask(`✅ Успешно: ${url} (за ${duration} сек)`);
+    console.log(`✅ Задача завершена: ${url}`);
   } catch (err) {
+    await logTask(`❌ Ошибка: ${url} — ${err.message}`);
     console.error(`❌ Ошибка в processTask для ${url}:`, err);
     throw err;
   } finally {
-    console.timeEnd(`⏱️ Обработка ${url}`);
+    console.timeEnd(label); // можно оставить как есть для stdout
   }
 }
 
@@ -1129,7 +1138,8 @@ const chartDataRetention = {
       lastMonths,
       customStyles: '',
       customScripts: '',
-      chartDataHeatmap: {}
+      chartDataHeatmap: {},
+      taskLogs: []
     });
 
   } catch (e) {
