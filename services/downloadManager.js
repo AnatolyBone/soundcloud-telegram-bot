@@ -10,7 +10,6 @@ import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// --- Константы и утилиты ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
@@ -20,7 +19,6 @@ function sanitizeFilename(name) {
     return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
-// --- Обработчик для ОДНОГО трека (медленный путь) ---
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, playlistUrl, trackName, trackId, uploader } = task;
     const redisClient = getRedisClient();
@@ -31,7 +29,6 @@ async function trackDownloadProcessor(task) {
     try {
         const fileIdKey = `fileId:${url}`;
         tempFilePath = path.join(cacheDir, `${trackName}_${trackId}_${Date.now()}.mp3`);
-
         await ytdl(url, {
             extractAudio: true,
             audioFormat: 'mp3',
@@ -70,7 +67,7 @@ async function trackDownloadProcessor(task) {
         } else {
             console.error(`❌ Ошибка обработки "${trackName}":`, err);
         }
-        throw err; // Важно пробросить ошибку, чтобы TaskQueue продолжил работу
+        throw err;
     } finally {
         if (tempFilePath && fs.existsSync(tempFilePath)) {
             await fs.promises.unlink(tempFilePath);
@@ -78,13 +75,11 @@ async function trackDownloadProcessor(task) {
     }
 }
 
-// --- Инициализация очереди ---
 export const downloadQueue = new TaskQueue({
     maxConcurrent: 8,
     taskProcessor: trackDownloadProcessor,
 });
 
-// --- Основная функция, обрабатывающая запрос пользователя ---
 export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
@@ -108,15 +103,26 @@ export async function enqueue(ctx, userId, url) {
             info = JSON.parse(cachedInfo);
         } else {
             info = await ytdl(url, { dumpSingleJson: true });
-            if (info && typeof info === 'object') {
+            if (info) {
+                let infoString;
                 try {
-                    await redisClient.setEx(infoKey, 300, JSON.stringify(info));
+                    infoString = JSON.stringify(info);
                 } catch (e) {
-                    console.error(`[Cache] Ошибка кэширования метаданных:`, e);
+                    console.error(`[Cache] Ошибка JSON.stringify для ${url}:`, e);
+                    infoString = null;
+                }
+                if (infoString && infoString !== '{}') {
+                    await redisClient.setEx(infoKey, 300, infoString);
+                } else {
+                    console.warn(`[Cache] Получены пустые или невалидные метаданные для ${url}, не кэширую.`);
                 }
             }
         }
         
+        if (!info) {
+             throw new Error(`Не удалось получить метаданные для ${url}`);
+        }
+
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
 
@@ -136,7 +142,6 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = trackInfos.slice(0, remainingLimit);
         }
 
-        // ОБЪЯВЛЯЕМ МАССИВЫ ЗДЕСЬ, ДО ИСПОЛЬЗОВАНИЯ
         const tasksForQueue = []; 
         const tasksFromCache = [];
 
@@ -152,11 +157,7 @@ export async function enqueue(ctx, userId, url) {
 
         if (tasksFromCache.length > 0) {
             console.log(`⚡️ Найдено в кэше: ${tasksFromCache.length} треков.`);
-            
-            await pool.query(
-                `UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`,
-                [tasksFromCache.length, userId]
-            );
+            await pool.query(`UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`, [tasksFromCache.length, userId]);
             
             const CHUNK_SIZE = 10;
             for (let i = 0; i < tasksFromCache.length; i += CHUNK_SIZE) {
@@ -165,12 +166,11 @@ export async function enqueue(ctx, userId, url) {
                 try {
                     await ctx.telegram.sendMediaGroup(userId, mediaGroup);
                 } catch (e) {
-                    console.warn(`⚠️ Ошибка MediaGroup: ${e.message}. Пробую отправить по одному.`);
                     for (const track of chunk) {
                         try {
                             await ctx.telegram.sendAudio(userId, track.fileId, { title: track.trackName, performer: track.uploader });
                         } catch (err) {
-                            if (err.description?.includes('FILE_REFERENCE_EXPIRED') || err.description?.includes('file reference')) {
+                            if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
                                 await redisClient.del(`fileId:${track.url}`);
                                 tasksForQueue.push(track);
                             }
@@ -179,9 +179,7 @@ export async function enqueue(ctx, userId, url) {
                 }
             }
             
-            tasksFromCache.forEach(track => {
-                saveTrackForUser(userId, track.trackName, track.fileId).catch(console.warn);
-            });
+            tasksFromCache.forEach(track => saveTrackForUser(userId, track.trackName, track.fileId).catch(console.warn));
             await ctx.reply(`✅ ${tasksFromCache.length} трек(ов) отправлено мгновенно из кэша!`);
         }
         
@@ -191,21 +189,11 @@ export async function enqueue(ctx, userId, url) {
                 await redisClient.setEx(playlistKey, 3600, tasksForQueue.length);
                 await logEvent(userId, 'download_playlist');
             }
-            
-            await pool.query(
-                `UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`,
-                [tasksForQueue.length, userId]
-            );
-            
+            await pool.query(`UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`, [tasksForQueue.length, userId]);
             for (const track of tasksForQueue) {
-                downloadQueue.add({
-                    ctx, userId, ...track,
-                    playlistUrl: isPlaylist ? url : null,
-                    priority: user.premium_limit,
-                });
+                downloadQueue.add({ ctx, userId, ...track, playlistUrl: isPlaylist ? url : null, priority: user.premium_limit, });
                 await logEvent(userId, 'download');
             }
-            
             await ctx.telegram.sendMessage(userId, `⏳ ${tasksForQueue.length} трек(ов) добавлено в очередь на скачивание.`);
         }
 
