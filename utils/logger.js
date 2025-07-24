@@ -7,7 +7,7 @@ export async function logTask(message) {
   const timestamp = new Date().toISOString();
   const entry = `${timestamp} — ${message}`;
   await redisClient.lPush(TASK_LOG_KEY, entry);
-  await redisClient.lTrim(TASK_LOG_KEY, 0, MAX_LOGS - 1); // сохраняем только последние 100 записей
+  await redisClient.lTrim(TASK_LOG_KEY, 0, MAX_LOGS - 1);
 }
 
 export async function getTaskLogs() {
