@@ -18,8 +18,10 @@ const playlistTracker = new Map();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
+const TELEGRAM_FILE_LIMIT_MB = 49; // Лимит в 50МБ, но берем с запасом
 
 function sanitizeFilename(name) {
+    if (!name) return 'track';
     return name.replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
@@ -44,7 +46,7 @@ async function trackDownloadProcessor(task) {
         }
 
         const info = await ytdl(url, { dumpSingleJson: true });
-        trackName = sanitizeFilename(info.title || 'track').slice(0, 64);
+        trackName = sanitizeFilename(info.title).slice(0, 64);
         tempFilePath = path.join(cacheDir, `${trackName}_${info.id}_${Date.now()}.mp3`);
 
         await ytdl(url, {
@@ -56,6 +58,21 @@ async function trackDownloadProcessor(task) {
         });
         
         await writeID3({ title: trackName, artist: 'SoundCloud' }, tempFilePath);
+
+        // === ИЗМЕНЕНИЕ ЗДЕСЬ: ПРОВЕРКА РАЗМЕРА ФАЙЛА ПЕРЕД ОТПРАВКОЙ ===
+        const stats = await fs.promises.stat(tempFilePath);
+        const fileSizeInMB = stats.size / (1024 * 1024);
+
+        if (fileSizeInMB > TELEGRAM_FILE_LIMIT_MB) {
+            console.warn(`⚠️ Файл "${trackName}" слишком большой (${fileSizeInMB.toFixed(2)} MB). Отправка отменена.`);
+            await ctx.telegram.sendMessage(
+                userId,
+                `❌ Трек "${trackName}" не может быть отправлен, так как его размер (${fileSizeInMB.toFixed(2)} МБ) превышает лимит Telegram в 50 МБ.`
+            );
+            // Завершаем обработку этой задачи, не пытаясь отправить файл
+            return; 
+        }
+        // ================================================================
 
         const message = await ctx.telegram.sendAudio(
             userId,
