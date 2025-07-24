@@ -212,10 +212,10 @@ const texts = {
 👉 Донат: boosty.to/anatoly_bone/donate
 ✉️ После оплаты напиши: @anatolybone
 
-📣 Подпишись на канал с новостями:
-@SCM_BLOG
 
-🎁 Бонус: подпишись на @bazaproject и получи 7 дней тарифа Plus бесплатно!`,
+
+🎁Бонус📣
+Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
 🆓 Free — 5 🟢  
@@ -244,7 +244,7 @@ const kb = () =>
 
 const isSubscribed = async userId => {
   try {
-    const res = await bot.telegram.getChatMember('@BAZAproject', userId);
+    const res = await bot.telegram.getChatMember('@SCM_BLOG', userId);
     return ['member', 'creator', 'administrator'].includes(res.status);
   } catch {
     return false;
@@ -1510,7 +1510,7 @@ bot.action('check_subscription', async ctx => {
       await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
     }
   } else {
-    await ctx.reply('Пожалуйста, подпишись на канал @BAZAproject и нажми кнопку ещё раз.');
+    await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
   }
   await ctx.answerCbQuery();
 });
