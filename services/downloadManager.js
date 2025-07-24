@@ -1,63 +1,45 @@
-// services/downloadManager.js (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ)
+// services/downloadManager.js
 
 import path from 'path';
 import fs from 'fs';
-import util from 'util';
-import NodeID3 from 'node-id3';
 import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import { Markup } from 'telegraf';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
-import { getUser, logUserActivity, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent } from '../db.js';
+import { getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
 // --- Константы и утилиты ---
-const writeID3 = util.promisify(NodeID3.write);
-const playlistTracker = new Map();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
 const TELEGRAM_FILE_LIMIT_MB = 49;
 
 function sanitizeFilename(name) {
-    if (!name) return 'track';
-    return name.replace(/[<>:"/\\|?*]+/g, '').trim();
+    return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
 // --- Обработчик для ОДНОГО трека (медленный путь) ---
-// Логика здесь не меняется, он обрабатывает только задачи, которых нет в кэше
 async function trackDownloadProcessor(task) {
-    const { ctx, userId, url, playlistUrl, trackName, trackId } = task;
+    const { ctx, userId, url, playlistUrl, trackName, trackId, uploader } = task;
     const redisClient = getRedisClient();
     let tempFilePath = null;
 
     console.log(`[Queue: ${downloadQueue.active}/${downloadQueue.maxConcurrent}] 🚀 Скачивание: ${trackName}`);
 
     try {
-        // Проверка кэша здесь остается как "последний рубеж", на случай если
-        // два пользователя одновременно запросят один и тот же трек.
         const fileIdKey = `fileId:${url}`;
-        const cachedFileId = await redisClient.get(fileIdKey);
-
-        if (cachedFileId) {
-            console.log(`🎯 Кэш file_id найден (в воркере) для "${trackName}". Отправка.`);
-            await ctx.telegram.sendAudio(userId, cachedFileId);
-            await incrementDownloads(userId, 'cached_track_worker');
-            return;
-        }
-
         tempFilePath = path.join(cacheDir, `${trackName}_${trackId}_${Date.now()}.mp3`);
 
         await ytdl(url, {
             extractAudio: true,
             audioFormat: 'mp3',
             output: tempFilePath,
-            preferFreeFormats: true,
-            noCheckCertificates: true,
+            embedMetadata: true,
+            // Добавляем аргументы для ffmpeg, чтобы записать правильного артиста
+            postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}"`
         });
-        
-        await writeID3({ title: trackName, artist: 'SoundCloud' }, tempFilePath);
         
         const stats = await fs.promises.stat(tempFilePath);
         const fileSizeInMB = stats.size / (1024 * 1024);
@@ -68,33 +50,34 @@ async function trackDownloadProcessor(task) {
             return;
         }
 
-        const message = await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(tempFilePath) }, { title: trackName, performer: 'SoundCloud' });
+        const message = await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(tempFilePath) }, {
+            title: trackName,
+            performer: uploader || 'SoundCloud'
+        });
         
         if (message?.audio?.file_id) {
             const fileId = message.audio.file_id;
             await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // Кэшируем на 30 дней
-            await incrementDownloads(userId, trackName);
             await saveTrackForUser(userId, trackName, fileId);
         }
 
+        // Логика трекера плейлистов
         if (playlistUrl) {
-            const playlistKey = `${userId}:${playlistUrl}`;
-            if (playlistTracker.has(playlistKey)) {
-                let remaining = playlistTracker.get(playlistKey) - 1;
-                if (remaining <= 0) {
-                    await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
-                    playlistTracker.delete(playlistKey);
-                } else {
-                    playlistTracker.set(playlistKey, remaining);
-                }
+            const playlistKey = `playlist:${userId}:${playlistUrl}`;
+            const remaining = await redisClient.decr(playlistKey);
+            if (remaining <= 0) {
+                await ctx.telegram.sendMessage(userId, '✅ Все треки из плейлиста загружены.');
+                await redisClient.del(playlistKey);
             }
         }
     } catch (err) {
-        console.error(`❌ Ошибка обработки "${trackName}" для userId ${userId}:`, err);
-        try {
-            await ctx.telegram.sendMessage(userId, `❌ Ошибка при загрузке трека: ${trackName}`);
-        } catch (sendErr) {
-            console.error(`⚠️ Не удалось уведомить пользователя ${userId}:`, sendErr);
+        if (err.response?.error_code === 403) {
+            console.warn(`[UserDisconnectedError] Пользователь ${userId} заблокировал бота во время отправки.`);
+        } else {
+            console.error(`❌ Ошибка обработки "${trackName}":`, err);
+            try {
+                await ctx.telegram.sendMessage(userId, `❌ Ошибка при загрузке трека: ${trackName}`);
+            } catch (sendErr) { /* ignore if can't send */ }
         }
         throw err;
     } finally {
@@ -110,9 +93,10 @@ export const downloadQueue = new TaskQueue({
     taskProcessor: trackDownloadProcessor,
 });
 
-// --- Оптимизированная функция добавления задач в очередь ---
+// --- Основная функция, обрабатывающая запрос пользователя ---
 export async function enqueue(ctx, userId, url) {
     try {
+        // Получаем актуального пользователя и его лимиты
         await logUserActivity(userId);
         await resetDailyLimitIfNeeded(userId);
         const user = await getUser(userId);
@@ -135,8 +119,9 @@ export async function enqueue(ctx, userId, url) {
                 .filter(e => e?.webpage_url)
                 .map(e => ({
                     url: e.webpage_url,
-                    trackName: sanitizeFilename(e.title).slice(0, 64) || 'Без названия',
-                    trackId: e.id
+                    trackId: e.id || e.title.replace(/\s/g, ''),
+                    trackName: sanitizeFilename(e.title).slice(0, 64),
+                    uploader: e.uploader || 'SoundCloud'
                 }));
             if (trackInfos.length > remainingLimit) {
                 await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}. Обрабатываю первые ${remainingLimit}.`);
@@ -145,8 +130,9 @@ export async function enqueue(ctx, userId, url) {
         } else {
             trackInfos = [{
                 url: info.webpage_url || url,
-                trackName: sanitizeFilename(info.title).slice(0, 64) || 'Без названия',
-                trackId: info.id
+                trackId: info.id || info.title.replace(/\s/g, ''),
+                trackName: sanitizeFilename(info.title).slice(0, 64),
+                uploader: info.uploader || 'SoundCloud'
             }];
         }
 
@@ -154,27 +140,33 @@ export async function enqueue(ctx, userId, url) {
         let tasksForQueue = []; 
         let sentFromCacheCount = 0;
 
+        // "Быстрый путь" - отправка из кэша
         for (const track of trackInfos) {
             const fileIdKey = `fileId:${track.url}`;
             const cachedFileId = await redisClient.get(fileIdKey);
 
             if (cachedFileId) {
-                // БЫСТРЫЙ ПУТЬ: нашли в кэше
-                console.log(`⚡️ Мгновенная отправка из кэша для "${track.trackName}"`);
+                // Атомарно проверяем лимит и инкрементируем счетчик
+                const updatedUser = await incrementDownloads(userId, track.trackName);
+                if (!updatedUser) {
+                    console.log(`Лимит для ${userId} исчерпан при отправке из кэша.`);
+                    continue; // Пропускаем трек, если лимит исчерпан
+                }
+                
                 try {
-                    await ctx.telegram.sendAudio(userId, cachedFileId);
-                    await incrementDownloads(userId, track.trackName);
+                    await ctx.telegram.sendAudio(userId, cachedFileId, { title: track.trackName, performer: track.uploader });
                     await saveTrackForUser(userId, track.trackName, cachedFileId);
                     sentFromCacheCount++;
-                    remainingLimit--; // Уменьшаем лимит, т.к. трек выдан
                 } catch (e) {
-                    // Если отправка по file_id не удалась (файл удален из TG), то отправляем в очередь
-                    console.warn(`⚠️ Ошибка отправки по кэшированному file_id для ${track.url}. Отправляю в очередь на перезалив.`);
-                    await redisClient.del(fileIdKey); // Удаляем невалидный ключ
-                    tasksForQueue.push(track);
+                    if (e.response?.error_code === 400 && e.description.includes('FILE_REFERENCE_EXPIRED')) {
+                         console.warn(`⚠️ Невалидный file_id для ${track.url}. Отправляю на перезалив.`);
+                         await redisClient.del(fileIdKey);
+                         tasksForQueue.push(track);
+                    } else {
+                        throw e;
+                    }
                 }
             } else {
-                // МЕДЛЕННЫЙ ПУТЬ: не нашли, готовим задачу для очереди
                 tasksForQueue.push(track);
             }
         }
@@ -182,38 +174,39 @@ export async function enqueue(ctx, userId, url) {
         if (sentFromCacheCount > 0) {
              await ctx.reply(`✅ ${sentFromCacheCount} трек(ов) отправлено мгновенно из кэша!`);
         }
-
+        
+        // "Медленный путь" - постановка в очередь на скачивание
         if (tasksForQueue.length > 0) {
-            // Если после отправки из кэша лимит исчерпан, не ставим ничего в очередь
-            if (remainingLimit <= 0) {
-                await ctx.reply(`🚫 Ваш дневной лимит исчерпан. Остальные треки не будут добавлены в очередь.`);
-                return;
-            }
-
-            // Обрезаем задачи для очереди, если лимит будет превышен
-            if (tasksForQueue.length > remainingLimit) {
-                await ctx.telegram.sendMessage(userId, `ℹ️ Ваш лимит будет превышен. В очередь будет добавлено только ${remainingLimit} из оставшихся ${tasksForQueue.length} треков.`);
-                tasksForQueue = tasksForQueue.slice(0, remainingLimit);
-            }
-
             if (isPlaylist) {
-                const playlistKey = `${userId}:${url}`;
-                playlistTracker.set(playlistKey, tasksForQueue.length); // Устанавливаем трекер только для тех, что пошли в очередь
+                const playlistKey = `playlist:${userId}:${url}`;
+                await redisClient.setEx(playlistKey, 3600, tasksForQueue.length); // TTL 1 час
                 await logEvent(userId, 'download_playlist');
             }
 
+            let addedToQueueCount = 0;
             for (const track of tasksForQueue) {
+                // Атомарно инкрементируем перед постановкой в очередь
+                const updatedUser = await incrementDownloads(userId, track.trackName);
+                if (!updatedUser) {
+                    console.log(`Лимит для ${userId} исчерпан. Добавление в очередь остановлено.`);
+                    break;
+                }
+                
                 downloadQueue.add({
-                    ctx, userId,
-                    url: track.url,
+                    ctx, userId, ...track,
                     playlistUrl: isPlaylist ? url : null,
                     priority: user.premium_limit,
-                    trackName: track.trackName,
-                    trackId: track.trackId
                 });
                 await logEvent(userId, 'download');
+                addedToQueueCount++;
             }
-            await ctx.telegram.sendMessage(userId, `⏳ ${tasksForQueue.length} трек(ов) добавлено в очередь на скачивание.`);
+
+            if (addedToQueueCount > 0) {
+                 await ctx.telegram.sendMessage(userId, `⏳ ${addedToQueueCount} трек(ов) добавлено в очередь на скачивание.`);
+            } else if (sentFromCacheCount > 0 && tasksForQueue.length > 0) {
+                // Если что-то отправили из кэша, но в очередь ничего не добавили из-за лимита
+                await ctx.reply('🚫 Ваш дневной лимит исчерпан. Остальные треки не были добавлены в очередь.');
+            }
         }
 
     } catch (e) {
