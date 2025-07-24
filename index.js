@@ -14,20 +14,11 @@ import NodeID3 from 'node-id3';
 import pgSessionFactory from 'connect-pg-simple';
 import { pool } from './db.js';
 import json2csv from 'json-2-csv';
-import { supabase } from './db.js';
+import { supabase } from './db.js'; // указывай расширение!
 import expressLayouts from 'express-ejs-layouts';
 import https from 'https';
 import { createClient } from 'redis';
-import { getFunnelData } from './db.js';
-import { savePaymentAndActivateSubscription } from './db/payments.js';
-import { registerPaymentHandlers } from './paymentsHandlers.js'; // проверь путь
-import { sendInvoice } from './invoice.js'; // проверь путь
-
-const bot = new Telegraf(process.env.BOT_TOKEN);
-
-registerPaymentHandlers(bot); // обработчики оплаты
-
-bot.launch();
+import { getFunnelData } from './db.js';  // или путь к твоему модулю с функциями
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -151,6 +142,9 @@ if (isNaN(ADMIN_ID)) {
   process.exit(1);
 }
 
+const bot = new Telegraf(BOT_TOKEN);
+const app = express();
+
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
@@ -209,10 +203,8 @@ const texts = {
 👉 Донат: boosty.to/anatoly_bone/donate
 ✉️ После оплаты напиши: @anatolybone
 
-
-
-🎁Бонус📣
-Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
+🎁 Бонус
+📣 Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
   upgradeInfo: `🚀 Хочешь больше треков?
 
 🆓 Free — 5 🟢  
@@ -682,7 +674,7 @@ function getPersonalMessage(user) {
 Спасибо за понимание 🙏
 
 🎁 Сейчас идёт акция 1+1 на все тарифы — оплачиваешь месяц, получаешь два.
-Подробности: @SCM_BLOG`;
+Действует до 20 июля. Подробности: @SCM_BLOG`;
 }
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlim (∞/день)';
