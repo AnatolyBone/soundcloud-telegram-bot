@@ -460,10 +460,52 @@ bot.hears(texts.mytracks, async (ctx) => {
 bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
 bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
 
+// СТАЛО (правильно и полно):
 bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    const users = await getAllUsers();
-    await ctx.reply(`📊 Пользователей: ${users.length}\n... (ваша статистика)`);
+    if (ctx.from.id !== ADMIN_ID) {
+        return; // Молча выходим, если это не админ
+    }
+
+    try {
+        const users = await getAllUsers(true); // Получаем всех, включая неактивных
+        const totalUsers = users.length;
+        const activeUsers = users.filter(u => u.active).length;
+        
+        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+        
+        // Активные сегодня (те, у кого last_active сегодня)
+        const now = new Date();
+        const activeToday = users.filter(u => {
+            if (!u.last_active) return false;
+            const lastActiveDate = new Date(u.last_active);
+            return lastActiveDate.toDateString() === now.toDateString();
+        }).length;
+
+        const statsMessage = `
+📊 **Статистика Бота**
+
+👤 **Пользователи:**
+   - Всего: *${totalUsers}*
+   - Активных (в целом): *${activeUsers}*
+   - Активных сегодня: *${activeToday}*
+
+📥 **Загрузки:**
+   - Всего за все время: *${totalDownloads}*
+
+⚙️ **Очередь сейчас:**
+   - В работе: *${downloadQueue.active}*
+   - В ожидании: *${downloadQueue.size}*
+
+🔗 **Админ-панель:**
+[Открыть дашборд](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
+        `.trim();
+
+        await ctx.replyWithMarkdown(statsMessage);
+
+    } catch (e) {
+        console.error('❌ Ошибка в команде /admin:', e);
+        await ctx.reply('⚠️ Произошла ошибка при получении статистики. Подробности в логах сервера.');
+    }
 });
 
 bot.action('check_subscription', async (ctx) => {
