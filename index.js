@@ -151,9 +151,6 @@ if (isNaN(ADMIN_ID)) {
   process.exit(1);
 }
 
-const bot = new Telegraf(BOT_TOKEN);
-const app = express();
-
 
 // Кеш треков — для ESM используем import.meta.url
 import { fileURLToPath } from 'url';
