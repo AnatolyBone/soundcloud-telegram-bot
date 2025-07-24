@@ -233,62 +233,139 @@ function setupExpress() {
         }
     });
 
-    app.get('/dashboard', requireAuth, async (req, res) => {
-        try {
-            res.locals.page = 'dashboard';
-            const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-            const expiringSoon = await getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset));
-            const expiringCount = await getExpiringUsersCount();
-            const users = await getAllUsers(showInactive === 'true');
-            const downloadsByDateRaw = await getDownloadsByDate();
-            const registrationsByDateRaw = await getRegistrationsByDate();
-            const activeByDateRaw = await getActiveUsersByDate();
-            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
-            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
-            const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
-            const activityByDayHour = await getUserActivityByDayHour();
-            const referralStats = await getReferralSourcesStats();
-            const { from: fromDate, to: toDate } = getFromToByPeriod(period);
-            const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+    // === ВСТАВЬТЕ ЭТОТ КОД ВМЕСТО ВАШЕГО app.get('/dashboard', ...) В index.js ===
 
-            res.render('dashboard', {
-                title: 'Панель управления',
-                stats: {
-                    totalUsers: users.length,
-                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-                    free: users.filter(u => u.premium_limit === 5).length,
-                    plus: users.filter(u => u.premium_limit === 25).length,
-                    pro: users.filter(u => u.premium_limit === 50).length,
-                    unlimited: users.filter(u => u.premium_limit >= 1000).length,
-                },
-                users,
-                referralStats,
-                expiringSoon,
-                expiringCount,
-                expiringOffset: parseInt(expiringOffset),
-                expiringLimit: parseInt(expiringLimit),
-                activityByHour: computeActivityByHour(activityByDayHour),
-                activityByWeekday: computeActivityByWeekday(activityByDayHour),
-                chartDataCombined,
-                funnelData: funnelCounts,
-                lastMonths: getLastMonths(6),
-                showInactive: showInactive === 'true',
-                period,
-                // === ДОБАВЛЕНО ЭТО ПОЛЕ ===
-                taskLogs: [], // Передаем пустой массив, чтобы EJS не падал
-                // =========================
-                // ... другие переменные, если они есть
-                retentionData: [], // на всякий случай, если и этого не было
-                chartDataRetention: {},
-                chartDataUserFunnel: {},
-            });
-        } catch (e) {
-            console.error('❌ Ошибка при загрузке dashboard:', e);
-            res.status(500).send('Внутренняя ошибка сервера');
-        }
-    });
-
+app.get('/dashboard', requireAuth, async (req, res) => {
+    try {
+        res.locals.page = 'dashboard';
+        const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
+        
+        // --- 1. Получение всех данных из БД ---
+        const [
+            users,
+            expiringSoon,
+            expiringCount,
+            downloadsByDateRaw,
+            registrationsByDateRaw,
+            activeByDateRaw,
+            activityByDayHour,
+            referralStats,
+            retentionResult
+        ] = await Promise.all([
+            getAllUsers(showInactive === 'true'),
+            getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
+            getExpiringUsersCount(),
+            getDownloadsByDate(),
+            getRegistrationsByDate(),
+            getActiveUsersByDate(),
+            getUserActivityByDayHour(),
+            getReferralSourcesStats(),
+            pool.query(`
+                WITH cohorts AS (SELECT id AS user_id, DATE(created_at) AS cohort_date FROM users WHERE created_at IS NOT NULL),
+                activities AS (SELECT DISTINCT user_id, DATE(downloaded_at) AS activity_day FROM downloads_log),
+                cohort_activity AS (SELECT c.cohort_date, a.activity_day, COUNT(DISTINCT c.user_id) AS active_users FROM cohorts c JOIN activities a ON c.user_id = a.user_id WHERE a.activity_day >= c.cohort_date GROUP BY c.cohort_date, a.activity_day),
+                cohort_sizes AS (SELECT cohort_date, COUNT(*) AS cohort_size FROM cohorts GROUP BY cohort_date)
+                SELECT ca.cohort_date, (ca.activity_day - ca.cohort_date) AS days_since_signup, ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
+                FROM cohort_activity ca JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
+                ORDER BY ca.cohort_date, days_since_signup;
+            `) // Ваш сложный SQL-запрос для retention
+        ]);
+        
+        const { from: fromDate, to: toDate } = getFromToByPeriod(period);
+        const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+        
+        // --- 2. Обработка и подготовка данных ---
+        const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+        const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+        const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+        
+        const stats = {
+            totalUsers: users.length,
+            totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+            free: users.filter(u => u.premium_limit <= 10).length,
+            plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
+            pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
+            unlimited: users.filter(u => u.premium_limit >= 1000).length,
+            activityByDayHour: activityByDayHour // Добавляем для вывода JSON
+        };
+        
+        const activityByHour = computeActivityByHour(activityByDayHour);
+        const activityByWeekday = computeActivityByWeekday(activityByDayHour);
+        
+        // --- 3. Формирование данных для ВСЕХ графиков ---
+        const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+        
+        const chartDataHourActivity = {
+            labels: [...Array(24).keys()].map(h => `${h}:00`),
+            datasets: [{ label: 'Активность по часам', data: activityByHour, backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+        };
+        
+        const chartDataWeekdayActivity = {
+            labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+            datasets: [{ label: 'Активность по дням недели', data: activityByWeekday, backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+        };
+        
+        const chartDataFunnel = {
+            labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
+            datasets: [{
+                label: 'Воронка пользователей',
+                data: [funnelCounts.registrationCount || 0, funnelCounts.firstDownloadCount || 0, funnelCounts.subscriptionCount || 0],
+                backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
+            }]
+        };
+        
+        // Подготовка данных для Retention Chart
+        const cohortsMap = {};
+        retentionResult.rows.forEach(row => {
+            const date = new Date(row.cohort_date).toISOString().split('T')[0];
+            if (!cohortsMap[date]) {
+                cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
+            }
+            cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
+        });
+        const chartDataRetention = {
+            labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
+            datasets: Object.values(cohortsMap).map(cohort => ({
+                label: cohort.label,
+                data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
+                fill: false,
+                borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
+                tension: 0.1
+            }))
+        };
+        
+        // --- 4. Рендеринг шаблона с передачей ВСЕХ данных ---
+        res.render('dashboard', {
+            title: 'Панель управления',
+            user: req.user, // Передаем пользователя для заголовка
+            stats,
+            users,
+            referralStats,
+            expiringSoon,
+            expiringCount,
+            expiringOffset: parseInt(expiringOffset),
+            expiringLimit: parseInt(expiringLimit),
+            showInactive: showInactive === 'true',
+            period,
+            lastMonths: getLastMonths(6),
+            funnelData: funnelCounts,
+            // Передаем все данные для графиков
+            chartDataCombined,
+            chartDataHourActivity,
+            chartDataWeekdayActivity,
+            chartDataFunnel,
+            chartDataRetention,
+            // Передаем пустые заглушки для графиков, логика которых неясна из шаблона
+            chartDataHeatmap: {},
+            chartDataUserFunnel: {},
+            taskLogs: [],
+        });
+        
+    } catch (e) {
+        console.error('❌ Ошибка при загрузке dashboard:', e);
+        res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
+    }
+});
     app.get('/logout', (req, res) => {
         req.session.destroy(() => res.redirect('/admin'));
     });
