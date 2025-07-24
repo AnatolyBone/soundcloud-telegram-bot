@@ -61,4 +61,398 @@ export const texts = {
     adminCommands: '\n\n📋 Команды админа:\n/admin — статистика'
 };
 
-const kb = () => Markup.keyboard([[texts.menu, 
+const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
+
+// =================================================================
+// ===                    ОСНОВНАЯ ЛОГИКА                       ===
+// =================================================================
+
+async function startApp() {
+    try {
+        const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
+        client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
+        await client.connect();
+        redisClient = client;
+        console.log('✅ Redis подключён');
+
+        const cacheDir = path.join(__dirname, 'cache');
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
+
+        setupExpress();
+        setupTelegramBot();
+        
+        setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
+        setInterval(() => {
+            console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`);
+        }, 60000);
+
+        if (process.env.NODE_ENV === 'production') {
+            app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH, secret_token: SESSION_SECRET }));
+            app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
+        } else {
+            await bot.launch();
+            console.log('✅ Бот запущен в режиме long-polling.');
+        }
+    } catch (err) {
+        console.error('🔴 Критическая ошибка при запуске приложения:', err);
+        process.exit(1);
+    }
+}
+
+function setupExpress() {
+    // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ АДМИНКИ ===
+
+    function convertObjToArray(dataObj) {
+        if (!dataObj) return [];
+        return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
+    }
+
+    function filterStatsByPeriod(data, period) {
+        if (!Array.isArray(data)) return [];
+        const now = new Date();
+        if (!isNaN(period)) {
+            const days = parseInt(period);
+            const cutoff = new Date(now.getTime() - days * 86400000);
+            return data.filter(item => new Date(item.date) >= cutoff);
+        }
+        if (/^\d{4}-\d{2}$/.test(period)) {
+            return data.filter(item => item.date && item.date.startsWith(period));
+        }
+        return data;
+    }
+
+    function prepareChartData(registrations, downloads, active) {
+        const dateSet = new Set([...registrations.map(r => r.date), ...downloads.map(d => d.date), ...active.map(a => a.date)]);
+        const dates = Array.from(dateSet).sort();
+        const regMap = new Map(registrations.map(r => [r.date, r.count]));
+        const dlMap = new Map(downloads.map(d => [d.date, d.count]));
+        const actMap = new Map(active.map(a => [a.date, a.count]));
+        return {
+            labels: dates,
+            datasets: [
+                { label: 'Регистрации', data: dates.map(d => regMap.get(d) || 0), borderColor: 'rgba(75, 192, 192, 1)', fill: false },
+                { label: 'Загрузки', data: dates.map(d => dlMap.get(d) || 0), borderColor: 'rgba(255, 99, 132, 1)', fill: false },
+                { label: 'Активные пользователи', data: dates.map(d => actMap.get(d) || 0), borderColor: 'rgba(54, 162, 235, 1)', fill: false }
+            ]
+        };
+    }
+
+    function getLastMonths(count = 6) {
+        const months = [];
+        const now = new Date();
+        for (let i = 0; i < count; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months.push({ value: d.toISOString().slice(0, 7), label: d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' }) });
+        }
+        return months;
+    }
+
+    function getFromToByPeriod(period) {
+        const now = new Date();
+        if (!period || period === 'all') return { from: new Date('2000-01-01'), to: now };
+        if (/^\d+$/.test(period)) return { from: new Date(now.getTime() - parseInt(period) * 86400000), to: now };
+        if (/^\d{4}-\d{2}$/.test(period)) {
+            const [year, month] = period.split('-').map(Number);
+            return { from: new Date(year, month - 1, 1), to: new Date(year, month, 0) };
+        }
+        throw new Error('Некорректный формат периода');
+    }
+
+    function computeActivityByHour(activityByDayHour) {
+        const hours = Array(24).fill(0);
+        for (const day in activityByDayHour) {
+            const hoursData = activityByDayHour[day];
+            for (let h = 0; h < 24; h++) {
+                hours[h] += hoursData[h] || 0;
+            }
+        }
+        return hours;
+    }
+
+    function computeActivityByWeekday(activityByDayHour) {
+        const weekdays = Array(7).fill(0);
+        for (const dayStr in activityByDayHour) {
+            const dayTotal = Object.values(activityByDayHour[dayStr]).reduce((a, b) => a + b, 0);
+            weekdays[new Date(dayStr).getDay()] += dayTotal;
+        }
+        return weekdays;
+    }
+
+    // === НАСТРОЙКА MIDDLEWARE ===
+    app.use(compression());
+    app.use(express.urlencoded({ extended: true }));
+    app.use(express.json());
+    app.use(expressLayouts);
+    app.set('view engine', 'ejs');
+    app.set('views', path.join(__dirname, 'views'));
+    app.set('layout', 'layout');
+    
+    const pgSession = pgSessionFactory(session);
+    app.use(session({
+        store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
+        secret: SESSION_SECRET,
+        resave: false,
+        saveUninitialized: false,
+        cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
+    }));
+
+    app.use(async (req, res, next) => {
+        res.locals.user = null;
+        if (req.session.authenticated && req.session.userId === ADMIN_ID) {
+            try {
+                req.user = await getUserById(req.session.userId);
+                res.locals.user = req.user;
+            } catch(e) { console.error(e); }
+        }
+        next();
+    });
+
+    const requireAuth = (req, res, next) => {
+        if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
+        res.redirect('/admin');
+    };
+    
+    // === МАРШРУТЫ EXPRESS ===
+    app.get('/health', (req, res) => res.send('OK'));
+    
+    app.get('/admin', (req, res) => {
+        if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
+        res.locals.page = 'admin';
+        res.render('login', { title: 'Вход в админку', error: null });
+    });
+
+    app.post('/admin', (req, res) => {
+        const { username, password } = req.body;
+        if (username === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
+            req.session.authenticated = true;
+            req.session.userId = ADMIN_ID;
+            res.redirect('/dashboard');
+        } else {
+            res.locals.page = 'admin';
+            res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
+        }
+    });
+
+    app.get('/dashboard', requireAuth, async (req, res) => {
+        try {
+            res.locals.page = 'dashboard';
+            const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
+            const expiringSoon = await getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset));
+            const expiringCount = await getExpiringUsersCount();
+            const users = await getAllUsers(showInactive === 'true');
+            const downloadsByDateRaw = await getDownloadsByDate();
+            const registrationsByDateRaw = await getRegistrationsByDate();
+            const activeByDateRaw = await getActiveUsersByDate();
+            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+            const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+            const activityByDayHour = await getUserActivityByDayHour();
+            const referralStats = await getReferralSourcesStats();
+            const { from: fromDate, to: toDate } = getFromToByPeriod(period);
+            const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+
+            res.render('dashboard', {
+                title: 'Панель управления',
+                stats: {
+                    totalUsers: users.length,
+                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+                    free: users.filter(u => u.premium_limit === 5).length,
+                    plus: users.filter(u => u.premium_limit === 25).length,
+                    pro: users.filter(u => u.premium_limit === 50).length,
+                    unlimited: users.filter(u => u.premium_limit >= 1000).length,
+                },
+                users,
+                referralStats,
+                expiringSoon,
+                expiringCount,
+                expiringOffset: parseInt(expiringOffset),
+                expiringLimit: parseInt(expiringLimit),
+                activityByHour: computeActivityByHour(activityByDayHour),
+                activityByWeekday: computeActivityByWeekday(activityByDayHour),
+                chartDataCombined,
+                funnelData: funnelCounts,
+                lastMonths: getLastMonths(6),
+                showInactive: showInactive === 'true',
+                period,
+            });
+        } catch (e) {
+            console.error('❌ Ошибка при загрузке dashboard:', e);
+            res.status(500).send('Внутренняя ошибка сервера');
+        }
+    });
+
+    app.get('/logout', (req, res) => {
+        req.session.destroy(() => res.redirect('/admin'));
+    });
+
+    app.get('/broadcast', requireAuth, (req, res) => {
+        res.locals.page = 'broadcast';
+        res.render('broadcast-form', { title: 'Рассылка', error: null, success: null });
+    });
+
+    app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
+        const { message } = req.body;
+        const audio = req.file;
+        if (!message && !audio) return res.status(400).render('broadcast-form', { error: 'Текст или файл обязательны' });
+
+        const users = await getAllUsers();
+        let success = 0, error = 0;
+        for (const u of users) {
+            if (!u.active) continue;
+            try {
+                if (audio) {
+                    await bot.telegram.sendAudio(u.id, { source: audio.path }, { caption: message });
+                } else {
+                    await bot.telegram.sendMessage(u.id, message);
+                }
+                success++;
+            } catch (e) {
+                error++;
+                if (e.response?.error_code === 403) await updateUserField(u.id, 'active', false);
+            }
+            await new Promise(r => setTimeout(r, 150));
+        }
+        if (audio) fs.unlinkSync(audio.path);
+        await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
+        res.render('broadcast-form', { title: 'Рассылка', success, error });
+    });
+    
+    app.get('/export', requireAuth, async (req, res) => {
+        const users = await getAllUsers(true);
+        const { json2csv } = json2csv;
+        const csv = await json2csv(users, {});
+        res.header('Content-Type', 'text/csv');
+        res.attachment('users.csv');
+        return res.send(csv);
+    });
+
+    app.get('/expiring-users', requireAuth, async (req, res) => {
+        const page = parseInt(req.query.page) || 1;
+        const perPage = 10;
+        const total = await getExpiringUsersCount();
+        const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
+        res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
+    });
+    
+    app.post('/set-tariff', requireAuth, async (req, res) => {
+        const { userId, limit, days } = req.body;
+        await setPremium(userId, parseInt(limit), parseInt(days));
+        res.redirect('/dashboard');
+    });
+    
+    app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
+        await updateUserField(req.params.id, 'promo_1plus1_used', false);
+        res.redirect('/dashboard');
+    });
+}
+
+function setupTelegramBot() {
+    // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ БОТА ===
+    const isSubscribed = async (userId) => {
+        try {
+            const res = await bot.telegram.getChatMember('@SCM_BLOG', userId);
+            return ['member', 'creator', 'administrator'].includes(res.status);
+        } catch { return false; }
+    };
+
+    const extractUrl = (text = '') => {
+        const regex = /(https?:\/\/[^\s]+)/g;
+        const matches = text.match(regex);
+        return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
+    };
+    
+    function getTariffName(limit) {
+        if (limit >= 1000) return 'Unlim (∞/день)';
+        if (limit >= 100) return 'Pro (100/день)';
+        if (limit >= 50) return 'Plus (50/день)';
+        return 'Free (10/день)';
+    }
+    
+    function getDaysLeft(premiumUntil) {
+        if (!premiumUntil) return 0;
+        const diff = new Date(premiumUntil) - new Date();
+        return Math.max(Math.ceil(diff / 86400000), 0);
+    }
+    
+    function formatMenuMessage(user) {
+        const tariffLabel = getTariffName(user.premium_limit);
+        return `👋 Привет, ${user.first_name}!\n\n... (ваш полный текст меню) ...\n\n💼 Тариф: ${tariffLabel}\n⏳ Осталось дней: ${getDaysLeft(user.premium_until)}\n...`.trim();
+    }
+
+    // === MIDDLEWARE БОТА ===
+    bot.use(async (ctx, next) => {
+        const userId = ctx.from?.id;
+        if (!userId) return;
+        try {
+            let user = await getUser(userId, ctx.from.first_name, ctx.from.username);
+            ctx.state.user = user;
+        } catch (error) { console.error(`Ошибка в мидлваре для userId ${userId}:`, error); }
+        return next();
+    });
+
+    // === ОБРАБОТЧИКИ КОМАНД БОТА ===
+    bot.start(async (ctx) => {
+        await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username, ctx.startPayload || null);
+        const fullUser = await getUser(ctx.from.id);
+        await ctx.reply(formatMenuMessage(fullUser), kb());
+    });
+
+    bot.hears(texts.menu, async (ctx) => {
+        const user = await getUser(ctx.from.id);
+        await ctx.reply(formatMenuMessage(user), kb());
+    });
+
+    bot.hears(texts.mytracks, async (ctx) => {
+        const user = await getUser(ctx.from.id);
+        let tracks = [];
+        try { if (user.tracks_today) tracks = JSON.parse(user.tracks_today); } catch {}
+        if (!tracks.length) return ctx.reply(texts.noTracks);
+        for (let i = 0; i < tracks.length; i += 5) {
+            const chunk = tracks.slice(i, i + 5).filter(t => t.fileId);
+            if (chunk.length > 0) {
+                try {
+                    await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
+                } catch (e) { console.error('Ошибка отправки MediaGroup:', e); }
+            }
+        }
+    });
+
+    bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
+    bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
+
+    bot.command('admin', async (ctx) => {
+        if (ctx.from.id !== ADMIN_ID) return;
+        const users = await getAllUsers();
+        await ctx.reply(`📊 Пользователей: ${users.length}\n... (ваша статистика)`);
+    });
+
+    bot.action('check_subscription', async (ctx) => {
+        if (await isSubscribed(ctx.from.id)) {
+            await setPremium(ctx.from.id, 50, 7);
+            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+            await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
+        } else {
+            await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
+        }
+        await ctx.answerCbQuery();
+    });
+
+    bot.on('text', async (ctx) => {
+        const url = extractUrl(ctx.message.text);
+        if (url) {
+            await enqueue(ctx, ctx.from.id, url);
+        } else {
+            const knownCommands = [texts.menu, texts.mytracks, texts.help, texts.upgrade];
+            if (!knownCommands.includes(ctx.message.text)) {
+                 await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист.');
+            }
+        }
+    });
+}
+
+// === ЗАПУСК ПРИЛОЖЕНИЯ ===
+startApp();
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
