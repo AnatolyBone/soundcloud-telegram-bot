@@ -619,16 +619,19 @@ bot.on('text', async (ctx) => {
 // === ЗАПУСК ПРИЛОЖЕНИЯ ===
 startApp();
 // Стало (более надежный вариант):
+// index.js, в конце файла
+
 const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
-    // Проверяем, есть ли у bot.context.botInfo, что косвенно говорит о том, что бот был запущен
-    if (bot.context.botInfo) {
+    // Telegraf имеет внутренний флаг isRunning()
+    if (bot.polling?.isRunning()) {
         bot.stop(signal);
-        console.log('Бот остановлен.');
+        console.log('Бот (polling) остановлен.');
     } else {
-        console.log('Бот не был запущен, просто выходим.');
+        console.log('Бот не запущен или работает в режиме webhook. Просто выходим.');
     }
-    process.exit(0);
+    // Выход с кодом 0 (успех)
+    setTimeout(() => process.exit(0), 500);
 };
 
 process.once('SIGINT', () => stopBot('SIGINT'));
