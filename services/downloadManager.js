@@ -98,6 +98,10 @@ export const downloadQueue = new TaskQueue({
 
 // ... (trackDownloadProcessor, downloadQueue и утилиты остаются без изменений) ...
 
+// services/downloadManager.js
+
+// ... (trackDownloadProcessor, downloadQueue и утилиты остаются без изменений) ...
+
 export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
@@ -126,7 +130,6 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = [{ url: info.webpage_url || url, trackId: info.id || info.title.replace(/\s/g, ''), trackName: sanitizeFilename(info.title).slice(0, 64), uploader: info.uploader || 'SoundCloud' }];
         }
         
-        // Ограничиваем общее количество треков доступным лимитом
         if (trackInfos.length > remainingLimit) {
             await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}. Обрабатываю первые ${remainingLimit}.`);
             trackInfos = trackInfos.slice(0, remainingLimit);
@@ -136,7 +139,6 @@ export async function enqueue(ctx, userId, url) {
         const tasksForQueue = []; 
         const tasksFromCache = [];
 
-        // Разделяем треки на кэшированные и некэшированные
         await Promise.all(trackInfos.map(async (track) => {
             const fileIdKey = `fileId:${track.url}`;
             const cachedFileId = await redisClient.get(fileIdKey);
@@ -147,17 +149,14 @@ export async function enqueue(ctx, userId, url) {
             }
         }));
 
-        // === БЫСТРЫЙ ПУТЬ: Отправка из кэша группами по 10 ===
         if (tasksFromCache.length > 0) {
-            console.log(`⚡️ Найдено в кэше: ${tasksFromCache.length} треков. Отправляю группами.`);
+            console.log(`⚡️ Найдено в кэше: ${tasksFromCache.length} треков.`);
             
-            // Атомарно инкрементируем счетчик для ВСЕХ кэшированных треков
             await pool.query(
                 `UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`,
                 [tasksFromCache.length, userId]
             );
             
-            // Формируем группы по 10
             const CHUNK_SIZE = 10;
             for (let i = 0; i < tasksFromCache.length; i += CHUNK_SIZE) {
                 const chunk = tasksFromCache.slice(i, i + CHUNK_SIZE);
@@ -170,20 +169,33 @@ export async function enqueue(ctx, userId, url) {
                 
                 try {
                     await ctx.telegram.sendMediaGroup(userId, mediaGroup);
-                    // Сохраняем в историю пользователя
-                    await Promise.all(chunk.map(track => saveTrackForUser(userId, track.trackName, track.fileId)));
                 } catch (e) {
-                     console.warn(`⚠️ Ошибка отправки MediaGroup, пробую по одному.`, e.message);
-                     // Фолбэк: если группа не отправилась, пробуем по одному
-                     for(const track of chunk) {
-                        try { await ctx.telegram.sendAudio(userId, track.fileId); } catch(e) {}
-                     }
+                    // ИСПРАВЛЕНИЕ №1: Обработка ошибок, включая FILE_REFERENCE_EXPIRED
+                    console.warn(`⚠️ Ошибка отправки MediaGroup: ${e.message}. Пробую отправить по одному.`);
+                    for (const track of chunk) {
+                        try {
+                            await ctx.telegram.sendAudio(userId, track.fileId, { title: track.trackName, performer: track.uploader });
+                        } catch (err) {
+                            if (err.description?.includes('FILE_REFERENCE_EXPIRED') || err.description?.includes('file reference')) {
+                                console.warn(`-- Невалидный file_id для ${track.url}. Отправляю на перезалив.`);
+                                await redisClient.del(`fileId:${track.url}`);
+                                tasksForQueue.push(track); // Добавляем в очередь на скачивание
+                            } else {
+                                console.error(`-- Не удалось отправить трек ${track.trackName} по другой причине.`, err);
+                            }
+                        }
+                    }
                 }
             }
+            
+            // ИСПРАВЛЕНИЕ №3: Фоновое сохранение истории
+            tasksFromCache.forEach(track => {
+                saveTrackForUser(userId, track.trackName, track.fileId).catch(err => console.warn(`Ошибка фонового сохранения истории:`, err));
+            });
+
             await ctx.reply(`✅ ${tasksFromCache.length} трек(ов) отправлено мгновенно из кэша!`);
         }
         
-        // === МЕДЛЕННЫЙ ПУТЬ: Постановка в очередь на скачивание ===
         if (tasksForQueue.length > 0) {
             if (isPlaylist) {
                 const playlistKey = `playlist:${userId}:${url}`;
@@ -191,7 +203,6 @@ export async function enqueue(ctx, userId, url) {
                 await logEvent(userId, 'download_playlist');
             }
 
-            // Атомарно инкрементируем счетчики для всех, кто идет в очередь
             await pool.query(
                 `UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`,
                 [tasksForQueue.length, userId]
