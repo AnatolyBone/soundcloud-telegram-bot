@@ -70,7 +70,7 @@ async function trackDownloadProcessor(task) {
         }
     } catch (err) {
         if (err.response?.error_code === 403) {
-            console.warn(`[UserDisconnectedError] Пользователь ${userId} заблокировал бота во время отправки.`);
+            console.warn(`[UserDisconnectedError] Пользователь ${userId} заблокировал бота.`);
         } else {
             console.error(`❌ Ошибка обработки "${trackName}":`, err);
             try {
@@ -110,25 +110,14 @@ export async function enqueue(ctx, userId, url) {
         let info;
         const cachedInfo = await redisClient.get(infoKey);
 
-        // СТАЛО (более надежно):
-if (cachedInfo) {
-    console.log(`[Cache] Метаданные для ${url} взяты из кэша Redis.`);
-    info = JSON.parse(cachedInfo);
-} else {
-    info = await ytdl(url, { dumpSingleJson: true });
-    // Проверяем, что получили валидный объект перед кэшированием
-    if (info && typeof info === 'object') {
-        try {
-            const infoString = JSON.stringify(info);
-            // Кэшируем на 5 минут (300 секунд)
-            await redisClient.setEx(infoKey, 300, infoString);
-        } catch (e) {
-            console.error(`Ошибка при JSON.stringify для кэширования метаданных:`, e);
+        if (cachedInfo) {
+            info = JSON.parse(cachedInfo);
+        } else {
+            info = await ytdl(url, { dumpSingleJson: true });
+            if (info && typeof info === 'object') {
+                await redisClient.setEx(infoKey, 300, JSON.stringify(info));
+            }
         }
-    } else {
-        console.warn(`[Cache] Получены невалидные метаданные от ytdl для ${url}, не кэширую.`);
-    }
-}
         
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
@@ -149,8 +138,10 @@ if (cachedInfo) {
             trackInfos = trackInfos.slice(0, remainingLimit);
         }
 
+        // === ИСПРАВЛЕНИЕ ЗДЕСЬ: Объявляем массивы ДО их использования ===
         const tasksForQueue = []; 
-        const tasksFromcachedInfo = [];
+        const tasksFromCache = [];
+        // =============================================================
 
         await Promise.all(trackInfos.map(async (track) => {
             const fileIdKey = `fileId:${track.url}`;
@@ -174,7 +165,6 @@ if (cachedInfo) {
             for (let i = 0; i < tasksFromCache.length; i += CHUNK_SIZE) {
                 const chunk = tasksFromCache.slice(i, i + CHUNK_SIZE);
                 const mediaGroup = chunk.map(track => ({ type: 'audio', media: track.fileId, title: track.trackName, performer: track.uploader }));
-                
                 try {
                     await ctx.telegram.sendMediaGroup(userId, mediaGroup);
                 } catch (e) {
@@ -187,8 +177,6 @@ if (cachedInfo) {
                                 console.warn(`-- Невалидный file_id для ${track.url}. Отправляю на перезалив.`);
                                 await redisClient.del(`fileId:${track.url}`);
                                 tasksForQueue.push(track);
-                            } else {
-                                console.error(`-- Не удалось отправить трек ${track.trackName} по другой причине.`, err);
                             }
                         }
                     }
@@ -196,7 +184,7 @@ if (cachedInfo) {
             }
             
             tasksFromCache.forEach(track => {
-                saveTrackForUser(userId, track.trackName, track.fileId).catch(err => console.warn(`Ошибка фонового сохранения истории:`, err));
+                saveTrackForUser(userId, track.trackName, track.fileId).catch(console.warn);
             });
             await ctx.reply(`✅ ${tasksFromCache.length} трек(ов) отправлено мгновенно из кэша!`);
         }
