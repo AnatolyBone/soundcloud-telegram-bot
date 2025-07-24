@@ -275,6 +275,13 @@ function setupExpress() {
                 lastMonths: getLastMonths(6),
                 showInactive: showInactive === 'true',
                 period,
+                // === ДОБАВЛЕНО ЭТО ПОЛЕ ===
+                taskLogs: [], // Передаем пустой массив, чтобы EJS не падал
+                // =========================
+                // ... другие переменные, если они есть
+                retentionData: [], // на всякий случай, если и этого не было
+                chartDataRetention: {},
+                chartDataUserFunnel: {},
             });
         } catch (e) {
             console.error('❌ Ошибка при загрузке dashboard:', e);
