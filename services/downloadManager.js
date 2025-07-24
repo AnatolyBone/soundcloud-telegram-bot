@@ -25,28 +25,27 @@ function sanitizeFilename(name) {
     return name.replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
-// --- Оптимизированный обработчик для ОДНОГО трека ---
+// --- Обработчик для ОДНОГО трека (медленный путь) ---
+// Логика здесь не меняется, он обрабатывает только задачи, которых нет в кэше
 async function trackDownloadProcessor(task) {
-    // Получаем все данные из задачи, включая pre-fetched метаданные
     const { ctx, userId, url, playlistUrl, trackName, trackId } = task;
     const redisClient = getRedisClient();
     let tempFilePath = null;
 
-    console.log(`[Queue: ${downloadQueue.active}/${downloadQueue.maxConcurrent}] 🚀 Старт: ${trackName}`);
+    console.log(`[Queue: ${downloadQueue.active}/${downloadQueue.maxConcurrent}] 🚀 Скачивание: ${trackName}`);
 
     try {
+        // Проверка кэша здесь остается как "последний рубеж", на случай если
+        // два пользователя одновременно запросят один и тот же трек.
         const fileIdKey = `fileId:${url}`;
         const cachedFileId = await redisClient.get(fileIdKey);
 
         if (cachedFileId) {
-            console.log(`🎯 Кэш file_id найден для "${trackName}". Отправка.`);
+            console.log(`🎯 Кэш file_id найден (в воркере) для "${trackName}". Отправка.`);
             await ctx.telegram.sendAudio(userId, cachedFileId);
-            await incrementDownloads(userId, 'cached_track');
+            await incrementDownloads(userId, 'cached_track_worker');
             return;
         }
-
-        // БОЛЬШЕ НЕ НУЖНО ВЫЗЫВАТЬ ytdl для информации, она уже есть
-        // const info = await ytdl(url, { dumpSingleJson: true });
 
         tempFilePath = path.join(cacheDir, `${trackName}_${trackId}_${Date.now()}.mp3`);
 
@@ -73,7 +72,7 @@ async function trackDownloadProcessor(task) {
         
         if (message?.audio?.file_id) {
             const fileId = message.audio.file_id;
-            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId);
+            await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, fileId); // Кэшируем на 30 дней
             await incrementDownloads(userId, trackName);
             await saveTrackForUser(userId, trackName, fileId);
         }
@@ -117,64 +116,105 @@ export async function enqueue(ctx, userId, url) {
         await logUserActivity(userId);
         await resetDailyLimitIfNeeded(userId);
         const user = await getUser(userId);
-        const remainingLimit = user.premium_limit - user.downloads_today;
+        let remainingLimit = user.premium_limit - user.downloads_today;
 
         if (remainingLimit <= 0) {
             await ctx.telegram.sendMessage(userId, texts.limitReached, Markup.inlineKeyboard([Markup.button.callback('✅ Я подписался', 'check_subscription')]));
             return;
         }
 
-        await ctx.reply('🔍 Анализирую ссылку и получаю информацию о треках...');
+        await ctx.reply('🔍 Анализирую ссылку, ищу треки в кэше...');
         
-        // ВЫЗЫВАЕМ YTDL ТОЛЬКО ОДИН РАЗ ЗДЕСЬ
         const info = await ytdl(url, { dumpSingleJson: true });
         
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
 
         if (isPlaylist) {
-            // Сразу собираем всю нужную информацию
             trackInfos = info.entries
                 .filter(e => e?.webpage_url)
                 .map(e => ({
                     url: e.webpage_url,
-                    trackName: sanitizeFilename(e.title).slice(0, 64),
+                    trackName: sanitizeFilename(e.title).slice(0, 64) || 'Без названия',
                     trackId: e.id
                 }));
-            
-            const playlistKey = `${userId}:${url}`;
-            playlistTracker.set(playlistKey, trackInfos.length);
-            
             if (trackInfos.length > remainingLimit) {
-                await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}. Загружаю первые ${remainingLimit}.`);
+                await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}. Обрабатываю первые ${remainingLimit}.`);
                 trackInfos = trackInfos.slice(0, remainingLimit);
             }
-            await logEvent(userId, 'download_playlist');
         } else {
-            // Собираем информацию для одного трека
             trackInfos = [{
                 url: info.webpage_url || url,
-                trackName: sanitizeFilename(info.title).slice(0, 64),
+                trackName: sanitizeFilename(info.title).slice(0, 64) || 'Без названия',
                 trackId: info.id
             }];
         }
-        
+
+        const redisClient = getRedisClient();
+        let tasksForQueue = []; 
+        let sentFromCacheCount = 0;
+
         for (const track of trackInfos) {
-            // Создаем задачу, уже обогащенную данными
-            downloadQueue.add({
-                ctx,
-                userId,
-                url: track.url,
-                playlistUrl: isPlaylist ? url : null,
-                priority: user.premium_limit,
-                // Передаем pre-fetched метаданные
-                trackName: track.trackName,
-                trackId: track.trackId
-            });
-            await logEvent(userId, 'download');
+            const fileIdKey = `fileId:${track.url}`;
+            const cachedFileId = await redisClient.get(fileIdKey);
+
+            if (cachedFileId) {
+                // БЫСТРЫЙ ПУТЬ: нашли в кэше
+                console.log(`⚡️ Мгновенная отправка из кэша для "${track.trackName}"`);
+                try {
+                    await ctx.telegram.sendAudio(userId, cachedFileId);
+                    await incrementDownloads(userId, track.trackName);
+                    await saveTrackForUser(userId, track.trackName, cachedFileId);
+                    sentFromCacheCount++;
+                    remainingLimit--; // Уменьшаем лимит, т.к. трек выдан
+                } catch (e) {
+                    // Если отправка по file_id не удалась (файл удален из TG), то отправляем в очередь
+                    console.warn(`⚠️ Ошибка отправки по кэшированному file_id для ${track.url}. Отправляю в очередь на перезалив.`);
+                    await redisClient.del(fileIdKey); // Удаляем невалидный ключ
+                    tasksForQueue.push(track);
+                }
+            } else {
+                // МЕДЛЕННЫЙ ПУТЬ: не нашли, готовим задачу для очереди
+                tasksForQueue.push(track);
+            }
         }
 
-        await ctx.telegram.sendMessage(userId, `✅ Добавлено в очередь ${trackInfos.length} трек(ов). Ваша позиция: ~${downloadQueue.size}.`);
+        if (sentFromCacheCount > 0) {
+             await ctx.reply(`✅ ${sentFromCacheCount} трек(ов) отправлено мгновенно из кэша!`);
+        }
+
+        if (tasksForQueue.length > 0) {
+            // Если после отправки из кэша лимит исчерпан, не ставим ничего в очередь
+            if (remainingLimit <= 0) {
+                await ctx.reply(`🚫 Ваш дневной лимит исчерпан. Остальные треки не будут добавлены в очередь.`);
+                return;
+            }
+
+            // Обрезаем задачи для очереди, если лимит будет превышен
+            if (tasksForQueue.length > remainingLimit) {
+                await ctx.telegram.sendMessage(userId, `ℹ️ Ваш лимит будет превышен. В очередь будет добавлено только ${remainingLimit} из оставшихся ${tasksForQueue.length} треков.`);
+                tasksForQueue = tasksForQueue.slice(0, remainingLimit);
+            }
+
+            if (isPlaylist) {
+                const playlistKey = `${userId}:${url}`;
+                playlistTracker.set(playlistKey, tasksForQueue.length); // Устанавливаем трекер только для тех, что пошли в очередь
+                await logEvent(userId, 'download_playlist');
+            }
+
+            for (const track of tasksForQueue) {
+                downloadQueue.add({
+                    ctx, userId,
+                    url: track.url,
+                    playlistUrl: isPlaylist ? url : null,
+                    priority: user.premium_limit,
+                    trackName: track.trackName,
+                    trackId: track.trackId
+                });
+                await logEvent(userId, 'download');
+            }
+            await ctx.telegram.sendMessage(userId, `⏳ ${tasksForQueue.length} трек(ов) добавлено в очередь на скачивание.`);
+        }
 
     } catch (e) {
         console.error(`❌ Ошибка в enqueue для userId ${userId}:`, e);
