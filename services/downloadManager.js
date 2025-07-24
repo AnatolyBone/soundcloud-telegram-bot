@@ -110,13 +110,25 @@ export async function enqueue(ctx, userId, url) {
         let info;
         const cachedInfo = await redisClient.get(infoKey);
 
-        if (cachedInfo) {
-            console.log(`[Cache] Метаданные для ${url} взяты из кэша Redis.`);
-            info = JSON.parse(cachedInfo);
-        } else {
-            info = await ytdl(url, { dumpSingleJson: true });
-            await redisClient.setEx(infoKey, 300, JSON.stringify(info)); // Кэш на 5 минут
+        // СТАЛО (более надежно):
+if (cachedInfo) {
+    console.log(`[Cache] Метаданные для ${url} взяты из кэша Redis.`);
+    info = JSON.parse(cachedInfo);
+} else {
+    info = await ytdl(url, { dumpSingleJson: true });
+    // Проверяем, что получили валидный объект перед кэшированием
+    if (info && typeof info === 'object') {
+        try {
+            const infoString = JSON.stringify(info);
+            // Кэшируем на 5 минут (300 секунд)
+            await redisClient.setEx(infoKey, 300, infoString);
+        } catch (e) {
+            console.error(`Ошибка при JSON.stringify для кэширования метаданных:`, e);
         }
+    } else {
+        console.warn(`[Cache] Получены невалидные метаданные от ytdl для ${url}, не кэширую.`);
+    }
+}
         
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
@@ -138,7 +150,7 @@ export async function enqueue(ctx, userId, url) {
         }
 
         const tasksForQueue = []; 
-        const tasksFromCache = [];
+        const tasksFromcachedInfo = [];
 
         await Promise.all(trackInfos.map(async (track) => {
             const fileIdKey = `fileId:${track.url}`;
