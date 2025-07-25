@@ -8,13 +8,23 @@ import { Markup } from 'telegraf';
 import crypto from 'crypto';
 import { fileTypeFromFile } from 'file-type';
 
-import { config } from '../config.js';
+// === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
+import { config } from '../config.js'; // Сначала импортируем config
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// --- Константы из конфига ---
-const { telegramFileLimitMb, maxPlaylistTracksFree, trackTitleLimit, maxConcurrentDownloads, rateLimit, fileIdCacheSeconds, playlistTrackerSeconds } = config;
+// А потом деструктурируем его
+const {
+    telegramFileLimitMb,
+    maxPlaylistTracksFree,
+    trackTitleLimit,
+    maxConcurrentDownloads,
+    rateLimit,
+    fileIdCacheSeconds,
+    playlistTrackerSeconds
+} = config;
+// =========================
 
 // --- Утилиты ---
 const __filename = fileURLToPath(import.meta.url);
@@ -36,11 +46,9 @@ async function trackDownloadProcessor(task) {
         const info = await ytdl(url, { dumpSingleJson: true, retries: 3 });
         if (!info) throw new Error(`Не удалось получить метаданные для ${url}`);
 
-        // --- Обработка плейлиста ---
         if (Array.isArray(info.entries)) {
             let trackInfos = info.entries.filter(e => e?.webpage_url);
             const user = await getUser(userId);
-            
             const { rows } = await pool.query('SELECT downloads_today, premium_limit FROM users WHERE id = $1', [userId]);
             let remainingLimit = rows[0].premium_limit - rows[0].downloads_today;
 
@@ -61,15 +69,13 @@ async function trackDownloadProcessor(task) {
             return;
         }
         
-        // --- Обработка одиночного трека ---
-        const trackUrl = info.webpage_url || url;
-        const trackName = sanitizeFilename(info.title).slice(0, trackTitleLimit);
-        
-        const updatedUser = await incrementDownloads(userId, trackName);
+        const updatedUser = await incrementDownloads(userId, info.title);
         if (!updatedUser) {
             return ctx.telegram.sendMessage(userId, texts.limitReached).catch(() => {});
         }
         
+        const trackUrl = info.webpage_url || url;
+        const trackName = sanitizeFilename(info.title).slice(0, trackTitleLimit);
         const fileIdKey = `fileId:${trackUrl}`;
         const cachedFileId = await redisClient.get(fileIdKey);
 
@@ -83,6 +89,8 @@ async function trackDownloadProcessor(task) {
                 if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
                     console.warn(`-- Невалидный file_id для ${trackUrl}. Скачиваю заново.`);
                     await redisClient.del(fileIdKey);
+                    await trackDownloadProcessor({ ...task, priority: priority + 1 });
+                    return;
                 } else {
                     await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
                     throw err;
