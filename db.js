@@ -109,7 +109,9 @@ export async function getFunnelData(from, to) {
 
 // ... остальной код ...
 
-export async function incrementDownloads(id, trackName = 'track') { // Добавили default value
+// db.js (фрагмент)
+
+export async function incrementDownloads(id, trackName = 'track') {
   const res = await pool.query(`
     UPDATE users 
     SET 
@@ -126,8 +128,6 @@ export async function incrementDownloads(id, trackName = 'track') { // Доба�
   }
   return null;
 }
-
-// ... остальной код ...
 
 export async function saveTrackForUser(id, title, fileId) {
   const user = await getUser(id);
