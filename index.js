@@ -243,6 +243,13 @@ function setupExpress() {
         }
         next();
     });
+    // API-маршрут для получения статуса очереди
+    app.get('/api/queue-status', requireAuth, (req, res) => {
+        res.json({
+            active: downloadQueue.active,
+            size: downloadQueue.size,
+        });
+    });
 
     const requireAuth = (req, res, next) => {
         if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
