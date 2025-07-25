@@ -5,13 +5,15 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "start:indexer": "node indexer.js",
+    "dev": "concurrently \"npm:start\" \"npm:start:indexer\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.6",
     "axios": "^1.6.8",
-    "better-sqlite3": "^8.4.0",
     "compression": "^1.7.4",
+    "concurrently": "^8.2.2",
     "connect-pg-simple": "^8.0.0",
     "ejs": "^3.1.9",
     "express": "^4.19.2",
