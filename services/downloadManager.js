@@ -8,23 +8,21 @@ import { Markup } from 'telegraf';
 import crypto from 'crypto';
 import { fileTypeFromFile } from 'file-type';
 
-// === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
-import { config } from '../config.js'; // Сначала импортируем config
+// === ПРАВИЛЬНЫЙ ИМПОРТ И ДЕСТРУКТУРИЗАЦИЯ ===
+import { config } from '../config.js';
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// А потом деструктурируем его
 const {
     telegramFileLimitMb,
     maxPlaylistTracksFree,
     trackTitleLimit,
     maxConcurrentDownloads,
-    rateLimit,
-    fileIdCacheSeconds,
-    playlistTrackerSeconds
+    rateLimit, // <--- Теперь эта переменная будет определена
+    fileIdCacheSeconds
 } = config;
-// =========================
+// =================================================
 
 // --- Утилиты ---
 const __filename = fileURLToPath(import.meta.url);
@@ -89,8 +87,7 @@ async function trackDownloadProcessor(task) {
                 if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
                     console.warn(`-- Невалидный file_id для ${trackUrl}. Скачиваю заново.`);
                     await redisClient.del(fileIdKey);
-                    await trackDownloadProcessor({ ...task, priority: priority + 1 });
-                    return;
+                    // Вместо рекурсии, просто продолжаем выполнение, чтобы скачать файл заново
                 } else {
                     await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
                     throw err;
@@ -155,7 +152,8 @@ export async function enqueue(ctx, userId, url) {
     const rateLimitKey = `rate-limit:${userId}`;
     const currentUserRequests = await redisClient.incr(rateLimitKey);
     if (currentUserRequests === 1) {
-        await redisClient.expire(rateLimitKey, rateLimit.windowMs / 1000);
+        // Устанавливаем TTL только для первого запроса в "окне"
+        await redisClient.expire(rateLimitKey, Math.floor(rateLimit.windowMs / 1000));
     }
     if (currentUserRequests > rateLimit.max) {
         console.warn(`[RateLimit] Пользователь ${userId} превысил лимит запросов.`);
