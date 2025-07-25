@@ -620,8 +620,12 @@ ${refLink}
     bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
     bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
     // ПРАВИЛЬНЫЙ БЛОК
+// ВСТАВЬТЕ ЭТОТ БЛОК
 bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
+    if (ctx.from.id !== ADMIN_ID) {
+        return; // Молча выходим, если это не админ
+    }
+    
     try {
         const users = await getAllUsers(true);
         const totalUsers = users.length;
@@ -649,7 +653,6 @@ bot.command('admin', async (ctx) => {
 [Открыть дашборд](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
         `.trim();
         
-        // Используем parse_mode: 'Markdown' для Telegraf v4
         await ctx.reply(statsMessage, { parse_mode: 'Markdown' });
         
     } catch (e) {
