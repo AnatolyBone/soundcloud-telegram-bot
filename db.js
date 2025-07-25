@@ -120,7 +120,7 @@ export async function cacheTrack(soundcloudUrl, fileId, title) {
   );
 }
 
-export async function incrementDownloads(id, trackName = 'track') {
+export async function incrementDownloads(id, trackName = 'track', url = null) { // <-- Добавляем url как параметр
   const res = await pool.query(`
     UPDATE users 
     SET 
@@ -132,12 +132,12 @@ export async function incrementDownloads(id, trackName = 'track') {
   `, [id]);
   
   if (res.rowCount > 0) {
-    await logDownload(id, trackName);
+    // Передаем url в logDownload
+    await logDownload(id, trackName, url); 
     return res.rows[0];
   }
   return null;
 }
-
 export async function saveTrackForUser(id, title, fileId) {
   const user = await getUser(id);
   let current = [];
