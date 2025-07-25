@@ -12,6 +12,7 @@ import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
+// --- Константы и утилиты ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
@@ -23,6 +24,7 @@ function sanitizeFilename(name) {
     return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
+// --- Обработчик для ОДНОГО трека (медленный путь) ---
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, playlistUrl, trackName, trackId, uploader } = task;
     const redisClient = getRedisClient();
@@ -33,6 +35,7 @@ async function trackDownloadProcessor(task) {
     try {
         const fileIdKey = `fileId:${url}`;
         tempFilePath = path.join(cacheDir, `${trackId}-${crypto.randomUUID()}.mp3`);
+
         await ytdl(url, {
             extractAudio: true,
             audioFormat: 'mp3',
@@ -44,13 +47,13 @@ async function trackDownloadProcessor(task) {
         
         const fileType = await fileTypeFromFile(tempFilePath);
         if (fileType?.mime !== 'audio/mpeg') {
-            await ctx.telegram.sendMessage(userId, `❌ Не удалось обработать трек "${trackName}", неверный формат.`);
+            await ctx.telegram.sendMessage(userId, `❌ Не удалось обработать трек "${trackName}", так как он имеет неверный формат.`);
             return;
         }
 
         const stats = await fs.promises.stat(tempFilePath);
         if (stats.size / (1024 * 1024) > TELEGRAM_FILE_LIMIT_MB) {
-            await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" слишком большой (>50МБ).`);
+            await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" слишком большой (>50МБ) и не может быть отправлен.`);
             return;
         }
 
@@ -60,6 +63,7 @@ async function trackDownloadProcessor(task) {
         });
         
         if (message?.audio?.file_id) {
+            // Redis-клиент v4 ожидает (key: string, seconds: number, value: string)
             await redisClient.setEx(fileIdKey, 30 * 24 * 60 * 60, message.audio.file_id);
             await saveTrackForUser(userId, trackName, message.audio.file_id);
         }
@@ -86,11 +90,13 @@ async function trackDownloadProcessor(task) {
     }
 }
 
+// --- Инициализация очереди ---
 export const downloadQueue = new TaskQueue({
     maxConcurrent: 8,
     taskProcessor: trackDownloadProcessor,
 });
 
+// --- Основная функция, обрабатывающая запрос пользователя ---
 export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
@@ -123,12 +129,15 @@ export async function enqueue(ctx, userId, url) {
                     infoString = null;
                 }
                 if (infoString && infoString !== '{}') {
+                    // TTL - число, значение - строка. Все по сигнатуре.
                     await redisClient.setEx(infoKey, 300, infoString);
                 }
             }
         }
         
-        if (!info) throw new Error(`Не удалось получить метаданные для ${url}`);
+        if (!info) {
+             throw new Error(`Не удалось получить метаданные для ${url}`);
+        }
 
         const isPlaylist = Array.isArray(info.entries);
         let trackInfos = [];
@@ -195,7 +204,9 @@ export async function enqueue(ctx, userId, url) {
         
         if (tasksForQueue.length > 0) {
             if (isPlaylist) {
-                await redisClient.setEx(`playlist:${userId}:${url}`, 3600, tasksForQueue.length);
+                const playlistKey = `playlist:${userId}:${url}`;
+                // ИСПРАВЛЕНО: Приводим значение к строке для Redis v4
+                await redisClient.setEx(playlistKey, 3600, tasksForQueue.length.toString());
                 await logEvent(userId, 'download_playlist');
             }
             await pool.query(`UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`, [tasksForQueue.length, userId]);
