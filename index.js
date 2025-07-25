@@ -460,6 +460,55 @@ function setupExpress() {
         res.attachment('users.csv');
         return res.send(csv);
     });
+    // index.js, внутри setupExpress(), после всех других маршрутов
+
+// НОВЫЙ МАРШРУТ: Страница детального профиля пользователя
+app.get('/user/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+        if (isNaN(userId)) {
+            return res.status(400).send('Неверный ID пользователя');
+        }
+
+        // 1. Получаем основную информацию о пользователе
+        const user = await getUserById(userId);
+        if (!user) {
+            return res.status(404).send('Пользователь не найден');
+        }
+
+        // 2. Получаем историю его загрузок из лога
+        const { data: downloads, error } = await supabase
+            .from('downloads_log')
+            .select('*')
+            .eq('user_id', userId)
+            .order('downloaded_at', { ascending: false })
+            .limit(100); // Берем последние 100 загрузок, чтобы не перегружать
+
+        if (error) {
+            console.error("Ошибка получения логов загрузок:", error);
+        }
+
+        // 3. (Опционально) Находим пользователей, которых он пригласил (его рефералов)
+        const referralsResult = await pool.query(
+            'SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1',
+            [userId]
+        );
+        const referrals = referralsResult.rows;
+
+        // 4. Рендерим новый шаблон, передавая все данные
+        res.render('user-profile', {
+            title: `Профиль: ${user.first_name || user.username}`,
+            user,
+            downloads: downloads || [],
+            referrals,
+            page: 'user-profile' // для подсветки в sidebar
+        });
+
+    } catch (e) {
+        console.error(`❌ Ошибка при загрузке профиля пользователя:`, e);
+        res.status(500).send('Внутренняя ошибка сервера');
+    }
+});
 
     app.get('/expiring-users', requireAuth, async (req, res) => {
         const page = parseInt(req.query.page) || 1;
