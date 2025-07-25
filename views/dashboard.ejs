@@ -59,21 +59,13 @@
         <!-- Real-time мониторинг очереди -->
         <div class="row mb-3">
             <div class="col-md-6">
-                <div class="info-box bg-primary shadow-sm">
-                    <span class="info-box-icon"><i class="fas fa-cogs"></i></span>
-                    <div class="info-box-content">
-                        <span class="info-box-text">Задач в работе</span>
-                        <span class="info-box-number" id="queueActive">...</span>
-                    </div>
+                <div class="info-box bg-primary shadow-sm"><span class="info-box-icon"><i class="fas fa-cogs"></i></span>
+                    <div class="info-box-content"><span class="info-box-text">Задач в работе</span><span class="info-box-number" id="queueActive">...</span></div>
                 </div>
             </div>
             <div class="col-md-6">
-                <div class="info-box bg-secondary shadow-sm">
-                    <span class="info-box-icon"><i class="fas fa-hourglass-half"></i></span>
-                    <div class="info-box-content">
-                        <span class="info-box-text">Задач в очереди</span>
-                        <span class="info-box-number" id="queueSize">...</span>
-                    </div>
+                <div class="info-box bg-secondary shadow-sm"><span class="info-box-icon"><i class="fas fa-hourglass-half"></i></span>
+                    <div class="info-box-content"><span class="info-box-text">Задач в очереди</span><span class="info-box-number" id="queueSize">...</span></div>
                 </div>
             </div>
         </div>
@@ -81,31 +73,19 @@
         <!-- Статистические плашки -->
         <div class="row mb-3">
           <div class="col-md-4">
-            <div class="info-box bg-info">
-              <span class="info-box-icon"><i class="fas fa-users"></i></span>
-              <div class="info-box-content">
-                <span class="info-box-text">Всего пользователей</span>
-                <span class="info-box-number" data-stat="totalUsers"><%= stats.totalUsers %></span>
-              </div>
+            <div class="info-box bg-info"><span class="info-box-icon"><i class="fas fa-users"></i></span>
+              <div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number" data-stat="totalUsers"><%= stats.totalUsers %></span></div>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="info-box bg-success">
-              <span class="info-box-icon"><i class="fas fa-download"></i></span>
-              <div class="info-box-content">
-                <span class="info-box-text">Всего загрузок</span>
-                <span class="info-box-number" data-stat="totalDownloads"><%= stats.totalDownloads %></span>
-              </div>
+            <div class="info-box bg-success"><span class="info-box-icon"><i class="fas fa-download"></i></span>
+              <div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number" data-stat="totalDownloads"><%= stats.totalDownloads %></span></div>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="info-box bg-warning">
-              <span class="info-box-icon"><i class="fas fa-star"></i></span>
-              <div class="info-box-content">
-                <span class="info-box-text">Тарифы (F/P/P/U)</span>
-                <span class="info-box-number" data-stat="tariffs">
-                  <%= stats.free %> / <%= stats.plus %> / <%= stats.pro %> / <%= stats.unlimited %>
-                </span>
+            <div class="info-box bg-warning"><span class="info-box-icon"><i class="fas fa-star"></i></span>
+              <div class="info-box-content"><span class="info-box-text">Тарифы (F/P/P/U)</span>
+                <span class="info-box-number" data-stat="tariffs"><%= stats.free %> / <%= stats.plus %> / <%= stats.pro %> / <%= stats.unlimited %></span>
               </div>
             </div>
           </div>
@@ -117,18 +97,8 @@
           <div class="card-body"><canvas id="combinedChart" style="height: 250px;"></canvas></div>
         </div>
         <div class="row mt-3">
-          <div class="col-md-6">
-            <div class="card card-info card-outline">
-              <div class="card-header"><h3 class="card-title">Активность по часам</h3></div>
-              <div class="card-body"><canvas id="hourActivityChart" style="height: 250px;"></canvas></div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <div class="card card-info card-outline">
-              <div class="card-header"><h3 class="card-title">Активность по дням недели</h3></div>
-              <div class="card-body"><canvas id="weekdayActivityChart" style="height: 250px;"></canvas></div>
-            </div>
-          </div>
+          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по часам</h3></div><div class="card-body"><canvas id="hourActivityChart" style="height: 250px;"></canvas></div></div></div>
+          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по дням недели</h3></div><div class="card-body"><canvas id="weekdayActivityChart" style="height: 250px;"></canvas></div></div></div>
         </div>
         <div class="card card-secondary card-outline mt-3">
           <div class="card-header"><h3 class="card-title">Тепловая карта активности</h3></div>
@@ -156,77 +126,23 @@
                 </tr>
               </thead>
               <tbody>
-                <% users.forEach(user => { %>
-                  <tr class="<%= !user.active ? 'table-secondary' : '' %>">
-                    <td><a href="/user/<%= user.id %>"><%= user.id %></a></td>
-                    <td><%= user.username ? '@' + user.username : '' %></td>
-                    <td>
-                      <%= user.first_name %>
-                      <% if (user.created_at && new Date(user.created_at).getTime() > Date.now() - 86400000) { %>
-                        <span class="badge bg-info text-dark">🆕</span>
-                      <% } %>
-                    </td>
-                    <td><%= user.total_downloads || 0 %></td>
-                    <td><%= user.premium_limit %></td>
-                    <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
-                    <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
-                    <td>
-                      <% if (!user.last_active) { %>🔴
-                      <% } else if (new Date(user.last_active) > Date.now() - 86400000) { %>🟢
-                      <% } else { %>🟡
-                      <% } %>
-                    </td>
-                    <td><%= user.referral_source ? user.referral_source.replace(/</g, "&lt;") : '—' %></td>
-                    <td>
-                      <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-2 m-0">
-                        <input type="hidden" name="userId" value="<%= user.id %>">
-                        <select name="limit" class="form-select form-select-sm">
-                          <option value="10" <%= user.premium_limit <= 10 ? 'selected' : '' %>>Free</option>
-                          <option value="50" <%= user.premium_limit > 10 && user.premium_limit <= 50 ? 'selected' : '' %>>Plus</option>
-                          <option value="100" <%= user.premium_limit > 50 && user.premium_limit < 1000 ? 'selected' : '' %>>Pro</option>
-                          <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlimited</option>
-                        </select>
-                        <button type="submit" class="btn btn-primary btn-sm">✔️</button>
-                      </form>
-                    </td>
-                    <td><%= user.promo_1plus1_used ? '✅' : '❌' %></td>
-                    <td>
-                      <form action="/admin/reset-promo/<%= user.id %>" method="POST" onsubmit="return confirm('Сбросить промо этому пользователю?')">
-                        <button class="btn btn-sm btn-warning">🔄</button>
-                      </form>
-                    </td>
-                  </tr>
-                <% }) %>
+                <!-- Изначально пусто, будет заполнено через AJAX -->
               </tbody>
             </table>
         </div>
       </div>
 
       <!-- Вкладка Рассылка -->
-      <div class="tab-pane fade" id="broadcastTab" role="tabpanel" aria-labelledby="broadcast-tab">
-        <%- include('partials/_broadcast-form') %>
-      </div>
-
+      <div class="tab-pane fade" id="broadcastTab" role="tabpanel" aria-labelledby="broadcast-tab"><%- include('partials/_broadcast-form') %></div>
       <!-- Вкладка Аналитика -->
       <div class="tab-pane fade" id="analyticsTab" role="tabpanel" aria-labelledby="analytics-tab">
-        <div class="card card-primary card-outline">
-          <div class="card-header"><h3 class="card-title">Воронка пользователей</h3></div>
-          <div class="card-body"><canvas id="funnelChart" style="height: 200px;"></canvas></div>
-        </div>
-        <div class="card card-secondary card-outline mt-3">
-          <div class="card-header"><h3 class="card-title">User Funnel</h3></div>
-          <div class="card-body"><canvas id="userFunnelChart" style="height: 200px;"></canvas></div>
-        </div>
+        <div class="card"><div class="card-header"><h3 class="card-title">Воронка пользователей</h3></div><div class="card-body"><canvas id="funnelChart" style="height: 200px;"></canvas></div></div>
+        <div class="card mt-3"><div class="card-header"><h3 class="card-title">User Funnel</h3></div><div class="card-body"><canvas id="userFunnelChart" style="height: 200px;"></canvas></div></div>
       </div>
-
       <!-- Вкладка Удержание и Воронка -->
       <div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
-        <div class="card card-info card-outline">
-          <div class="card-header"><h3 class="card-title">Retention</h3></div>
-          <div class="card-body"><canvas id="retentionChart" style="height: 300px;"></canvas></div>
-        </div>
+        <div class="card"><div class="card-header"><h3 class="card-title">Retention</h3></div><div class="card-body"><canvas id="retentionChart" style="height: 300px;"></canvas></div></div>
       </div>
-
     </div>
   </div>
 </section>
@@ -235,11 +151,7 @@
 <section class="content mt-4">
   <div class="container-fluid">
     <h3>Логи задач</h3>
-    <% if (taskLogs && taskLogs.length) { %>
-      <pre class="bg-dark text-white p-3 rounded" style="max-height: 300px; overflow-y: auto;"><%= taskLogs.join('\n') %></pre>
-    <% } else { %>
-      <p>Логи отсутствуют.</p>
-    <% } %>
+    <pre id="taskLogs" class="bg-dark text-white p-3 rounded" style="max-height: 300px; overflow-y: auto;">Логи отсутствуют.</pre>
   </div>
 </section>
 
@@ -254,10 +166,11 @@
     // === ИНИЦИАЛИЗАЦИЯ ===
     let charts = {};
     const usersTable = new DataTable('#usersTable', {
-        paging: true, searching: true, ordering: true, order: [[0, 'desc']], scrollX: true,
+        paging: true, searching: true, ordering: true, order: [[5, 'desc']], scrollX: true,
         language: { url: 'https://cdn.datatables.net/plug-ins/1.10.25/i18n/Russian.json' }
     });
 
+    // Универсальная функция для создания/обновления графиков
     function initializeOrUpdateChart(id, type, data, options) {
         const ctx = document.getElementById(id)?.getContext('2d');
         if (!ctx) return;
@@ -265,15 +178,45 @@
         charts[id] = new Chart(ctx, { type, data, options });
     }
     
-    // Первоначальная инициализация с данными от EJS
-    initializeOrUpdateChart('combinedChart', 'line', <%- JSON.stringify(chartDataCombined || {}) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    initializeOrUpdateChart('hourActivityChart', 'bar', <%- JSON.stringify(chartDataHourActivity || {}) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    initializeOrUpdateChart('weekdayActivityChart', 'bar', <%- JSON.stringify(chartDataWeekdayActivity || {}) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    initializeOrUpdateChart('funnelChart', 'bar', <%- JSON.stringify(chartDataFunnel || {}) %>, { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } } });
-    initializeOrUpdateChart('retentionChart', 'line', <%- JSON.stringify(chartDataRetention || {}) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    // Заглушки для недостающих данных
-    initializeOrUpdateChart('heatmapChart', 'bar', <%- JSON.stringify(chartDataHeatmap || {}) %>, { responsive: true });
-    initializeOrUpdateChart('userFunnelChart', 'bar', <%- JSON.stringify(chartDataUserFunnel || {}) %>, { responsive: true });
+    // Функция для рендеринга строки таблицы
+    function renderUserRow(user) {
+        const registrationDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : '-';
+        const lastActiveDate = user.last_active ? new Date(user.last_active).toLocaleDateString() : '-';
+        const isNew = user.created_at && (new Date(user.created_at).getTime() > Date.now() - 86400000);
+        
+        let statusIcon = '🔴';
+        if (user.last_active && new Date(user.last_active) > Date.now() - 86400000) {
+            statusIcon = '🟢';
+        } else if (user.last_active) {
+            statusIcon = '🟡';
+        }
+        
+        return [
+            `<a href="/user/${user.id}">${user.id}</a>`,
+            user.username ? `@${user.username}` : '',
+            `${user.first_name || ''} ${isNew ? '<span class="badge bg-info text-dark">🆕</span>' : ''}`,
+            user.total_downloads || 0,
+            user.premium_limit,
+            registrationDate,
+            lastActiveDate,
+            statusIcon,
+            user.referral_source ? String(user.referral_source).replace(/</g, "&lt;") : '—',
+            `<form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
+                <input type="hidden" name="userId" value="${user.id}">
+                <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
+                    <option value="10" ${user.premium_limit <= 10 ? 'selected' : ''}>Free</option>
+                    <option value="50" ${user.premium_limit > 10 && user.premium_limit <= 50 ? 'selected' : ''}>Plus</option>
+                    <option value="100" ${user.premium_limit > 50 && user.premium_limit < 1000 ? 'selected' : ''}>Pro</option>
+                    <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm">✔️</button>
+             </form>`,
+            user.promo_1plus1_used ? '✅' : '❌',
+            `<form action="/admin/reset-promo/${user.id}" method="POST" onsubmit="return confirm('Сбросить?')">
+                <button class="btn btn-sm btn-warning">🔄</button>
+             </form>`
+        ];
+    }
 
     // === ЛОГИКА AJAX-ОБНОВЛЕНИЯ ===
     const filtersForm = document.getElementById('filtersForm');
@@ -281,24 +224,32 @@
     async function updateDashboard() {
         const formData = new FormData(filtersForm);
         const params = new URLSearchParams(formData);
-        const url = `/api/dashboard-data?${params.toString()}`;
 
         document.body.style.cursor = 'wait';
         
         try {
-            const response = await fetch(url);
-            const data = await response.json();
+            const [statsResponse, usersResponse] = await Promise.all([
+                fetch(`/api/dashboard-data?${params.toString()}`),
+                fetch(`/api/users?${params.toString()}`)
+            ]);
             
+            const statsData = await statsResponse.json();
+            const usersData = await usersResponse.json();
+
             // Обновляем статистические плашки
-            document.querySelector('[data-stat="totalUsers"]').textContent = data.stats.totalUsers;
-            document.querySelector('[data-stat="totalDownloads"]').textContent = data.stats.totalDownloads;
-            document.querySelector('[data-stat="tariffs"]').textContent = ` ${data.stats.free} / ${data.stats.plus} / ${data.stats.pro} / ${data.stats.unlimited}`;
+            document.querySelector('[data-stat="totalUsers"]').textContent = statsData.stats.totalUsers;
+            document.querySelector('[data-stat="totalDownloads"]').textContent = statsData.stats.totalDownloads;
+            document.querySelector('[data-stat="tariffs"]').textContent = ` ${statsData.stats.free}/${statsData.stats.plus}/${statsData.stats.pro}/${statsData.stats.unlimited}`;
 
             // Обновляем графики
-            initializeOrUpdateChart('combinedChart', 'line', data.chartDataCombined, { responsive: true, scales: { y: { beginAtZero: true } } });
-            initializeOrUpdateChart('hourActivityChart', 'bar', data.chartDataHourActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
-            initializeOrUpdateChart('weekdayActivityChart', 'bar', data.chartDataWeekdayActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
-
+            initializeOrUpdateChart('combinedChart', 'line', statsData.chartDataCombined, { responsive: true, scales: { y: { beginAtZero: true } } });
+            initializeOrUpdateChart('hourActivityChart', 'bar', statsData.chartDataHourActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
+            initializeOrUpdateChart('weekdayActivityChart', 'bar', statsData.chartDataWeekdayActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
+            
+            // Обновляем таблицу
+            usersTable.clear();
+            usersTable.rows.add(usersData.map(renderUserRow)).draw();
+            
             // Обновляем ссылку на экспорт
             document.getElementById('exportLink').href = `/export?${params.toString()}`;
         } catch (error) {
@@ -307,8 +258,34 @@
             document.body.style.cursor = 'default';
         }
     }
-
+    
+    // Первоначальная загрузка и вешаем обработчики
+    updateDashboard();
     filtersForm.addEventListener('change', updateDashboard);
+
+    // Обработчик кликов по главному графику (Drill-down)
+    document.getElementById('combinedChart').addEventListener('click', async (evt) => {
+        const points = charts.combinedChart?.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+        if (points?.length) {
+            const dateLabel = charts.combinedChart.data.labels[points[0].index];
+            document.getElementById('usersTable').scrollIntoView({ behavior: 'smooth' });
+            new bootstrap.Tab(document.getElementById('users-tab')).show();
+            await updateUsersTable(`registrationDate=${dateLabel}&showInactive=true`);
+        }
+    });
+
+    async function updateUsersTable(queryParams = '') {
+        try {
+            document.body.style.cursor = 'wait';
+            const response = await fetch(`/api/users?${queryParams}`);
+            const usersData = await response.json();
+            usersTable.clear().rows.add(usersData.map(renderUserRow)).draw();
+        } catch (error) {
+            console.error('Ошибка загрузки пользователей:', error);
+        } finally {
+            document.body.style.cursor = 'default';
+        }
+    }
 
     // === REAL-TIME МОНИТОРИНГ ОЧЕРЕДИ ===
     const queueActiveEl = document.getElementById('queueActive');
