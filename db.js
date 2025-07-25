@@ -220,8 +220,8 @@ export async function getLatestReviews(limit = 10) {
   return data || [];
 }
 
-export async function logDownload(userId, trackTitle) {
-  await supabase.from('downloads_log').insert([{ user_id: userId, track_title: trackTitle }]);
+export async function logDownload(userId, trackTitle, url) { // 
+    await supabase.from('downloads_log').insert([{ user_id: userId, track_title: trackTitle, url: url }]);
 }
 
 // Добавлено: недостающая функция для downloadManager
