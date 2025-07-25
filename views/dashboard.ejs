@@ -158,7 +158,7 @@
               <tbody>
                 <% users.forEach(user => { %>
                   <tr class="<%= !user.active ? 'table-secondary' : '' %>">
-                    <td><%= user.id %></td>
+                    <td><a href="/user/<%= user.id %>"><%= user.id %></a></td>
                     <td><%= user.username ? '@' + user.username : '' %></td>
                     <td>
                       <%= user.first_name %>
