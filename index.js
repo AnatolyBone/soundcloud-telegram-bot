@@ -619,11 +619,18 @@ ${refLink}
     });
     bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
     bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
-    bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        try {
-            const users = await getAllUsers(true);
-            const statsMessage = `
+    // ПРАВИЛЬНЫЙ БЛОК
+bot.command('admin', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return;
+    try {
+        const users = await getAllUsers(true);
+        const totalUsers = users.length;
+        const activeUsers = users.filter(u => u.active).length;
+        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+        const now = new Date();
+        const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
+        
+        const statsMessage = `
 📊 **Статистика Бота**
 
 👤 **Пользователи:**
@@ -640,13 +647,16 @@ ${refLink}
 
 🔗 **Админ-панель:**
 [Открыть дашборд](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
-            `.trim();
-            await ctx.replyWithMarkdown(statsMessage);
-        } catch (e) {
-            console.error('❌ Ошибка в команде /admin:', e);
-            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
-        }
-    });
+        `.trim();
+        
+        // Используем parse_mode: 'Markdown' для Telegraf v4
+        await ctx.reply(statsMessage, { parse_mode: 'Markdown' });
+        
+    } catch (e) {
+        console.error('❌ Ошибка в команде /admin:', e);
+        await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
+    }
+});
     bot.action('check_subscription', async (ctx) => {
     if (await isSubscribed(ctx.from.id)) {
         await setPremium(ctx.from.id, 50, 7);
