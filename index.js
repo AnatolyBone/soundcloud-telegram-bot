@@ -681,9 +681,7 @@ bot.command('admin', async (ctx) => {
         }
     });
 }
-
 // === ЗАПУСК ПРИЛОЖЕНИЯ ===
-startApp();
 
 const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
@@ -692,5 +690,10 @@ const stopBot = (signal) => {
     }
     setTimeout(() => process.exit(0), 500);
 };
+
 process.once('SIGINT', () => stopBot('SIGINT'));
 process.once('SIGTERM', () => stopBot('SIGTERM'));
+
+startApp();
+
+export { app, bot, startApp };
