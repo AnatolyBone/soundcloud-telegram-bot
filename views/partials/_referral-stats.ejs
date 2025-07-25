@@ -1,0 +1,15 @@
+<table class="table table-striped table-hover mb-0">
+  <thead class="thead-light">
+    <tr>
+      <th>Источник</th>
+      <th>Количество</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% if (referralStats.length === 0) { %>
+        <tr><td colspan="2" class="text-center text-muted">Нет данных по источникам.</td></tr>
+    <% } %>
+    <% referralStats.forEach(source => { %>
+      <tr>
+        <td><%= source.source ? String(source.source).replace(/</g, "&lt;") : '—' %></td>
+        <td><span class="badge bg-secondary"><%= source.count %></span></td>
