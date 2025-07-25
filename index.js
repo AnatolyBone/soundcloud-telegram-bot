@@ -243,6 +243,10 @@ function setupExpress() {
         }
         next();
     });
+    const requireAuth = (req, res, next) => {
+        if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
+        res.redirect('/admin');
+    };
     // API-маршрут для получения статуса очереди
     app.get('/api/queue-status', requireAuth, (req, res) => {
         res.json({
@@ -251,10 +255,7 @@ function setupExpress() {
         });
     });
 
-    const requireAuth = (req, res, next) => {
-        if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
-        res.redirect('/admin');
-    };
+    
     
     // === МАРШРУТЫ EXPRESS ===
     app.get('/health', (req, res) => res.send('OK'));
