@@ -13,9 +13,10 @@ import { Telegraf, Markup } from 'telegraf';
 import { createClient } from 'redis';
 import pgSessionFactory from 'connect-pg-simple';
 import json2csv from 'json-2-csv';
+import ytdl from 'youtube-dl-exec';
 
 // === Импорты модулей НАШЕГО приложения ===
-import { pool, supabase, getFunnelData, createUser, getUser, updateUserField, setPremium, getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate, getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour, logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated } from './db.js';
+import { pool, supabase, getFunnelData, createUser, getUser, updateUserField, setPremium, getAllUsers, resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate, getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour, logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated, findCachedTrack, cacheTrack } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 
 // === Константы и конфигурация ===
@@ -27,9 +28,10 @@ const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID; // ID приватного канала для кэширования
 
-if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL) {
-    console.error('❌ Отсутствуют необходимые переменные окружения!');
+if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID) {
+    console.error('❌ Отсутствуют необходимые переменные окружения! (BOT_TOKEN, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, WEBHOOK_URL, STORAGE_CHANNEL_ID)');
     process.exit(1);
 }
 
@@ -39,6 +41,7 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
 export function getRedisClient() {
@@ -46,11 +49,6 @@ export function getRedisClient() {
     return redisClient;
 }
 
-/**
- * Периодически очищает папку с временными файлами от "зависших" загрузок.
- * @param {string} directory - Путь к папке cache.
- * @param {number} maxAgeMinutes - Максимальный возраст файла в минутах, после которого он удаляется.
- */
 async function cleanupCache(directory, maxAgeMinutes = 60) {
     try {
         const now = Date.now();
@@ -60,20 +58,15 @@ async function cleanupCache(directory, maxAgeMinutes = 60) {
             try {
                 const filePath = path.join(directory, file);
                 const stat = await fs.promises.stat(filePath);
-                const ageMinutes = (now - stat.mtimeMs) / 60000;
-                if (ageMinutes > maxAgeMinutes) {
+                if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
                     await fs.promises.unlink(filePath);
                     cleanedCount++;
                 }
-            } catch (fileError) {
-                // Игнорируем ошибки для отдельных файлов (например, если файл уже удален)
-            }
+            } catch (fileError) {}
         }
-        if (cleanedCount > 0) {
-            console.log(`[Cache Cleanup] Удалено ${cleanedCount} старых временных файлов.`);
-        }
+        if (cleanedCount > 0) console.log(`[Cache Cleanup] Удалено ${cleanedCount} старых файлов.`);
     } catch (dirError) {
-        console.error('[Cache Cleanup] Критическая ошибка при чтении папки кэша:', dirError);
+        console.error('[Cache Cleanup] Ошибка:', dirError);
     }
 }
 
@@ -95,6 +88,74 @@ export const texts = {
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
 // =================================================================
+// ===           ЛОГИКА БОТА-ИНДЕКСАТОРА ("ПАУКА")              ===
+// =================================================================
+
+async function getUrlsToIndex() {
+    try {
+        const { rows } = await pool.query(`
+            SELECT url, COUNT(url) as download_count
+            FROM downloads_log
+            WHERE url IS NOT NULL AND url LIKE '%soundcloud.com%' AND url NOT IN (SELECT soundcloud_url FROM track_cache)
+            GROUP BY url
+            ORDER BY download_count DESC
+            LIMIT 10;
+        `);
+        return rows.map(row => row.url);
+    } catch (e) {
+        console.error('[Indexer] Ошибка получения URL для индексации:', e);
+        return [];
+    }
+}
+
+async function processUrlForIndexing(url) {
+    let tempFilePath = null;
+    try {
+        const isCached = await findCachedTrack(url);
+        if (isCached) return;
+
+        console.log(`[Indexer] Индексирую: ${url}`);
+        const info = await ytdl(url, { dumpSingleJson: true });
+        if (!info || Array.isArray(info.entries)) return;
+
+        const trackName = (info.title || 'track').slice(0, 100);
+        tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
+        
+        await ytdl(url, { output: tempFilePath, extractAudio: true, audioFormat: 'mp3' });
+
+        if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
+
+        const message = await bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: fs.createReadStream(tempFilePath) });
+
+        if (message?.audio?.file_id) {
+            await cacheTrack(url, message.audio.file_id, trackName);
+            console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
+        }
+    } catch (err) {
+        console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
+    } finally {
+        if (tempFilePath) await fs.promises.unlink(tempFilePath).catch(() => {});
+    }
+}
+
+async function startIndexer() {
+    console.log('🚀 Запуск фонового индексатора...');
+    while (true) {
+        const urls = await getUrlsToIndex();
+        if (urls.length > 0) {
+            console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
+            for (const url of urls) {
+                await processUrlForIndexing(url);
+                await new Promise(resolve => setTimeout(resolve, 30 * 1000));
+            }
+        }
+        console.log('[Indexer] Пауза на 1 час.');
+        await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
+    }
+}
+
+
+// =================================================================
 // ===                    ОСНОВНАЯ ЛОГИКА                       ===
 // =================================================================
 
@@ -112,25 +173,21 @@ async function startApp() {
         setupExpress();
         setupTelegramBot();
         
-        // --- Запуск периодических задач ---
         setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-        setInterval(() => {
-            console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`);
-        }, 60000);
-
-        // Запускаем очистку кэша каждые 30 минут
+        setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60000);
         setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
-        // Также запускаем один раз при старте для надежности
         cleanupCache(cacheDir, 60);
-        // -----------------------------
 
         if (process.env.NODE_ENV === 'production') {
-            app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH, secret_token: SESSION_SECRET }));
+            app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH }));
             app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
         } else {
             await bot.launch();
             console.log('✅ Бот запущен в режиме long-polling.');
         }
+        
+        startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
+
     } catch (err) {
         console.error('🔴 Критическая ошибка при запуске приложения:', err);
         process.exit(1);
@@ -138,7 +195,6 @@ async function startApp() {
 }
 
 function setupExpress() {
-    // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ АДМИНКИ ===
     function convertObjToArray(dataObj) {
         if (!dataObj) return [];
         return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
@@ -217,7 +273,6 @@ function setupExpress() {
         return weekdays;
     }
     
-    // === НАСТРОЙКА MIDDLEWARE ===
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
@@ -237,7 +292,7 @@ function setupExpress() {
 
     app.use(async (req, res, next) => {
         res.locals.user = null;
-        res.locals.page = ''; // Глобальная переменная для всех шаблонов
+        res.locals.page = '';
         if (req.session.authenticated && req.session.userId === ADMIN_ID) {
             try {
                 req.user = await getUserById(req.session.userId);
@@ -252,7 +307,6 @@ function setupExpress() {
         res.redirect('/admin');
     };
     
-    // === МАРШРУТЫ EXPRESS ===
     app.get('/health', (req, res) => res.send('OK'));
     
     app.get('/admin', (req, res) => {
@@ -270,8 +324,7 @@ function setupExpress() {
             res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
         }
     });
-
-    // --- API маршруты для AJAX ---
+    
     app.get('/api/queue-status', requireAuth, (req, res) => {
         res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
@@ -279,7 +332,7 @@ function setupExpress() {
     app.get('/api/dashboard-data', requireAuth, async (req, res) => {
         try {
             const { period = '30' } = req.query;
-            const users = await getAllUsers(true); // Для статистики нужны все пользователи
+            const users = await getAllUsers(true);
             const [
                 downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
                 activityByDayHour
@@ -287,7 +340,6 @@ function setupExpress() {
                 getDownloadsByDate(), getRegistrationsByDate(), getActiveUsersByDate(),
                 getUserActivityByDayHour()
             ]);
-            
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
             const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
             const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
@@ -311,7 +363,6 @@ function setupExpress() {
                     datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
                 },
             });
-    
         } catch (e) {
             res.status(500).json({ error: 'Ошибка получения данных' });
         }
@@ -341,12 +392,9 @@ function setupExpress() {
         }
     });
 
-    // --- Маршруты страниц ---
     app.get('/dashboard', requireAuth, async (req, res) => {
         try {
             const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-            
-            // Загружаем только те данные, которые нужны для ПЕРВОНАЧАЛЬНОЙ отрисовки
             const [
                 expiringSoon, expiringCount, referralStats, retentionResult, statsResult
             ] = await Promise.all([
@@ -391,7 +439,7 @@ function setupExpress() {
                 page: 'dashboard',
                 user: req.user,
                 stats: { totalUsers: statsResult.rows[0].total, totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...', activityByDayHour: {} },
-                users: [], // Заполнится через AJAX
+                users: [],
                 referralStats, expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
                 expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
                 period, lastMonths: getLastMonths(6), funnelData: funnelCounts,
@@ -414,19 +462,13 @@ function setupExpress() {
         try {
             const userId = parseInt(req.params.id);
             if (isNaN(userId)) return res.status(400).send('Неверный ID');
-            
             const user = await getUserById(userId);
             if (!user) return res.status(404).send('Пользователь не найден');
-
             const { data: downloads } = await supabase.from('downloads_log').select('*').eq('user_id', userId).order('downloaded_at', { ascending: false }).limit(100);
             const referralsResult = await pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId]);
-
             res.render('user-profile', {
-                title: `Профиль: ${user.first_name || user.username}`,
-                user,
-                downloads: downloads || [],
-                referrals: referralsResult.rows,
-                page: 'user-profile'
+                title: `Профиль: ${user.first_name || user.username}`, user,
+                downloads: downloads || [], referrals: referralsResult.rows, page: 'user-profile'
             });
         } catch (e) {
             res.status(500).send('Ошибка сервера');
@@ -435,9 +477,7 @@ function setupExpress() {
 
     app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
 
-    app.get('/broadcast', requireAuth, (req, res) => {
-        res.render('broadcast-form', { title: 'Рассылка', error: null, success: null });
-    });
+    app.get('/broadcast', requireAuth, (req, res) => { res.render('broadcast-form', { title: 'Рассылка', error: null, success: null }); });
 
     app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
         const { message } = req.body;
@@ -448,7 +488,7 @@ function setupExpress() {
         for (const u of users) {
             if (!u.active) continue;
             try {
-                if (audio) await bot.telegram.sendAudio(u.id, { source: audio.path }, { caption: message });
+                if (audio) await bot.telegram.sendAudio(u.id, { source: fs.createReadStream(audio.path) }, { caption: message });
                 else await bot.telegram.sendMessage(u.id, message);
                 success++;
             } catch (e) {
@@ -526,11 +566,8 @@ function setupTelegramBot() {
 📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
 Просто пришли ссылку — и всё 🧙‍♂️
 
-📣 Хочешь быть в курсе новостей, фишек и бонусов?
+📣 Хочешь быть в курсе новостей, фишек и бонусов?  
 Подпишись на наш канал 👉 @SCM_BLOG
-
-🎁 Бонус: 7 дней тарифа PLUS бесплатно
-(только для новых пользователей)
 
 🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
 🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
@@ -546,8 +583,8 @@ function setupTelegramBot() {
 
 🔗 Твоя реферальная ссылка:  
 ${refLink}
-        `.trim();
-    }
+  `.trim();
+}
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
         if (!userId) return;
@@ -586,11 +623,6 @@ ${refLink}
         if (ctx.from.id !== ADMIN_ID) return;
         try {
             const users = await getAllUsers(true);
-            const totalUsers = users.length;
-            const activeUsers = users.filter(u => u.active).length;
-            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-            const now = new Date();
-            const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
             const statsMessage = `
 📊 **Статистика Бота**
 
@@ -616,15 +648,15 @@ ${refLink}
         }
     });
     bot.action('check_subscription', async (ctx) => {
-        if (await isSubscribed(ctx.from.id)) {
-            await setPremium(ctx.from.id, 50, 7);
-            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-            await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
-        } else {
-            await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
-        }
-        await ctx.answerCbQuery();
-    });
+    if (await isSubscribed(ctx.from.id)) {
+        await setPremium(ctx.from.id, 50, 7);
+        await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+        await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
+    } else {
+        await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
+    }
+    await ctx.answerCbQuery();
+});
     bot.on('text', async (ctx) => {
         const url = extractUrl(ctx.message.text);
         if (url) {
