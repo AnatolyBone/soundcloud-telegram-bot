@@ -199,8 +199,10 @@ function setupExpress() {
         const hours = Array(24).fill(0);
         for (const day in activityByDayHour) {
             const hoursData = activityByDayHour[day];
-            for (let h = 0; h < 24; h++) {
-                hours[h] += hoursData[h] || 0;
+            if(hoursData) {
+                for (let h = 0; h < 24; h++) {
+                    hours[h] += hoursData[h] || 0;
+                }
             }
         }
         return hours;
@@ -214,7 +216,7 @@ function setupExpress() {
         }
         return weekdays;
     }
-
+    
     // === НАСТРОЙКА MIDDLEWARE ===
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
@@ -235,7 +237,7 @@ function setupExpress() {
 
     app.use(async (req, res, next) => {
         res.locals.user = null;
-        res.locals.page = '';
+        res.locals.page = ''; // Глобальная переменная для всех шаблонов
         if (req.session.authenticated && req.session.userId === ADMIN_ID) {
             try {
                 req.user = await getUserById(req.session.userId);
@@ -255,7 +257,6 @@ function setupExpress() {
     
     app.get('/admin', (req, res) => {
         if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
-        res.locals.page = 'admin';
         res.render('login', { title: 'Вход в админку', error: null });
     });
 
@@ -266,31 +267,25 @@ function setupExpress() {
             req.session.userId = ADMIN_ID;
             res.redirect('/dashboard');
         } else {
-            res.locals.page = 'admin';
             res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
         }
     });
-    
+
+    // --- API маршруты для AJAX ---
     app.get('/api/queue-status', requireAuth, (req, res) => {
-        res.json({
-            active: downloadQueue.active,
-            size: downloadQueue.size,
-        });
+        res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
 
     app.get('/api/dashboard-data', requireAuth, async (req, res) => {
         try {
-            const { showInactive = 'false', period = '30' } = req.query;
+            const { period = '30' } = req.query;
+            const users = await getAllUsers(true); // Для статистики нужны все пользователи
             const [
-                users, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
-                activityByDayHour, referralStats
+                downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+                activityByDayHour
             ] = await Promise.all([
-                getAllUsers(showInactive === 'true'),
-                getDownloadsByDate(),
-                getRegistrationsByDate(),
-                getActiveUsersByDate(),
-                getUserActivityByDayHour(),
-                getReferralSourcesStats()
+                getDownloadsByDate(), getRegistrationsByDate(), getActiveUsersByDate(),
+                getUserActivityByDayHour()
             ]);
             
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
@@ -318,28 +313,45 @@ function setupExpress() {
             });
     
         } catch (e) {
-            console.error('❌ Ошибка в /api/dashboard-data:', e);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+            res.status(500).json({ error: 'Ошибка получения данных' });
         }
     });
 
+    app.get('/api/users', requireAuth, async (req, res) => {
+        try {
+            const { showInactive = 'false', registrationDate } = req.query;
+            let queryText = 'SELECT id, username, first_name, total_downloads, premium_limit, created_at, last_active, active, referral_source, promo_1plus1_used FROM users';
+            const queryParams = [];
+            const whereClauses = [];
+            if (showInactive !== 'true') {
+                whereClauses.push('active = TRUE');
+            }
+            if (registrationDate) {
+                queryParams.push(registrationDate);
+                whereClauses.push(`DATE(created_at) = $${queryParams.length}`);
+            }
+            if (whereClauses.length > 0) {
+                queryText += ' WHERE ' + whereClauses.join(' AND ');
+            }
+            queryText += ' ORDER BY created_at DESC';
+            const { rows } = await pool.query(queryText, queryParams);
+            res.json(rows);
+        } catch (e) {
+            res.status(500).json({ error: 'Ошибка получения пользователей' });
+        }
+    });
+
+    // --- Маршруты страниц ---
     app.get('/dashboard', requireAuth, async (req, res) => {
         try {
-            res.locals.page = 'dashboard';
             const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-
+            
+            // Загружаем только те данные, которые нужны для ПЕРВОНАЧАЛЬНОЙ отрисовки
             const [
-                users, expiringSoon, expiringCount, downloadsByDateRaw,
-                registrationsByDateRaw, activeByDateRaw, activityByDayHour,
-                referralStats, retentionResult
+                expiringSoon, expiringCount, referralStats, retentionResult, statsResult
             ] = await Promise.all([
-                getAllUsers(showInactive === 'true'),
                 getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
                 getExpiringUsersCount(),
-                getDownloadsByDate(),
-                getRegistrationsByDate(),
-                getActiveUsersByDate(),
-                getUserActivityByDayHour(),
                 getReferralSourcesStats(),
                 pool.query(`
                     WITH cohorts AS (SELECT id AS user_id, DATE(created_at) AS cohort_date FROM users WHERE created_at IS NOT NULL),
@@ -349,46 +361,11 @@ function setupExpress() {
                     SELECT ca.cohort_date, (ca.activity_day - ca.cohort_date) AS days_since_signup, ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
                     FROM cohort_activity ca JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
                     ORDER BY ca.cohort_date, days_since_signup;
-                `)
+                `),
+                pool.query(`SELECT COUNT(*) as total FROM users`)
             ]);
-
-            const { from: fromDate, to: toDate } = getFromToByPeriod(period);
-            const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
-
-            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
-            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
             
-            const stats = {
-                totalUsers: users.length,
-                totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-                free: users.filter(u => u.premium_limit <= 10).length,
-                plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
-                pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
-                unlimited: users.filter(u => u.premium_limit >= 1000).length,
-                activityByDayHour: activityByDayHour
-            };
-            
-            const activityByHour = computeActivityByHour(activityByDayHour);
-            const activityByWeekday = computeActivityByWeekday(activityByDayHour);
-            
-            const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
-            const chartDataHourActivity = {
-                labels: [...Array(24).keys()].map(h => `${h}:00`),
-                datasets: [{ label: 'Активность по часам', data: activityByHour, backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
-            };
-            const chartDataWeekdayActivity = {
-                labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
-                datasets: [{ label: 'Активность по дням недели', data: activityByWeekday, backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
-            };
-            const chartDataFunnel = {
-                labels: ['Зарегистрировались', 'Скачали', 'Оплатили'],
-                datasets: [{
-                    label: 'Воронка пользователей',
-                    data: [funnelCounts.registrationCount || 0, funnelCounts.firstDownloadCount || 0, funnelCounts.subscriptionCount || 0],
-                    backgroundColor: ['#2196f3', '#4caf50', '#ff9800']
-                }]
-            };
+            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
 
             const cohortsMap = {};
             retentionResult.rows.forEach(row => {
@@ -410,17 +387,49 @@ function setupExpress() {
             };
 
             res.render('dashboard', {
-                title: 'Панель управления', user: req.user, stats, users, referralStats,
-                expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
+                title: 'Панель управления',
+                page: 'dashboard',
+                user: req.user,
+                stats: { totalUsers: statsResult.rows[0].total, totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...', activityByDayHour: {} },
+                users: [], // Заполнится через AJAX
+                referralStats, expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
                 expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
                 period, lastMonths: getLastMonths(6), funnelData: funnelCounts,
-                chartDataCombined, chartDataHourActivity, chartDataWeekdayActivity,
-                chartDataFunnel, chartDataRetention, chartDataHeatmap: {},
-                chartDataUserFunnel: {}, taskLogs: [],
+                chartDataCombined: { labels: [], datasets: [] },
+                chartDataHourActivity: { labels: [], datasets: [] },
+                chartDataWeekdayActivity: { labels: [], datasets: [] },
+                chartDataFunnel: { labels: [], datasets: [] },
+                chartDataRetention,
+                chartDataHeatmap: {},
+                chartDataUserFunnel: {},
+                taskLogs: [],
             });
         } catch (e) {
             console.error('❌ Ошибка при загрузке dashboard:', e);
             res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
+        }
+    });
+    
+    app.get('/user/:id', requireAuth, async (req, res) => {
+        try {
+            const userId = parseInt(req.params.id);
+            if (isNaN(userId)) return res.status(400).send('Неверный ID');
+            
+            const user = await getUserById(userId);
+            if (!user) return res.status(404).send('Пользователь не найден');
+
+            const { data: downloads } = await supabase.from('downloads_log').select('*').eq('user_id', userId).order('downloaded_at', { ascending: false }).limit(100);
+            const referralsResult = await pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId]);
+
+            res.render('user-profile', {
+                title: `Профиль: ${user.first_name || user.username}`,
+                user,
+                downloads: downloads || [],
+                referrals: referralsResult.rows,
+                page: 'user-profile'
+            });
+        } catch (e) {
+            res.status(500).send('Ошибка сервера');
         }
     });
 
@@ -460,55 +469,6 @@ function setupExpress() {
         res.attachment('users.csv');
         return res.send(csv);
     });
-    // index.js, внутри setupExpress(), после всех других маршрутов
-
-// НОВЫЙ МАРШРУТ: Страница детального профиля пользователя
-app.get('/user/:id', requireAuth, async (req, res) => {
-    try {
-        const userId = parseInt(req.params.id);
-        if (isNaN(userId)) {
-            return res.status(400).send('Неверный ID пользователя');
-        }
-
-        // 1. Получаем основную информацию о пользователе
-        const user = await getUserById(userId);
-        if (!user) {
-            return res.status(404).send('Пользователь не найден');
-        }
-
-        // 2. Получаем историю его загрузок из лога
-        const { data: downloads, error } = await supabase
-            .from('downloads_log')
-            .select('*')
-            .eq('user_id', userId)
-            .order('downloaded_at', { ascending: false })
-            .limit(100); // Берем последние 100 загрузок, чтобы не перегружать
-
-        if (error) {
-            console.error("Ошибка получения логов загрузок:", error);
-        }
-
-        // 3. (Опционально) Находим пользователей, которых он пригласил (его рефералов)
-        const referralsResult = await pool.query(
-            'SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1',
-            [userId]
-        );
-        const referrals = referralsResult.rows;
-
-        // 4. Рендерим новый шаблон, передавая все данные
-        res.render('user-profile', {
-            title: `Профиль: ${user.first_name || user.username}`,
-            user,
-            downloads: downloads || [],
-            referrals,
-            page: 'user-profile' // для подсветки в sidebar
-        });
-
-    } catch (e) {
-        console.error(`❌ Ошибка при загрузке профиля пользователя:`, e);
-        res.status(500).send('Внутренняя ошибка сервера');
-    }
-});
 
     app.get('/expiring-users', requireAuth, async (req, res) => {
         const page = parseInt(req.query.page) || 1;
@@ -531,12 +491,63 @@ app.get('/user/:id', requireAuth, async (req, res) => {
 }
 
 function setupTelegramBot() {
-    const isSubscribed = async (userId) => { /* ... */ };
-    const extractUrl = (text = '') => { /* ... */ };
-    function getTariffName(limit) { /* ... */ }
-    function getDaysLeft(premiumUntil) { /* ... */ }
-    function formatMenuMessage(user, ctx) { /* ... */ }
+    const isSubscribed = async (userId) => {
+        try {
+            const res = await bot.telegram.getChatMember('@SCM_BLOG', userId);
+            return ['member', 'creator', 'administrator'].includes(res.status);
+        } catch { return false; }
+    };
+    const extractUrl = (text = '') => {
+        const regex = /(https?:\/\/[^\s]+)/g;
+        const matches = text.match(regex);
+        return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
+    };
+    function getTariffName(limit) {
+        if (limit >= 1000) return 'Unlim (∞/день)';
+        if (limit >= 100) return 'Pro (100/день)';
+        if (limit >= 50) return 'Plus (50/день)';
+        return 'Free (10/день)';
+    }
+    function getDaysLeft(premiumUntil) {
+        if (!premiumUntil) return 0;
+        const diff = new Date(premiumUntil) - new Date();
+        return Math.max(Math.ceil(diff / 86400000), 0);
+    }
+    function formatMenuMessage(user, ctx) {
+        const tariffLabel = getTariffName(user.premium_limit);
+        const downloadsToday = user.downloads_today || 0;
+        const invited = user.invited_count || 0;
+        const bonusDays = user.bonus_days || 0;
+        const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
+        const daysLeft = getDaysLeft(user.premium_until);
+        return `
+👋 Привет, ${user.first_name}!
 
+📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
+Просто пришли ссылку — и всё 🧙‍♂️
+
+📣 Хочешь быть в курсе новостей, фишек и бонусов?
+Подпишись на наш канал 👉 @SCM_BLOG
+
+🎁 Бонус: 7 дней тарифа PLUS бесплатно
+(только для новых пользователей)
+
+🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
+🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
+📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
+
+💼 Тариф: ${tariffLabel}  
+⏳ Осталось дней: ${daysLeft}
+
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+
+👫 Приглашено: ${invited}  
+🎁 Получено дней Plus по рефералам: ${bonusDays}
+
+🔗 Твоя реферальная ссылка:  
+${refLink}
+        `.trim();
+    }
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
         if (!userId) return;
@@ -546,18 +557,15 @@ function setupTelegramBot() {
         } catch (error) { console.error(`Ошибка в мидлваре для userId ${userId}:`, error); }
         return next();
     });
-
     bot.start(async (ctx) => {
         await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username, ctx.startPayload || null);
         const fullUser = await getUser(ctx.from.id);
         await ctx.reply(formatMenuMessage(fullUser, ctx), kb());
     });
-    
     bot.hears(texts.menu, async (ctx) => {
         const user = await getUser(ctx.from.id);
         await ctx.reply(formatMenuMessage(user, ctx), kb());
     });
-    
     bot.hears(texts.mytracks, async (ctx) => {
         const user = await getUser(ctx.from.id);
         let tracks = [];
@@ -572,12 +580,51 @@ function setupTelegramBot() {
             }
         }
     });
-
     bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
     bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
-    bot.command('admin', async (ctx) => { /* ... */ });
-    bot.action('check_subscription', async (ctx) => { /* ... */ });
+    bot.command('admin', async (ctx) => {
+        if (ctx.from.id !== ADMIN_ID) return;
+        try {
+            const users = await getAllUsers(true);
+            const totalUsers = users.length;
+            const activeUsers = users.filter(u => u.active).length;
+            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+            const now = new Date();
+            const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
+            const statsMessage = `
+📊 **Статистика Бота**
 
+👤 **Пользователи:**
+   - Всего: *${totalUsers}*
+   - Активных (в целом): *${activeUsers}*
+   - Активных сегодня: *${activeToday}*
+
+📥 **Загрузки:**
+   - Всего за все время: *${totalDownloads}*
+
+⚙️ **Очередь сейчас:**
+   - В работе: *${downloadQueue.active}*
+   - В ожидании: *${downloadQueue.size}*
+
+🔗 **Админ-панель:**
+[Открыть дашборд](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
+            `.trim();
+            await ctx.replyWithMarkdown(statsMessage);
+        } catch (e) {
+            console.error('❌ Ошибка в команде /admin:', e);
+            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
+        }
+    });
+    bot.action('check_subscription', async (ctx) => {
+        if (await isSubscribed(ctx.from.id)) {
+            await setPremium(ctx.from.id, 50, 7);
+            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+            await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
+        } else {
+            await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
+        }
+        await ctx.answerCbQuery();
+    });
     bot.on('text', async (ctx) => {
         const url = extractUrl(ctx.message.text);
         if (url) {
