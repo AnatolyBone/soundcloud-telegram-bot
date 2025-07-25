@@ -39,7 +39,7 @@ async function trackDownloadProcessor(task) {
     
     try {
         console.log(`[Worker] Скачивание: ${trackName}`);
-
+        
         const fileIdKey = `fileId:${url}`;
         tempFilePath = path.join(cacheDir, `${trackId}-${crypto.randomUUID()}.mp3`);
         
