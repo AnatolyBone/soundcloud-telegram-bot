@@ -209,7 +209,7 @@ function setupExpress() {
     function computeActivityByWeekday(activityByDayHour) {
         const weekdays = Array(7).fill(0); // 0=Воскресенье
         for (const dayStr in activityByDayHour) {
-            const dayTotal = Object.values(activityByDayHour[dayStr]).reduce((a, b) => a + b, 0);
+            const dayTotal = Object.values(activityByDayHour[dayStr] || {}).reduce((a, b) => a + b, 0);
             weekdays[new Date(dayStr).getDay()] += dayTotal;
         }
         return weekdays;
@@ -243,19 +243,11 @@ function setupExpress() {
         }
         next();
     });
+
     const requireAuth = (req, res, next) => {
         if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
         res.redirect('/admin');
     };
-    // API-маршрут для получения статуса очереди
-    app.get('/api/queue-status', requireAuth, (req, res) => {
-        res.json({
-            active: downloadQueue.active,
-            size: downloadQueue.size,
-        });
-    });
-
-    
     
     // === МАРШРУТЫ EXPRESS ===
     app.get('/health', (req, res) => res.send('OK'));
@@ -277,6 +269,58 @@ function setupExpress() {
             res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
         }
     });
+    
+    app.get('/api/queue-status', requireAuth, (req, res) => {
+        res.json({
+            active: downloadQueue.active,
+            size: downloadQueue.size,
+        });
+    });
+
+    app.get('/api/dashboard-data', requireAuth, async (req, res) => {
+        try {
+            const { showInactive = 'false', period = '30' } = req.query;
+            const [
+                users, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+                activityByDayHour, referralStats
+            ] = await Promise.all([
+                getAllUsers(showInactive === 'true'),
+                getDownloadsByDate(),
+                getRegistrationsByDate(),
+                getActiveUsersByDate(),
+                getUserActivityByDayHour(),
+                getReferralSourcesStats()
+            ]);
+            
+            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+    
+            res.json({
+                stats: {
+                    totalUsers: users.length,
+                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+                    free: users.filter(u => u.premium_limit <= 10).length,
+                    plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
+                    pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
+                    unlimited: users.filter(u => u.premium_limit >= 1000).length,
+                },
+                chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
+                chartDataHourActivity: {
+                    labels: [...Array(24).keys()].map(h => `${h}:00`),
+                    datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+                },
+                chartDataWeekdayActivity: {
+                    labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+                    datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+                },
+            });
+    
+        } catch (e) {
+            console.error('❌ Ошибка в /api/dashboard-data:', e);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+    });
 
     app.get('/dashboard', requireAuth, async (req, res) => {
         try {
@@ -284,15 +328,9 @@ function setupExpress() {
             const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
 
             const [
-                users,
-                expiringSoon,
-                expiringCount,
-                downloadsByDateRaw,
-                registrationsByDateRaw,
-                activeByDateRaw,
-                activityByDayHour,
-                referralStats,
-                retentionResult
+                users, expiringSoon, expiringCount, downloadsByDateRaw,
+                registrationsByDateRaw, activeByDateRaw, activityByDayHour,
+                referralStats, retentionResult
             ] = await Promise.all([
                 getAllUsers(showInactive === 'true'),
                 getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
@@ -371,27 +409,13 @@ function setupExpress() {
             };
 
             res.render('dashboard', {
-                title: 'Панель управления',
-                user: req.user,
-                stats,
-                users,
-                referralStats,
-                expiringSoon,
-                expiringCount,
-                expiringOffset: parseInt(expiringOffset),
-                expiringLimit: parseInt(expiringLimit),
-                showInactive: showInactive === 'true',
-                period,
-                lastMonths: getLastMonths(6),
-                funnelData: funnelCounts,
-                chartDataCombined,
-                chartDataHourActivity,
-                chartDataWeekdayActivity,
-                chartDataFunnel,
-                chartDataRetention,
-                chartDataHeatmap: {},
-                chartDataUserFunnel: {},
-                taskLogs: [],
+                title: 'Панель управления', user: req.user, stats, users, referralStats,
+                expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
+                expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
+                period, lastMonths: getLastMonths(6), funnelData: funnelCounts,
+                chartDataCombined, chartDataHourActivity, chartDataWeekdayActivity,
+                chartDataFunnel, chartDataRetention, chartDataHeatmap: {},
+                chartDataUserFunnel: {}, taskLogs: [],
             });
         } catch (e) {
             console.error('❌ Ошибка при загрузке dashboard:', e);
@@ -399,12 +423,9 @@ function setupExpress() {
         }
     });
 
-    app.get('/logout', (req, res) => {
-        req.session.destroy(() => res.redirect('/admin'));
-    });
+    app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
 
     app.get('/broadcast', requireAuth, (req, res) => {
-        res.locals.page = 'broadcast';
         res.render('broadcast-form', { title: 'Рассылка', error: null, success: null });
     });
 
@@ -417,11 +438,8 @@ function setupExpress() {
         for (const u of users) {
             if (!u.active) continue;
             try {
-                if (audio) {
-                    await bot.telegram.sendAudio(u.id, { source: audio.path }, { caption: message });
-                } else {
-                    await bot.telegram.sendMessage(u.id, message);
-                }
+                if (audio) await bot.telegram.sendAudio(u.id, { source: audio.path }, { caption: message });
+                else await bot.telegram.sendMessage(u.id, message);
                 success++;
             } catch (e) {
                 error++;
@@ -430,7 +448,7 @@ function setupExpress() {
             await new Promise(r => setTimeout(r, 150));
         }
         if (audio) fs.unlinkSync(audio.path);
-        await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена\n✅ Успешно: ${success}\n❌ Ошибок: ${error}`);
+        await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка: ✅ ${success} ❌ ${error}`);
         res.render('broadcast-form', { title: 'Рассылка', success, error });
     });
     
@@ -452,138 +470,23 @@ function setupExpress() {
     
     app.post('/set-tariff', requireAuth, async (req, res) => {
         const { userId, limit, days } = req.body;
-        await setPremium(userId, parseInt(limit), parseInt(days));
-        res.redirect('/dashboard');
+        await setPremium(userId, parseInt(limit), parseInt(days) || 30);
+        res.redirect(req.get('referer') || '/dashboard');
     });
     
     app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
         await updateUserField(req.params.id, 'promo_1plus1_used', false);
-        res.redirect('/dashboard');
+        res.redirect(req.get('referer') || '/dashboard');
     });
 }
-// index.js, внутри setupExpress()
 
-// ... после всех ваших app.get() / app.post() ...
-
-// НОВЫЙ API-маршрут для данных дашборда
-app.get('/api/dashboard-data', requireAuth, async (req, res) => {
-    try {
-        const { showInactive = 'false', period = '30' } = req.query;
-
-        // Вся логика получения и обработки данных, которую мы уже написали для /dashboard
-        const [
-            users, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
-            activityByDayHour, referralStats, retentionResult
-        ] = await Promise.all([
-            getAllUsers(showInactive === 'true'),
-            getDownloadsByDate(),
-            getRegistrationsByDate(),
-            getActiveUsersByDate(),
-            getUserActivityByDayHour(),
-            getReferralSourcesStats(),
-            pool.query(`... (ваш SQL для retention) ...`)
-        ]);
-
-        const { from: fromDate, to: toDate } = getFromToByPeriod(period);
-        const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
-        
-        const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-        const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
-        const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
-
-        // Формируем JSON-ответ
-        res.json({
-            stats: {
-                totalUsers: users.length,
-                totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-                free: users.filter(u => u.premium_limit <= 10).length,
-                plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
-                pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
-                unlimited: users.filter(u => u.premium_limit >= 1000).length,
-            },
-            chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
-            chartDataHourActivity: {
-                labels: [...Array(24).keys()].map(h => `${h}:00`),
-                datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
-            },
-            chartDataWeekdayActivity: {
-                labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
-                datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
-            },
-            // Добавьте сюда другие данные, которые хотите обновлять
-        });
-
-    } catch (e) {
-        console.error('❌ Ошибка в /api/dashboard-data:', e);
-        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-    }
-});
 function setupTelegramBot() {
-    // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ БОТА ===
-    const isSubscribed = async (userId) => {
-        try {
-            const res = await bot.telegram.getChatMember('@SCM_BLOG', userId);
-            return ['member', 'creator', 'administrator'].includes(res.status);
-        } catch { return false; }
-    };
+    const isSubscribed = async (userId) => { /* ... */ };
+    const extractUrl = (text = '') => { /* ... */ };
+    function getTariffName(limit) { /* ... */ }
+    function getDaysLeft(premiumUntil) { /* ... */ }
+    function formatMenuMessage(user, ctx) { /* ... */ }
 
-    const extractUrl = (text = '') => {
-        const regex = /(https?:\/\/[^\s]+)/g;
-        const matches = text.match(regex);
-        return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
-    };
-
-    function getTariffName(limit) {
-        if (limit >= 1000) return 'Unlim (∞/день)';
-        if (limit >= 100) return 'Pro (100/день)';
-        if (limit >= 50) return 'Plus (50/день)';
-        return 'Free (10/день)';
-    }
-
-    function getDaysLeft(premiumUntil) {
-        if (!premiumUntil) return 0;
-        const diff = new Date(premiumUntil) - new Date();
-        return Math.max(Math.ceil(diff / 86400000), 0);
-    }
-
-    function formatMenuMessage(user, ctx) {
-        const tariffLabel = getTariffName(user.premium_limit);
-        const downloadsToday = user.downloads_today || 0;
-        const invited = user.invited_count || 0;
-        const bonusDays = user.bonus_days || 0;
-        const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
-        const daysLeft = getDaysLeft(user.premium_until);
-        
-        return `
-👋 Привет, ${user.first_name}!
-
-📥 Бот качает треки и плейлисты с SoundCloud в MP3.  
-Просто пришли ссылку — и всё 🧙‍♂️
-
-📣 Хочешь быть в курсе новостей, фишек и бонусов?
-Подпишись на наш канал 👉 @SCM_BLOG
-
-🎁 Бонус: 7 дней тарифа PLUS бесплатно
-(только для новых пользователей)
-
-🔄 При отправке ссылки ты увидишь свою позицию в очереди.  
-🎯 Платные тарифы идут с приоритетом — их треки загружаются первыми.  
-📥 Бесплатные пользователи тоже получают треки — просто чуть позже.
-
-💼 Тариф: ${tariffLabel}  
-⏳ Осталось дней: ${daysLeft}
-
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
-
-👫 Приглашено: ${invited}  
-🎁 Получено дней Plus по рефералам: ${bonusDays}
-
-🔗 Твоя реферальная ссылка:  
-${refLink}
-        `.trim();
-    }
-
-    // === MIDDLEWARE БОТА ===
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
         if (!userId) return;
@@ -594,25 +497,24 @@ ${refLink}
         return next();
     });
 
-    // === ОБРАБОТЧИКИ КОМАНД БОТА ===
     bot.start(async (ctx) => {
         await createUser(ctx.from.id, ctx.from.first_name, ctx.from.username, ctx.startPayload || null);
         const fullUser = await getUser(ctx.from.id);
         await ctx.reply(formatMenuMessage(fullUser, ctx), kb());
     });
-
+    
     bot.hears(texts.menu, async (ctx) => {
         const user = await getUser(ctx.from.id);
         await ctx.reply(formatMenuMessage(user, ctx), kb());
     });
-
+    
     bot.hears(texts.mytracks, async (ctx) => {
         const user = await getUser(ctx.from.id);
         let tracks = [];
         try { if (user.tracks_today) tracks = JSON.parse(user.tracks_today); } catch {}
         if (!tracks.length) return ctx.reply(texts.noTracks);
-        for (let i = 0; i < tracks.length; i += 5) {
-            const chunk = tracks.slice(i, i + 5).filter(t => t.fileId);
+        for (let i = 0; i < tracks.length; i += 10) {
+            const chunk = tracks.slice(i, i + 10).filter(t => t.fileId);
             if (chunk.length > 0) {
                 try {
                     await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
@@ -623,61 +525,15 @@ ${refLink}
 
     bot.hears(texts.help, async (ctx) => { await ctx.reply(texts.helpInfo, kb()); });
     bot.hears(texts.upgrade, async (ctx) => { await ctx.reply(texts.upgradeInfo, kb()); });
-
-    bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        try {
-            const users = await getAllUsers(true);
-            const totalUsers = users.length;
-            const activeUsers = users.filter(u => u.active).length;
-            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-            const now = new Date();
-            const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
-
-            const statsMessage = `
-📊 **Статистика Бота**
-
-👤 **Пользователи:**
-   - Всего: *${totalUsers}*
-   - Активных (в целом): *${activeUsers}*
-   - Активных сегодня: *${activeToday}*
-
-📥 **Загрузки:**
-   - Всего за все время: *${totalDownloads}*
-
-⚙️ **Очередь сейчас:**
-   - В работе: *${downloadQueue.active}*
-   - В ожидании: *${downloadQueue.size}*
-
-🔗 **Админ-панель:**
-[Открыть дашборд](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
-            `.trim();
-
-            await ctx.replyWithMarkdown(statsMessage);
-        } catch (e) {
-            console.error('❌ Ошибка в команде /admin:', e);
-            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
-        }
-    });
-
-    bot.action('check_subscription', async (ctx) => {
-        if (await isSubscribed(ctx.from.id)) {
-            await setPremium(ctx.from.id, 50, 7);
-            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-            await ctx.reply('Поздравляю! Тебе начислен бонус: 7 дней Plus.');
-        } else {
-            await ctx.reply('Пожалуйста, подпишись на канал @SCM_BLOG и нажми кнопку ещё раз.');
-        }
-        await ctx.answerCbQuery();
-    });
+    bot.command('admin', async (ctx) => { /* ... */ });
+    bot.action('check_subscription', async (ctx) => { /* ... */ });
 
     bot.on('text', async (ctx) => {
         const url = extractUrl(ctx.message.text);
         if (url) {
             await enqueue(ctx, ctx.from.id, url);
         } else {
-            const knownCommands = [texts.menu, texts.mytracks, texts.help, texts.upgrade];
-            if (!knownCommands.includes(ctx.message.text)) {
+            if (!Object.values(texts).includes(ctx.message.text)) {
                 await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист.');
             }
         }
@@ -691,9 +547,6 @@ const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
     if (bot.polling?.isRunning()) {
         bot.stop(signal);
-        console.log('Бот (polling) остановлен.');
-    } else {
-        console.log('Бот не запущен или работает в режиме webhook. Просто выходим.');
     }
     setTimeout(() => process.exit(0), 500);
 };
