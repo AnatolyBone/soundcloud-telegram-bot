@@ -2,29 +2,27 @@
 
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto'; // Для безопасных имен файлов
 import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import { Markup } from 'telegraf';
-import { fileTypeFromFile } from 'file-type'; // Для проверки MIME-типа
+import crypto from 'crypto';
+import { fileTypeFromFile } from 'file-type';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// --- Константы и утилиты ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
 const TELEGRAM_FILE_LIMIT_MB = 49;
-const MAX_PLAYLIST_TRACKS_FREE = 10; // Лимит треков из плейлиста для бесплатных пользователей
-const TRACK_TITLE_LIMIT = 100; // Увеличенный лимит на длину названия
+const MAX_PLAYLIST_TRACKS_FREE = 10;
+const TRACK_TITLE_LIMIT = 100;
 
 function sanitizeFilename(name) {
     return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
-// --- Обработчик для ОДНОГО трека (медленный путь) ---
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, playlistUrl, trackName, trackId, uploader } = task;
     const redisClient = getRedisClient();
@@ -34,24 +32,19 @@ async function trackDownloadProcessor(task) {
 
     try {
         const fileIdKey = `fileId:${url}`;
-        // ИСПРАВЛЕНИЕ №1: Безопасное имя файла
         tempFilePath = path.join(cacheDir, `${trackId}-${crypto.randomUUID()}.mp3`);
-
         await ytdl(url, {
             extractAudio: true,
             audioFormat: 'mp3',
             output: tempFilePath,
             embedMetadata: true,
             postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}"`,
-            // ИСПРАВЛЕНИЕ №5: Встроенные повторы при сетевых ошибках
             retries: 3,
         });
         
-        // ИСПРАВЛЕНИЕ №2: Проверка MIME-типа скачанного файла
         const fileType = await fileTypeFromFile(tempFilePath);
         if (fileType?.mime !== 'audio/mpeg') {
-            console.error(`❌ Ошибка типа файла для ${trackName}. Ожидался audio/mpeg, получен ${fileType?.mime}`);
-            await ctx.telegram.sendMessage(userId, `❌ Не удалось обработать трек "${trackName}", так как он имеет неверный формат.`);
+            await ctx.telegram.sendMessage(userId, `❌ Не удалось обработать трек "${trackName}", неверный формат.`);
             return;
         }
 
@@ -93,13 +86,11 @@ async function trackDownloadProcessor(task) {
     }
 }
 
-// --- Инициализация очереди ---
 export const downloadQueue = new TaskQueue({
     maxConcurrent: 8,
     taskProcessor: trackDownloadProcessor,
 });
 
-// --- Основная функция, обрабатывающая запрос пользователя ---
 export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
@@ -119,11 +110,21 @@ export async function enqueue(ctx, userId, url) {
         const cachedInfo = await redisClient.get(infoKey);
 
         if (cachedInfo) {
+            console.log(`[Cache] Метаданные для ${url} взяты из Redis.`);
             info = JSON.parse(cachedInfo);
         } else {
             info = await ytdl(url, { dumpSingleJson: true });
-            if (info && typeof info === 'object') {
-                await redisClient.setEx(infoKey, 300, JSON.stringify(info));
+            if (info) {
+                let infoString;
+                try {
+                    infoString = JSON.stringify(info);
+                } catch (e) {
+                    console.error(`[Cache] Ошибка JSON.stringify для ${url}:`, e);
+                    infoString = null;
+                }
+                if (infoString && infoString !== '{}') {
+                    await redisClient.setEx(infoKey, 300, infoString);
+                }
             }
         }
         
@@ -136,7 +137,6 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = info.entries.filter(e => e?.webpage_url).map(e => ({
                 url: e.webpage_url,
                 trackId: e.id || e.title.replace(/\s/g, ''),
-                // ИСПРАВЛЕНИЕ №4: Увеличен лимит на длину названия
                 trackName: sanitizeFilename(e.title).slice(0, TRACK_TITLE_LIMIT),
                 uploader: e.uploader || 'SoundCloud'
             }));
@@ -144,14 +144,13 @@ export async function enqueue(ctx, userId, url) {
             trackInfos = [{ url: info.webpage_url || url, trackId: info.id || info.title.replace(/\s/g, ''), trackName: sanitizeFilename(info.title).slice(0, TRACK_TITLE_LIMIT), uploader: info.uploader || 'SoundCloud' }];
         }
         
-        // ИСПРАВЛЕНИЕ №3: Ограничение на размер плейлиста для бесплатных пользователей
         if (isPlaylist && user.premium_limit <= 10 && trackInfos.length > MAX_PLAYLIST_TRACKS_FREE) {
-            await ctx.telegram.sendMessage(userId, `ℹ️ Бесплатные пользователи могут добавлять до ${MAX_PLAYLIST_TRACKS_FREE} треков из плейлиста за раз. Обрабатываю первые ${MAX_PLAYLIST_TRACKS_FREE}.`);
+            await ctx.telegram.sendMessage(userId, `ℹ️ Бесплатные пользователи могут добавлять до ${MAX_PLAYLIST_TRACKS_FREE} треков из плейлиста.`);
             trackInfos = trackInfos.slice(0, MAX_PLAYLIST_TRACKS_FREE);
         }
         
         if (trackInfos.length > remainingLimit) {
-            await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}. Обрабатываю первые ${remainingLimit}.`);
+            await ctx.telegram.sendMessage(userId, `⚠️ В плейлисте ${trackInfos.length} треков, но вам доступно только ${remainingLimit}.`);
             trackInfos = trackInfos.slice(0, remainingLimit);
         }
 
@@ -183,7 +182,7 @@ export async function enqueue(ctx, userId, url) {
                         } catch (err) {
                             if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
                                 await redisClient.del(`fileId:${track.url}`);
-                                tasksForQueue.push(track); // Отправляем на перезалив
+                                tasksForQueue.push(track);
                             }
                         }
                     }
@@ -199,7 +198,6 @@ export async function enqueue(ctx, userId, url) {
                 await redisClient.setEx(`playlist:${userId}:${url}`, 3600, tasksForQueue.length);
                 await logEvent(userId, 'download_playlist');
             }
-            
             await pool.query(`UPDATE users SET downloads_today = downloads_today + $1, total_downloads = total_downloads + $1 WHERE id = $2`, [tasksForQueue.length, userId]);
             for (const track of tasksForQueue) {
                 downloadQueue.add({ ctx, userId, ...track, playlistUrl: isPlaylist ? url : null, priority: user.premium_limit });
