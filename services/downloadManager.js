@@ -1,29 +1,29 @@
-// services/downloadManager.js (Упрощенная и быстрая версия)
+// services/downloadManager.js
 
 import path from 'path';
 import fs from 'fs';
 import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import { Markup } from 'telegraf';
+import crypto from 'crypto';
+import { fileTypeFromFile } from 'file-type';
 
-// === ИСПРАВЛЕНИЕ ЗДЕСЬ: Возвращаем импорт конфига ===
-import { config } from '../config.js';
+// Импортируем сам объект config
+import { config } from '../config.js'; 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
-import { getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
-
-// Деструктурируем конфиг, чтобы получить rateLimit и другие константы
-const { telegramFileLimitMb, maxPlaylistTracksFree, trackTitleLimit, maxConcurrentDownloads, rateLimit, fileIdCacheSeconds } = config;
-// =======================================================
+import { pool, getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
 // --- Утилиты ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
 
-function sanitizeFilename(name) { return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim(); }
+function sanitizeFilename(name) {
+    return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
+}
 
-
+// --- "Умный" обработчик задач ---
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, priority } = task;
     const redisClient = getRedisClient();
@@ -32,13 +32,21 @@ async function trackDownloadProcessor(task) {
     try {
         console.log(`[Worker] Анализ: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true, retries: 3 });
-        if (!info) throw new Error('Не удалось получить метаданные');
+        if (!info) throw new Error(`Не удалось получить метаданные для ${url}`);
 
         if (Array.isArray(info.entries)) {
             let trackInfos = info.entries.filter(e => e?.webpage_url);
             const user = await getUser(userId);
-            if (user.premium_limit <= 10 && trackInfos.length > maxPlaylistTracksFree) {
-                trackInfos = trackInfos.slice(0, maxPlaylistTracksFree);
+            const { rows } = await pool.query('SELECT downloads_today, premium_limit FROM users WHERE id = $1', [userId]);
+            let remainingLimit = rows[0].premium_limit - rows[0].downloads_today;
+
+            if (user.premium_limit <= 10 && trackInfos.length > config.maxPlaylistTracksFree) { // Используем config.
+                await ctx.telegram.sendMessage(userId, `ℹ️ На бесплатном тарифе можно добавить до ${config.maxPlaylistTracksFree} треков.`);
+                trackInfos = trackInfos.slice(0, config.maxPlaylistTracksFree);
+            }
+            if (trackInfos.length > remainingLimit) {
+                await ctx.telegram.sendMessage(userId, `⚠️ Ваш лимит ${remainingLimit}. Добавляю только доступное количество.`);
+                trackInfos = trackInfos.slice(0, remainingLimit);
             }
             if (trackInfos.length > 0) {
                  await ctx.telegram.sendMessage(userId, `✅ Плейлист принят. Добавляю ${trackInfos.length} треков в очередь...`);
@@ -49,9 +57,13 @@ async function trackDownloadProcessor(task) {
             return;
         }
         
-        const trackUrl = info.webpage_url || url;
-        const trackName = sanitizeFilename(info.title).slice(0, trackTitleLimit);
+        const updatedUser = await incrementDownloads(userId, info.title);
+        if (!updatedUser) {
+            return ctx.telegram.sendMessage(userId, texts.limitReached).catch(() => {});
+        }
         
+        const trackUrl = info.webpage_url || url;
+        const trackName = sanitizeFilename(info.title).slice(0, config.trackTitleLimit); // Используем config.
         const fileIdKey = `fileId:${trackUrl}`;
         const cachedFileId = await redisClient.get(fileIdKey);
 
@@ -65,35 +77,50 @@ async function trackDownloadProcessor(task) {
                 if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
                     console.warn(`-- Невалидный file_id для ${trackUrl}. Скачиваю заново.`);
                     await redisClient.del(fileIdKey);
-                } else { throw err; }
+                } else {
+                    await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
+                    throw err;
+                }
             }
         }
         
         console.log(`[Worker] Скачивание: ${trackName}`);
         const trackId = info.id || trackName.replace(/\s/g, '');
         const uploader = info.uploader || 'SoundCloud';
-        tempFilePath = path.join(cacheDir, `${trackId}-${Date.now()}.mp3`);
+        tempFilePath = path.join(cacheDir, `${trackId}-${crypto.randomUUID()}.mp3`);
         
         await ytdl(trackUrl, { extractAudio: true, audioFormat: 'mp3', output: tempFilePath, embedMetadata: true, postprocessorArgs: `-metadata artist="${uploader}"`, retries: 3 });
         
         if (!fs.existsSync(tempFilePath)) {
             throw new Error(`ytdl не создал файл для трека: ${trackName}`);
         }
+
+        const fileType = await fileTypeFromFile(tempFilePath);
+        if (fileType?.mime !== 'audio/mpeg') {
+            await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" имеет неверный формат.`);
+            await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
+            return;
+        }
         
-        if ((await fs.promises.stat(tempFilePath)).size / (1024*1024) > telegramFileLimitMb) {
+        if ((await fs.promises.stat(tempFilePath)).size / (1024 * 1024) > config.telegramFileLimitMb) { // Используем config.
             await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" слишком большой (>50МБ).`);
+            await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
             return;
         }
 
         const message = await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(tempFilePath) }, { title: trackName, performer: uploader });
         
         if (message?.audio?.file_id) {
-            await redisClient.setEx(fileIdKey, fileIdCacheSeconds, message.audio.file_id);
+            await redisClient.setEx(fileIdKey, config.fileIdCacheSeconds, message.audio.file_id); // Используем config.
             await saveTrackForUser(userId, trackName, message.audio.file_id);
         }
 
     } catch (err) {
-        console.error(`❌ Ошибка в воркере для ${url}:`, err.stderr || err.message || err);
+        if (err.stderr?.includes('404')) {
+            await ctx.telegram.sendMessage(userId, `❌ Трек по ссылке не найден.`).catch(() => {});
+        } else {
+            console.error(`❌ Ошибка в воркере для ${url}:`, err.stderr || err.message || err);
+        }
     } finally {
         if (tempFilePath && fs.existsSync(tempFilePath)) {
             await fs.promises.unlink(tempFilePath);
@@ -101,28 +128,32 @@ async function trackDownloadProcessor(task) {
     }
 }
 
+// --- Инициализация очереди ---
 export const downloadQueue = new TaskQueue({
-    maxConcurrent: maxConcurrentDownloads,
+    maxConcurrent: config.maxConcurrentDownloads, // Используем config.
     taskProcessor: trackDownloadProcessor,
 });
 
+// --- Быстрая enqueue ---
 export async function enqueue(ctx, userId, url) {
     const redisClient = getRedisClient();
     
     const rateLimitKey = `rate-limit:${userId}`;
     const currentUserRequests = await redisClient.incr(rateLimitKey);
     if (currentUserRequests === 1) {
-        await redisClient.expire(rateLimitKey, Math.floor(rateLimit.windowMs / 1000));
+        // ИСПОЛЬЗУЕМ config.rateLimit.windowMs напрямую
+        await redisClient.expire(rateLimitKey, Math.floor(config.rateLimit.windowMs / 1000));
     }
-    if (currentUserRequests > rateLimit.max) {
+    if (currentUserRequests > config.rateLimit.max) { // ИСПОЛЬЗУЕМ config.rateLimit.max
+        console.warn(`[RateLimit] Пользователь ${userId} превысил лимит запросов.`);
         return; 
     }
 
     try {
         await logUserActivity(userId);
         
-        const updatedUser = await incrementDownloads(userId, url);
-        if (!updatedUser) {
+        const user = await getUser(userId);
+        if (user.downloads_today >= user.premium_limit) {
             return ctx.telegram.sendMessage(userId, texts.limitReached);
         }
 
@@ -130,7 +161,7 @@ export async function enqueue(ctx, userId, url) {
             ctx,
             userId,
             url,
-            priority: updatedUser.premium_limit,
+            priority: user.premium_limit,
         });
 
         await ctx.reply(`✅ Ссылка принята! Позиция в очереди: ~${downloadQueue.size}.`);
