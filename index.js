@@ -126,7 +126,14 @@ async function processUrlForIndexing(url) {
         if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
         
         try {
-            const message = await bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: fs.createReadStream(tempFilePath) });
+            const message = await bot.telegram.sendAudio(
+    STORAGE_CHANNEL_ID,
+    { source: fs.createReadStream(tempFilePath) },
+    { 
+        caption: trackName,
+        title: trackName // title важен для корректного имени файла при скачивании
+    }
+);
 
             if (message?.audio?.file_id) {
                 await cacheTrack(url, message.audio.file_id, trackName);
