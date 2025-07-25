@@ -6,13 +6,15 @@ import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import { Markup } from 'telegraf';
 
+// === ИСПРАВЛЕНИЕ ЗДЕСЬ: Возвращаем импорт конфига ===
 import { config } from '../config.js';
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// --- Константы из конфига ---
-const { telegramFileLimitMb, maxPlaylistTracksFree, trackTitleLimit, maxConcurrentDownloads, rateLimit, fileIdCacheSeconds, metadataCacheSeconds } = config;
+// Деструктурируем конфиг, чтобы получить rateLimit и другие константы
+const { telegramFileLimitMb, maxPlaylistTracksFree, trackTitleLimit, maxConcurrentDownloads, rateLimit, fileIdCacheSeconds } = config;
+// =======================================================
 
 // --- Утилиты ---
 const __filename = fileURLToPath(import.meta.url);
@@ -32,11 +34,9 @@ async function trackDownloadProcessor(task) {
         const info = await ytdl(url, { dumpSingleJson: true, retries: 3 });
         if (!info) throw new Error('Не удалось получить метаданные');
 
-        // Обработка плейлиста
         if (Array.isArray(info.entries)) {
             let trackInfos = info.entries.filter(e => e?.webpage_url);
             const user = await getUser(userId);
-            // Простая проверка без сложных откатов
             if (user.premium_limit <= 10 && trackInfos.length > maxPlaylistTracksFree) {
                 trackInfos = trackInfos.slice(0, maxPlaylistTracksFree);
             }
@@ -49,11 +49,8 @@ async function trackDownloadProcessor(task) {
             return;
         }
         
-        // Обработка одиночного трека
         const trackUrl = info.webpage_url || url;
         const trackName = sanitizeFilename(info.title).slice(0, trackTitleLimit);
-        
-        // Лимит уже списан в enqueue
         
         const fileIdKey = `fileId:${trackUrl}`;
         const cachedFileId = await redisClient.get(fileIdKey);
@@ -75,7 +72,7 @@ async function trackDownloadProcessor(task) {
         console.log(`[Worker] Скачивание: ${trackName}`);
         const trackId = info.id || trackName.replace(/\s/g, '');
         const uploader = info.uploader || 'SoundCloud';
-        tempFilePath = path.join(cacheDir, `${trackId}-${Date.now()}.mp3`); // Упростили имя файла
+        tempFilePath = path.join(cacheDir, `${trackId}-${Date.now()}.mp3`);
         
         await ytdl(trackUrl, { extractAudio: true, audioFormat: 'mp3', output: tempFilePath, embedMetadata: true, postprocessorArgs: `-metadata artist="${uploader}"`, retries: 3 });
         
@@ -124,9 +121,6 @@ export async function enqueue(ctx, userId, url) {
     try {
         await logUserActivity(userId);
         
-        // УПРОЩЕННАЯ ЛОГИКА: Списываем лимит сразу.
-        // Это быстро и просто. Да, если скачивание не удастся, лимит "сгорит",
-        // но это приемлемый компромисс для простоты и скорости.
         const updatedUser = await incrementDownloads(userId, url);
         if (!updatedUser) {
             return ctx.telegram.sendMessage(userId, texts.limitReached);
