@@ -235,6 +235,7 @@ function setupExpress() {
 
     app.use(async (req, res, next) => {
         res.locals.user = null;
+        res.locals.page = '';
         if (req.session.authenticated && req.session.userId === ADMIN_ID) {
             try {
                 req.user = await getUserById(req.session.userId);
