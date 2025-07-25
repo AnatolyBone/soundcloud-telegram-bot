@@ -46,7 +46,7 @@ async function safeSendMessage(userId, text, extra = {}) {
     }
 }
 
-// --- Основной обработчик одной задачи ---
+// --- Основной обработчик одной задачи (Воркер) ---
 async function trackDownloadProcessor(task) {
     const { userId, url, trackName, trackId, uploader, playlistUrl } = task;
     let tempFilePath = null;
@@ -62,7 +62,8 @@ async function trackDownloadProcessor(task) {
             output: tempFilePath,
             embedMetadata: true,
             postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}" -metadata title="${trackName}"`,
-            retries: 3
+            retries: 3,
+            "socket-timeout": 120
         });
         
         if (!fs.existsSync(tempFilePath)) {
@@ -85,10 +86,10 @@ async function trackDownloadProcessor(task) {
         
         if (message?.audio?.file_id) {
             console.log(`[Worker] Трек "${trackName}" отправлен, кэширую...`);
-            // Кэшируем в базу данных
             await cacheTrack(url, message.audio.file_id, trackName);
-            // Сохраняем в историю пользователя. ПРАВИЛЬНЫЙ ПОРЯДОК АРГУМЕНТОВ!
             await saveTrackForUser(userId, trackName, message.audio.file_id);
+            // <<< ИЗМЕНЕНИЕ: Увеличиваем счетчик только ПОСЛЕ успешной отправки
+            await incrementDownloads(userId);
         }
         
         if (playlistUrl) {
@@ -130,15 +131,19 @@ export async function enqueue(ctx, userId, url) {
         
         await safeSendMessage(userId, '🔍 Анализирую ссылку...');
         
-        const info = await ytdl(url, { dumpSingleJson: true, retries: 2 });
+        const info = await ytdl(url, {
+            dumpSingleJson: true,
+            retries: 2,
+            "socket-timeout": 120
+        });
         if (!info) throw new Error('Не удалось получить метаданные по ссылке.');
         
         const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
-        let tracks = [];
+        let tracksToProcess = [];
         
         if (isPlaylist) {
-            tracks = info.entries
-                .filter(e => e?.webpage_url)
+            tracksToProcess = info.entries
+                .filter(e => e?.webpage_url && e?.id)
                 .map(e => ({
                     url: e.webpage_url,
                     trackId: e.id,
@@ -146,14 +151,19 @@ export async function enqueue(ctx, userId, url) {
                     uploader: e.uploader || 'SoundCloud'
                 }));
         } else {
-            tracks = [{
+            tracksToProcess = [{
                 url: info.webpage_url || url,
                 trackId: info.id,
                 trackName: sanitizeFilename(info.title).slice(0, TRACK_TITLE_LIMIT),
                 uploader: info.uploader || 'SoundCloud'
             }];
         }
+
+        if (tracksToProcess.length === 0) {
+            return await safeSendMessage(userId, 'Не удалось найти треки для загрузки по этой ссылке.');
+        }
         
+        // Получаем актуальную информацию о пользователе ОДИН раз
         const user = await getUser(userId);
         let remainingLimit = user.premium_limit - user.downloads_today;
         
@@ -161,24 +171,20 @@ export async function enqueue(ctx, userId, url) {
             return await safeSendMessage(userId, texts.limitReached, Markup.inlineKeyboard([]));
         }
         
-        if (isPlaylist && user.premium_limit <= 10 && tracks.length > MAX_PLAYLIST_TRACKS_FREE) {
+        if (isPlaylist && user.premium_limit <= 10 && tracksToProcess.length > MAX_PLAYLIST_TRACKS_FREE) {
             await safeSendMessage(userId, `ℹ️ Бесплатный тариф: можно скачать до ${MAX_PLAYLIST_TRACKS_FREE} треков из плейлиста.`);
-            tracks = tracks.slice(0, MAX_PLAYLIST_TRACKS_FREE);
+            tracksToProcess = tracksToProcess.slice(0, MAX_PLAYLIST_TRACKS_FREE);
         }
         
-        if (tracks.length > remainingLimit) {
-            await safeSendMessage(userId, `⚠️ В плейлисте ${tracks.length} треков, но ваш лимит: ${remainingLimit}. Добавляю доступное количество.`);
-            tracks = tracks.slice(0, remainingLimit);
+        if (tracksToProcess.length > remainingLimit) {
+            await safeSendMessage(userId, `⚠️ В плейлисте ${tracksToProcess.length} треков, но ваш лимит: ${remainingLimit}. Добавляю доступное количество.`);
+            tracksToProcess = tracksToProcess.slice(0, remainingLimit);
         }
 
-        if (tracks.length === 0) {
-            return await safeSendMessage(userId, 'Не удалось найти треки для загрузки по этой ссылке.');
-        }
-        
         const tasksFromCache = [];
         const tasksToDownload = [];
         
-        for (const track of tracks) {
+        for (const track of tracksToProcess) {
             const cachedTrack = await findCachedTrack(track.url);
             if (cachedTrack) {
                 tasksFromCache.push({ ...track, ...cachedTrack });
@@ -187,25 +193,21 @@ export async function enqueue(ctx, userId, url) {
             }
         }
         
-        let sentFromCacheCount = 0;
+        // 1. Отправляем треки из кэша мгновенно и обновляем лимит
         if (tasksFromCache.length > 0) {
+            let sentFromCacheCount = 0;
             for (const track of tasksFromCache) {
                 try {
-                    await bot.telegram.sendAudio(userId, track.fileId, {
-                        caption: track.trackName,
-                        title: track.trackName,
-                        performer: track.uploader || 'SoundCloud'
-                    });
+                    await bot.telegram.sendAudio(userId, track.fileId, { caption: track.trackName, title: track.trackName });
                     await saveTrackForUser(userId, track.trackName, track.fileId);
-                    await incrementDownloads(userId);
+                    await incrementDownloads(userId); // Сразу увеличиваем, т.к. отправка мгновенная
                     sentFromCacheCount++;
                 } catch (err) {
                     if (err.response?.error_code === 403) {
                         await updateUserField(userId, 'active', false);
                         return; // Если юзер заблокировал, нет смысла продолжать
                     } else if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
-                        console.warn(`[Cache Expired] Ссылка для ${track.url} истекла. Отправляем на скачивание.`);
-                        tasksToDownload.push(track);
+                        tasksToDownload.push(track); // Добавляем в очередь на повторное скачивание
                     } else {
                         console.error(`⚠️ Ошибка отправки из кэша для ${userId}: ${err.message}`);
                     }
@@ -216,16 +218,18 @@ export async function enqueue(ctx, userId, url) {
             }
         }
         
+        // 2. Ставим оставшиеся треки в очередь на скачивание
         if (tasksToDownload.length > 0) {
+            // Пересчитываем лимит ПОСЛЕ отправки из кэша
             const userAfterCache = await getUser(userId);
             const currentLimit = userAfterCache.premium_limit - userAfterCache.downloads_today;
+
             if (currentLimit <= 0) {
                  return await safeSendMessage(userId, '🚫 Ваш лимит исчерпан треками из кэша.');
             }
+
             const tasksToReallyDownload = tasksToDownload.slice(0, currentLimit);
-            if (tasksToReallyDownload.length < tasksToDownload.length) {
-                 await safeSendMessage(userId, `⚠️ Ваш лимит позволяет скачать еще ${tasksToReallyDownload.length} треков. Остальные не будут добавлены.`);
-            }
+            
             if (tasksToReallyDownload.length > 0) {
                 await safeSendMessage(userId, `⏳ ${tasksToReallyDownload.length} трек(ов) добавлено в очередь на скачивание. Вы получите их по мере готовности.`);
                 if (isPlaylist) {
@@ -234,15 +238,21 @@ export async function enqueue(ctx, userId, url) {
                     await redisClient.setEx(playlistKey, 3600, tasksToReallyDownload.length.toString());
                     await logEvent(userId, 'download_playlist');
                 }
+                
+                // <<< ГЛАВНОЕ ИЗМЕНЕНИЕ: УБРАЛИ ОТСЮДА incrementDownloads
                 for (const track of tasksToReallyDownload) {
-                    await incrementDownloads(userId);
                     downloadQueue.add({ userId, ...track, playlistUrl: isPlaylist ? url : null, priority: user.premium_limit });
                     await logEvent(userId, 'download');
                 }
             }
         }
     } catch (err) {
-        console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.stderr || err.message || err);
-        await safeSendMessage(userId, texts.error + ' Не удалось обработать ссылку.');
+        if (err.message.includes('timed out')) {
+            console.error(`❌ TimeoutError в enqueue для userId ${userId}:`, err.message);
+            await safeSendMessage(userId, '❌ Ошибка: SoundCloud отвечает слишком долго. Попробуйте позже или пришлите другую ссылку.');
+        } else {
+            console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.stderr || err.message || err);
+            await safeSendMessage(userId, texts.error + ' Не удалось обработать ссылку.');
+        }
     }
 }
