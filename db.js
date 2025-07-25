@@ -104,12 +104,21 @@ export async function getFunnelData(from, to) {
   return result;
 }
 
-// Исправлено: Атомарный инкремент для решения "гонки состояний"
 // db.js
 
-// ... остальной код ...
+// ... (ваши текущие функции) ...
 
-// db.js (фрагмент)
+export async function findCachedTrack(soundcloudUrl) {
+  const { rows } = await pool.query('SELECT telegram_file_id FROM track_cache WHERE soundcloud_url = $1', [soundcloudUrl]);
+  return rows[0]?.telegram_file_id || null;
+}
+
+export async function cacheTrack(soundcloudUrl, fileId, title) {
+  await pool.query(
+    'INSERT INTO track_cache (soundcloud_url, telegram_file_id, title) VALUES ($1, $2, $3) ON CONFLICT (soundcloud_url) DO UPDATE SET telegram_file_id = $2, title = $3',
+    [soundcloudUrl, fileId, title]
+  );
+}
 
 export async function incrementDownloads(id, trackName = 'track') {
   const res = await pool.query(`
