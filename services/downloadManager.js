@@ -8,13 +8,11 @@ import { Markup } from 'telegraf';
 import crypto from 'crypto';
 import { fileTypeFromFile } from 'file-type';
 
-// Импортируем сам объект config
-import { config } from '../config.js'; 
+import { config } from '../config.js';
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts } from '../index.js';
 import { pool, getUser, resetDailyLimitIfNeeded, incrementDownloads, saveTrackForUser, logEvent, logUserActivity } from '../db.js';
 
-// --- Утилиты ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 const cacheDir = path.join(__dirname, 'cache');
@@ -23,7 +21,6 @@ function sanitizeFilename(name) {
     return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim();
 }
 
-// --- "Умный" обработчик задач ---
 async function trackDownloadProcessor(task) {
     const { ctx, userId, url, priority } = task;
     const redisClient = getRedisClient();
@@ -40,9 +37,9 @@ async function trackDownloadProcessor(task) {
             const { rows } = await pool.query('SELECT downloads_today, premium_limit FROM users WHERE id = $1', [userId]);
             let remainingLimit = rows[0].premium_limit - rows[0].downloads_today;
 
-            if (user.premium_limit <= 10 && trackInfos.length > config.maxPlaylistTracksFree) { // Используем config.
-                await ctx.telegram.sendMessage(userId, `ℹ️ На бесплатном тарифе можно добавить до ${config.maxPlaylistTracksFree} треков.`);
-                trackInfos = trackInfos.slice(0, config.maxPlaylistTracksFree);
+            if (user.premium_limit <= 10 && trackInfos.length > config.MAX_PLAYLIST_TRACKS_FREE) {
+                await ctx.telegram.sendMessage(userId, `ℹ️ На бесплатном тарифе можно добавить до ${config.MAX_PLAYLIST_TRACKS_FREE} треков.`);
+                trackInfos = trackInfos.slice(0, config.MAX_PLAYLIST_TRACKS_FREE);
             }
             if (trackInfos.length > remainingLimit) {
                 await ctx.telegram.sendMessage(userId, `⚠️ Ваш лимит ${remainingLimit}. Добавляю только доступное количество.`);
@@ -63,7 +60,7 @@ async function trackDownloadProcessor(task) {
         }
         
         const trackUrl = info.webpage_url || url;
-        const trackName = sanitizeFilename(info.title).slice(0, config.trackTitleLimit); // Используем config.
+        const trackName = sanitizeFilename(info.title).slice(0, config.TRACK_TITLE_LIMIT);
         const fileIdKey = `fileId:${trackUrl}`;
         const cachedFileId = await redisClient.get(fileIdKey);
 
@@ -102,7 +99,7 @@ async function trackDownloadProcessor(task) {
             return;
         }
         
-        if ((await fs.promises.stat(tempFilePath)).size / (1024 * 1024) > config.telegramFileLimitMb) { // Используем config.
+        if ((await fs.promises.stat(tempFilePath)).size / (1024 * 1024) > config.TELEGRAM_FILE_LIMIT_MB) {
             await ctx.telegram.sendMessage(userId, `❌ Трек "${trackName}" слишком большой (>50МБ).`);
             await pool.query('UPDATE users SET downloads_today = downloads_today - 1, total_downloads = total_downloads - 1 WHERE id = $1', [userId]);
             return;
@@ -111,7 +108,7 @@ async function trackDownloadProcessor(task) {
         const message = await ctx.telegram.sendAudio(userId, { source: fs.createReadStream(tempFilePath) }, { title: trackName, performer: uploader });
         
         if (message?.audio?.file_id) {
-            await redisClient.setEx(fileIdKey, config.fileIdCacheSeconds, message.audio.file_id); // Используем config.
+            await redisClient.setEx(fileIdKey, config.FILE_ID_CACHE_SECONDS, message.audio.file_id);
             await saveTrackForUser(userId, trackName, message.audio.file_id);
         }
 
@@ -130,7 +127,7 @@ async function trackDownloadProcessor(task) {
 
 // --- Инициализация очереди ---
 export const downloadQueue = new TaskQueue({
-    maxConcurrent: config.maxConcurrentDownloads, // Используем config.
+    maxConcurrent: config.MAX_CONCURRENT_DOWNLOADS,
     taskProcessor: trackDownloadProcessor,
 });
 
@@ -141,10 +138,10 @@ export async function enqueue(ctx, userId, url) {
     const rateLimitKey = `rate-limit:${userId}`;
     const currentUserRequests = await redisClient.incr(rateLimitKey);
     if (currentUserRequests === 1) {
-        // ИСПОЛЬЗУЕМ config.rateLimit.windowMs напрямую
-        await redisClient.expire(rateLimitKey, Math.floor(config.rateLimit.windowMs / 1000));
+        // ИСПРАВЛЕНО: Используем правильные имена из config.js
+        await redisClient.expire(rateLimitKey, Math.floor(config.RATE_LIMIT.WINDOW_MS / 1000));
     }
-    if (currentUserRequests > config.rateLimit.max) { // ИСПОЛЬЗУЕМ config.rateLimit.max
+    if (currentUserRequests > config.RATE_LIMIT.MAX_REQUESTS) { // ИСПРАВЛЕНО
         console.warn(`[RateLimit] Пользователь ${userId} превысил лимит запросов.`);
         return; 
     }
