@@ -108,11 +108,36 @@ export async function getFunnelData(from, to) {
 
 // ... (ваши текущие функции) ...
 
-export async function findCachedTrack(soundcloudUrl) {
-  const { rows } = await pool.query('SELECT telegram_file_id FROM track_cache WHERE soundcloud_url = $1', [soundcloudUrl]);
-  return rows[0]?.telegram_file_id || null;
-}
+// В файле db.js
 
+export async function findCachedTrack(soundcloudUrl) {
+  try {
+    const { data, error } = await supabase
+      .from('track_cache')
+      .select('file_id, track_name')
+      .eq('soundcloud_url', soundcloudUrl)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 - это "not found", это не ошибка
+      console.error('Ошибка поиска в кэше Supabase:', error);
+      return null;
+    }
+    
+    if (data) {
+      // Возвращаем объект, а не просто строку!
+      return {
+        fileId: data.file_id,
+        trackName: data.track_name
+      };
+    }
+    
+    return null;
+    
+  } catch (e) {
+    console.error('Критическая ошибка в findCachedTrack:', e);
+    return null;
+  }
+}
 export async function cacheTrack(soundcloudUrl, fileId, title) {
   await pool.query(
     'INSERT INTO track_cache (soundcloud_url, telegram_file_id, title) VALUES ($1, $2, $3) ON CONFLICT (soundcloud_url) DO UPDATE SET telegram_file_id = $2, title = $3',
