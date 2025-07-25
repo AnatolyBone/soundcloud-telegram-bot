@@ -461,7 +461,63 @@ function setupExpress() {
         res.redirect('/dashboard');
     });
 }
+// index.js, внутри setupExpress()
 
+// ... после всех ваших app.get() / app.post() ...
+
+// НОВЫЙ API-маршрут для данных дашборда
+app.get('/api/dashboard-data', requireAuth, async (req, res) => {
+    try {
+        const { showInactive = 'false', period = '30' } = req.query;
+
+        // Вся логика получения и обработки данных, которую мы уже написали для /dashboard
+        const [
+            users, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+            activityByDayHour, referralStats, retentionResult
+        ] = await Promise.all([
+            getAllUsers(showInactive === 'true'),
+            getDownloadsByDate(),
+            getRegistrationsByDate(),
+            getActiveUsersByDate(),
+            getUserActivityByDayHour(),
+            getReferralSourcesStats(),
+            pool.query(`... (ваш SQL для retention) ...`)
+        ]);
+
+        const { from: fromDate, to: toDate } = getFromToByPeriod(period);
+        const funnelCounts = await getFunnelData(fromDate.toISOString(), toDate.toISOString());
+        
+        const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+        const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+        const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+
+        // Формируем JSON-ответ
+        res.json({
+            stats: {
+                totalUsers: users.length,
+                totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+                free: users.filter(u => u.premium_limit <= 10).length,
+                plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
+                pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
+                unlimited: users.filter(u => u.premium_limit >= 1000).length,
+            },
+            chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
+            chartDataHourActivity: {
+                labels: [...Array(24).keys()].map(h => `${h}:00`),
+                datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+            },
+            chartDataWeekdayActivity: {
+                labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+                datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+            },
+            // Добавьте сюда другие данные, которые хотите обновлять
+        });
+
+    } catch (e) {
+        console.error('❌ Ошибка в /api/dashboard-data:', e);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
 function setupTelegramBot() {
     // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ БОТА ===
     const isSubscribed = async (userId) => {
