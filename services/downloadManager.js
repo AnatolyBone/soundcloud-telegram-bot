@@ -140,8 +140,7 @@ async function getTracksInfo(url) {
     const info = await ytdl(url, {
         dumpSingleJson: true,
         retries: CONFIG.YTDL_RETRIES,
-        "socket-timeout": CONFIG.SOCKET_TIMEOUT,
-        timeout: CONFIG.YTDL_TIMEOUT
+        "socket-timeout": CONFIG.SOCKET_TIMEOUT
     });
 
     const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
