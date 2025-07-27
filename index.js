@@ -16,7 +16,7 @@ import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
 
 // === Импорты модулей НАШЕГО приложения ===
-// <<< ИСПРАВЛЕНО: Строка импорта обновлена. Удалена `getExpiringUsersPaginated`.
+// <<< ИСПРАВЛЕНО: Эта строка теперь полностью соответствует новому `db.js`.
 import {
     pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
     resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
@@ -268,7 +268,7 @@ function setupExpress() {
         try {
             const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
                 getAllUsers(true),
-                getExpiringUsers(), // <<< ИСПРАВЛЕНО: Используем новое имя функции
+                getExpiringUsers(),
                 getExpiringUsersCount(),
                 getReferralSourcesStats(),
                 getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
@@ -369,7 +369,6 @@ function setupExpress() {
         const page = parseInt(req.query.page) || 1;
         const perPage = 10;
         const total = await getExpiringUsersCount();
-        // <<< ИСПРАВЛЕНО: Используем новое имя функции
         const users = await getExpiringUsers(perPage, (page - 1) * perPage);
         res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
     });
