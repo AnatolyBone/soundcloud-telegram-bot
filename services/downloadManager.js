@@ -14,26 +14,17 @@ import {
     incrementDownloads, updateUserField, findCachedTracksByUrls, cacheTrack
 } from '../db.js';
 
-// =======================================================
-// --- Конфигурация ---
-// =======================================================
-
 const CONFIG = {
     TELEGRAM_FILE_LIMIT_MB: 49,
     MAX_PLAYLIST_TRACKS_FREE: 10,
     TRACK_TITLE_LIMIT: 100,
-    MAX_CONCURRENT_DOWNLOADS: 2, // Снижено для стабильности на Render
+    MAX_CONCURRENT_DOWNLOADS: 2,
     YTDL_RETRIES: 3,
     SOCKET_TIMEOUT: 120,
 };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
-const cacheDir = path.join(__dirname, 'cache');
-
-// =======================================================
-// --- Вспомогательные утилиты ---
-// =======================================================
 
 function sanitizeFilename(name) {
     return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim().slice(0, CONFIG.TRACK_TITLE_LIMIT);
@@ -62,10 +53,6 @@ function getYtdlErrorMessage(err) {
     return 'Не удалось обработать ссылку.';
 }
 
-// =======================================================
-// --- Воркер и очередь задач (со стримингом) ---
-// =======================================================
-
 async function trackDownloadProcessor(task) {
     const { userId, url, trackName, uploader, playlistUrl } = task;
     const startTime = performance.now();
@@ -73,7 +60,8 @@ async function trackDownloadProcessor(task) {
 
     try {
         const ytdlProcess = ytdl.exec(url, {
-            output: '-', // Вывод в stdout для стриминга
+            quiet: true, // <<< ИСПРАВЛЕНО: Отключаем лог-спам от yt-dlp
+            output: '-',
             extractAudio: true,
             audioFormat: 'mp3',
             embedMetadata: true,
@@ -85,7 +73,6 @@ async function trackDownloadProcessor(task) {
         let stderrOutput = '';
         ytdlProcess.stderr.on('data', (data) => stderrOutput += data.toString());
 
-        // Запускаем отправку и ждем завершения процесса yt-dlp одновременно
         const [sentMessage] = await Promise.all([
             bot.telegram.sendAudio(userId,
                 { source: ytdlProcess.stdout },
@@ -132,19 +119,13 @@ export const downloadQueue = new TaskQueue({
     taskProcessor: trackDownloadProcessor
 });
 
-// ======================================================================
-// --- Конвейер обработки запроса ---
-// ======================================================================
-
 async function getTracksInfo(url) {
     const info = await ytdl(url, {
         dumpSingleJson: true,
         retries: CONFIG.YTDL_RETRIES,
         "socket-timeout": CONFIG.SOCKET_TIMEOUT,
     });
-
     const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
-    
     const tracks = isPlaylist
         ? info.entries.filter(e => e?.webpage_url && e?.id).map(e => ({
             url: e.webpage_url,
@@ -156,9 +137,7 @@ async function getTracksInfo(url) {
             trackName: sanitizeFilename(info.title),
             uploader: info.uploader || 'SoundCloud'
           }];
-    
     if (tracks.length === 0) throw new Error("Не удалось найти треки для загрузки.");
-    
     return { tracks, isPlaylist };
 }
 
@@ -223,8 +202,7 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
         }
         for (const track of finalTasks) {
             downloadQueue.add({
-                userId,
-                ...track,
+                userId, ...track,
                 playlistUrl: isPlaylist ? originalUrl : null,
                 priority: user.premium_limit
             });
@@ -232,10 +210,6 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
         }
     }
 }
-
-// =======================================================
-// --- Основная входная точка ---
-// =======================================================
 
 export async function enqueue(ctx, userId, url) {
     const processingMessage = await safeSendMessage(userId, '🔍 Анализирую ссылку...');
