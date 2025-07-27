@@ -191,13 +191,12 @@ async function startApp() {
         cleanupCache(cacheDir, 60);
 
         if (process.env.NODE_ENV === 'production') {
-            app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH }));
-            app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-        } else {
-            await bot.launch();
-            console.log('✅ Бот запущен в режиме long-polling.');
-        }
-        
+    app.use(WEBHOOK_PATH, await bot.createWebhook({ domain: WEBHOOK_URL }));
+    app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
+} else {
+    await bot.launch();
+    console.log('✅ Бот запущен в режиме long-polling.');
+}
         startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
 
     } catch (err) {
