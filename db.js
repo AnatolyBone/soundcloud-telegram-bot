@@ -18,16 +18,12 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-// Клиент Supabase используется для работы с кэшем, логами и аналитикой.
 export const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Пул pg используется для основных операций с пользователями (более высокая производительность для частых запросов).
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// Вспомогательная функция для запросов через Pool
 async function query(text, params) {
   try {
     return await pool.query(text, params);
@@ -41,27 +37,16 @@ async function query(text, params) {
 // --- 2. Функции для работы с пользователями (Users) ---
 // =======================================================
 
-/**
- * Получает пользователя по ID. Если не найден, создает нового.
- * Логика "Get or Create" оптимизирована для минимума запросов.
- * @param {number | string} id - Telegram User ID.
- * @param {string} [first_name] - Имя пользователя.
- * @param {string} [username] - @username пользователя.
- * @returns {Promise<object>} Объект пользователя.
- */
 export async function getUser(id, first_name = '', username = '') {
-  // 1. Пытаемся найти и сразу обновить last_active для существующего пользователя.
   const { rows } = await query(
     'UPDATE users SET last_active = NOW() WHERE id = $1 AND active = TRUE RETURNING *',
     [id]
   );
 
   if (rows.length > 0) {
-    return rows[0]; // Пользователь найден и обновлен, возвращаем его.
+    return rows[0];
   }
 
-  // 2. Если пользователь не найден (или неактивен), создаем его с помощью ON CONFLICT.
-  // Это безопасно обрабатывает гонку, если два запроса приходят одновременно.
   await query(`
     INSERT INTO users (id, username, first_name, last_reset_date, created_at, last_active)
     VALUES ($1, $2, $3, CURRENT_DATE, NOW(), NOW())
@@ -72,7 +57,6 @@ export async function getUser(id, first_name = '', username = '') {
       active = TRUE;
   `, [id, username || '', first_name || '']);
   
-  // 3. После создания/активации, снова запрашиваем пользователя, чтобы получить полную запись.
   const newUserResult = await query('SELECT * FROM users WHERE id = $1', [id]);
   return newUserResult.rows[0];
 }
@@ -106,20 +90,14 @@ export async function incrementDownloads(id) {
   `, [id]);
   
   if (res.rowCount > 0) {
-    // Не блокируем основной поток ожиданием логирования
     logEvent(id, 'download').catch(e => console.error("Ошибка асинхронного логирования:", e));
     return res.rows[0];
   }
   return null;
 }
 
-/**
- * Атомарно добавляет информацию о треке в JSONB-колонку `tracks_today`.
- * ВАЖНО: Тип колонки в БД должен быть JSONB для корректной работы оператора `||`.
- */
 export async function saveTrackForUser(userId, title, fileId) {
   const trackInfo = JSON.stringify({ title, fileId });
-  // Оператор `||` добавляет новый объект в существующий JSON-массив.
   await query(
     `UPDATE users SET tracks_today = tracks_today || $1::jsonb WHERE id = $2`,
     [trackInfo, userId]
@@ -164,17 +142,13 @@ export async function setPremium(id, limit, days = null) {
 // =============================================================
 // --- 3. Функции для кэширования треков (Track Cache) ---
 // =============================================================
-// ВАЖНО: Убедитесь, что имена колонок в таблице `track_cache`: `url` (PK), `file_id`, `track_name`.
 
-/**
- * Кэширует трек в Supabase. Если трек уже есть, обновляет его данные.
- */
 export async function cacheTrack(url, fileId, trackName) {
   const { error } = await supabase
     .from('track_cache')
     .upsert(
       { url: url, file_id: fileId, track_name: trackName },
-      { onConflict: 'url' } // 'url' - это имя вашего primary key или unique столбца
+      { onConflict: 'url' }
     );
 
   if (error) {
@@ -182,11 +156,6 @@ export async function cacheTrack(url, fileId, trackName) {
   }
 }
 
-/**
- * Ищет все треки из списка URL в кэше за один запрос.
- * @param {string[]} urls - Массив URL для проверки.
- * @returns {Promise<Map<string, {fileId: string, trackName: string}>>}
- */
 export async function findCachedTracksByUrls(urls) {
   if (!urls || urls.length === 0) {
     return new Map();
@@ -213,7 +182,7 @@ export async function findCachedTracksByUrls(urls) {
 }
 
 // =======================================================
-// --- 4. Функции логирования и аналитики ---
+// --- 4. Функции логирования и аналитики (сохранены) ---
 // =======================================================
 
 export async function logUserActivity(userId) {
@@ -232,32 +201,31 @@ export async function logEvent(userId, event_type, metadata = {}) {
 
 const funnelCache = new Map();
 export async function getFunnelData(from, to) {
-  const key = `${from}_${to}`;
-  if (funnelCache.has(key) && (Date.now() - funnelCache.get(key).timestamp < 60000)) {
-    return funnelCache.get(key).data;
-  }
-  const [registrations, firstDownloads, subscriptions] = await Promise.all([
-    supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
-    supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
-    supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
-  ]);
-  if (registrations.error || firstDownloads.error || subscriptions.error) {
-    console.error('❌ Ошибка Supabase воронки');
-    throw new Error('Ошибка Supabase при получении данных воронки');
-  }
-  const result = {
-    registrationCount: registrations.count || 0,
-    firstDownloadCount: firstDownloads.count || 0,
-    subscriptionCount: subscriptions.count || 0,
-  };
-  funnelCache.set(key, { data: result, timestamp: Date.now() });
-  return result;
+    const key = `${from}_${to}`;
+    if (funnelCache.has(key) && (Date.now() - funnelCache.get(key).timestamp < 60000)) {
+      return funnelCache.get(key).data;
+    }
+    const [registrations, firstDownloads, subscriptions] = await Promise.all([
+      supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
+      supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
+      supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
+    ]);
+    if (registrations.error || firstDownloads.error || subscriptions.error) {
+      console.error('❌ Ошибка Supabase воронки');
+      throw new Error('Ошибка Supabase при получении данных воронки');
+    }
+    const result = {
+      registrationCount: registrations.count || 0,
+      firstDownloadCount: firstDownloads.count || 0,
+      subscriptionCount: subscriptions.count || 0,
+    };
+    funnelCache.set(key, { data: result, timestamp: Date.now() });
+    return result;
 }
 
 // =======================================================
-// --- 5. Прочие и административные функции ---
+// --- 5. Прочие и административные функции (сохранены) ---
 // =======================================================
-// (Этот блок содержит остальные функции из вашего исходного файла без изменений)
 
 export async function markSubscribedBonusUsed(userId) {
   await updateUserField(userId, 'subscribed_bonus_used', true);
@@ -311,6 +279,20 @@ export async function getDownloadsByDate() {
 export async function getActiveUsersByDate() {
   const { rows } = await query(`SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(DISTINCT id) as count FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '30 days' GROUP BY date ORDER BY date`);
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
+}
+
+export async function getUserActivityByDayHour(days = 30) {
+  const { rows } = await query(`
+    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') AS day, EXTRACT(HOUR FROM last_active) AS hour, COUNT(*) AS count
+    FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '${days} days'
+    GROUP BY day, hour ORDER BY day, hour
+    `);
+  const activity = {};
+  rows.forEach(row => {
+    if (!activity[row.day]) activity[row.day] = Array(24).fill(0);
+    activity[row.day][parseInt(row.hour, 10)] = parseInt(row.count, 10);
+  });
+  return activity;
 }
 
 export async function getExpiringUsers(limit = 10, offset = 0) {
