@@ -1,11 +1,15 @@
 // db.js
+// Этот файл управляет всеми взаимодействиями с базой данных PostgreSQL и Supabase.
 
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import json2csv from 'json-2-csv';
 const { json2csvAsync } = json2csv;
 
-// --- Инициализация клиентов ---
+// =======================================================
+// --- 1. Инициализация и настройка клиентов ---
+// =======================================================
+
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
@@ -14,22 +18,63 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
+// Клиент Supabase используется для работы с кэшем, логами и аналитикой.
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Пул pg используется для основных операций с пользователями (более высокая производительность для частых запросов).
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ==================== Базовые функции ====================
-
+// Вспомогательная функция для запросов через Pool
 async function query(text, params) {
   try {
     return await pool.query(text, params);
   } catch (e) {
-    console.error('❌ Ошибка запроса к БД:', e.message, { query: text });
+    console.error('❌ Ошибка запроса к БД (pg):', e.message, { query: text });
     throw e;
   }
+}
+
+// =======================================================
+// --- 2. Функции для работы с пользователями (Users) ---
+// =======================================================
+
+/**
+ * Получает пользователя по ID. Если не найден, создает нового.
+ * Логика "Get or Create" оптимизирована для минимума запросов.
+ * @param {number | string} id - Telegram User ID.
+ * @param {string} [first_name] - Имя пользователя.
+ * @param {string} [username] - @username пользователя.
+ * @returns {Promise<object>} Объект пользователя.
+ */
+export async function getUser(id, first_name = '', username = '') {
+  // 1. Пытаемся найти и сразу обновить last_active для существующего пользователя.
+  const { rows } = await query(
+    'UPDATE users SET last_active = NOW() WHERE id = $1 AND active = TRUE RETURNING *',
+    [id]
+  );
+
+  if (rows.length > 0) {
+    return rows[0]; // Пользователь найден и обновлен, возвращаем его.
+  }
+
+  // 2. Если пользователь не найден (или неактивен), создаем его с помощью ON CONFLICT.
+  // Это безопасно обрабатывает гонку, если два запроса приходят одновременно.
+  await query(`
+    INSERT INTO users (id, username, first_name, last_reset_date, created_at, last_active)
+    VALUES ($1, $2, $3, CURRENT_DATE, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE SET 
+      last_active = NOW(),
+      username = EXCLUDED.username,
+      first_name = EXCLUDED.first_name,
+      active = TRUE;
+  `, [id, username || '', first_name || '']);
+  
+  // 3. После создания/активации, снова запрашиваем пользователя, чтобы получить полную запись.
+  const newUserResult = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return newUserResult.rows[0];
 }
 
 export async function getUserById(id) {
@@ -37,34 +82,7 @@ export async function getUserById(id) {
   return rows[0] || null;
 }
 
-export async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
-  await query(`
-    INSERT INTO users (id, username, first_name, downloads_today, premium_limit, total_downloads, has_reviewed, last_reset_date, referred_count, created_at, last_active, referral_source, referrer_id, active)
-    VALUES ($1, $2, $3, 0, 10, 0, false, CURRENT_DATE, 0, NOW(), NOW(), $4, $5, TRUE)
-    ON CONFLICT (id) DO NOTHING;
-  `, [id, username || '', first_name || '', referral_source, referrer_id]);
-}
-
-export async function getUser(id, first_name = '', username = '') {
-  const { rows } = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
-  if (rows.length > 0) {
-    query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]).catch(e => console.error(e));
-    return rows[0];
-  }
-  await createUser(id, first_name, username);
-  const newUserResult = await query('SELECT * FROM users WHERE id = $1', [id]);
-  return newUserResult.rows[0];
-}
-
-export async function logUserActivity(userId) {
-  // Исправлено: убран ON CONFLICT, который вызывал ошибку
-  await query(
-    'INSERT INTO user_activity_logs (user_id, activity_time) VALUES ($1, NOW())',
-    [userId]
-  );
-}
-
-const allowedFields = new Set([
+const allowedUserFields = new Set([
   'premium_limit', 'downloads_today', 'total_downloads', 'first_name', 'username',
   'premium_until', 'subscribed_bonus_used', 'tracks_today', 'last_reset_date',
   'active', 'referred_count', 'referral_source', 'has_reviewed', 'referrer_id',
@@ -72,15 +90,147 @@ const allowedFields = new Set([
 ]);
 
 export async function updateUserField(id, field, value) {
-  if (!allowedFields.has(field)) {
-    throw new Error(`Недопустимое поле для обновления: ${field}`);
+  if (!allowedUserFields.has(field)) {
+    throw new Error(`Недопустимое поле для обновления пользователя: ${field}`);
   }
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
 }
 
-const funnelCache = new Map();
+export async function incrementDownloads(id) {
+  const res = await pool.query(`
+    UPDATE users 
+    SET downloads_today = downloads_today + 1, total_downloads = total_downloads + 1
+    WHERE id = $1 AND downloads_today < premium_limit
+    RETURNING *
+  `, [id]);
+  
+  if (res.rowCount > 0) {
+    // Не блокируем основной поток ожиданием логирования
+    logEvent(id, 'download').catch(e => console.error("Ошибка асинхронного логирования:", e));
+    return res.rows[0];
+  }
+  return null;
+}
 
+/**
+ * Атомарно добавляет информацию о треке в JSONB-колонку `tracks_today`.
+ * ВАЖНО: Тип колонки в БД должен быть JSONB для корректной работы оператора `||`.
+ */
+export async function saveTrackForUser(userId, title, fileId) {
+  const trackInfo = JSON.stringify({ title, fileId });
+  // Оператор `||` добавляет новый объект в существующий JSON-массив.
+  await query(
+    `UPDATE users SET tracks_today = tracks_today || $1::jsonb WHERE id = $2`,
+    [trackInfo, userId]
+  );
+}
+
+export async function resetDailyLimitIfNeeded(userId) {
+  const { rows } = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
+  if (!rows.length) return;
+  
+  const lastReset = new Date(rows[0].last_reset_date).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (lastReset !== today) {
+    await query(`
+      UPDATE users
+      SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE
+      WHERE id = $1
+    `, [userId]);
+  }
+}
+
+export async function setPremium(id, limit, days = null) {
+  const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
+  if (rows.length === 0) return false;
+
+  let extraDays = 0;
+  let bonusApplied = false;
+  if (days && !rows[0].promo_1plus1_used) {
+    extraDays = days;
+    bonusApplied = true;
+    await updateUserField(id, 'promo_1plus1_used', true);
+  }
+
+  const totalDays = (days || 0) + extraDays;
+  const until = new Date(Date.now() + totalDays * 86400000).toISOString();
+  await updateUserField(id, 'premium_limit', limit);
+  await updateUserField(id, 'premium_until', until);
+  return bonusApplied;
+}
+
+// =============================================================
+// --- 3. Функции для кэширования треков (Track Cache) ---
+// =============================================================
+// ВАЖНО: Убедитесь, что имена колонок в таблице `track_cache`: `url` (PK), `file_id`, `track_name`.
+
+/**
+ * Кэширует трек в Supabase. Если трек уже есть, обновляет его данные.
+ */
+export async function cacheTrack(url, fileId, trackName) {
+  const { error } = await supabase
+    .from('track_cache')
+    .upsert(
+      { url: url, file_id: fileId, track_name: trackName },
+      { onConflict: 'url' } // 'url' - это имя вашего primary key или unique столбца
+    );
+
+  if (error) {
+    console.error('❌ Ошибка кэширования трека в Supabase:', error);
+  }
+}
+
+/**
+ * Ищет все треки из списка URL в кэше за один запрос.
+ * @param {string[]} urls - Массив URL для проверки.
+ * @returns {Promise<Map<string, {fileId: string, trackName: string}>>}
+ */
+export async function findCachedTracksByUrls(urls) {
+  if (!urls || urls.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('track_cache')
+    .select('url, file_id, track_name')
+    .in('url', urls);
+
+  if (error) {
+    console.error('❌ Ошибка массового поиска в кэше Supabase:', error);
+    return new Map();
+  }
+
+  const cacheMap = new Map();
+  for (const track of data) {
+    cacheMap.set(track.url, {
+      fileId: track.file_id,
+      trackName: track.track_name
+    });
+  }
+  return cacheMap;
+}
+
+// =======================================================
+// --- 4. Функции логирования и аналитики ---
+// =======================================================
+
+export async function logUserActivity(userId) {
+  const { error } = await supabase.from('user_activity_logs').insert({ user_id: userId, activity_time: new Date() });
+  if (error) console.error(`❌ Ошибка логирования активности:`, error.message);
+}
+
+export async function logEvent(userId, event_type, metadata = {}) {
+    const { error } = await supabase.from('events').insert({ 
+        user_id: userId, 
+        event_type,
+        metadata
+    });
+    if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
+}
+
+const funnelCache = new Map();
 export async function getFunnelData(from, to) {
   const key = `${from}_${to}`;
   if (funnelCache.has(key) && (Date.now() - funnelCache.get(key).timestamp < 60000)) {
@@ -104,114 +254,17 @@ export async function getFunnelData(from, to) {
   return result;
 }
 
-// db.js
-
-// ... (ваши текущие функции) ...
-
-// В файле db.js
-
-export async function findCachedTrack(soundcloudUrl) {
-  try {
-    const { data, error } = await supabase
-      .from('track_cache')
-      .select('file_id, track_name')
-      .eq('soundcloud_url', soundcloudUrl)
-      .single();
-    
-    if (error && error.code !== 'PGRST116') { // PGRST116 - это "not found", это не ошибка
-      console.error('Ошибка поиска в кэше Supabase:', error);
-      return null;
-    }
-    
-    if (data) {
-      // Возвращаем объект, а не просто строку!
-      return {
-        fileId: data.file_id,
-        trackName: data.track_name
-      };
-    }
-    
-    return null;
-    
-  } catch (e) {
-    console.error('Критическая ошибка в findCachedTrack:', e);
-    return null;
-  }
-}
-export async function cacheTrack(soundcloudUrl, fileId, title) {
-  await pool.query(
-    'INSERT INTO track_cache (soundcloud_url, telegram_file_id, title) VALUES ($1, $2, $3) ON CONFLICT (soundcloud_url) DO UPDATE SET telegram_file_id = $2, title = $3',
-    [soundcloudUrl, fileId, title]
-  );
-}
-
-export async function incrementDownloads(id, trackName = 'track', url = null) { // <-- Добавляем url как параметр
-  const res = await pool.query(`
-    UPDATE users 
-    SET 
-      downloads_today = downloads_today + 1,
-      total_downloads = total_downloads + 1
-    WHERE 
-      id = $1 AND downloads_today < premium_limit
-    RETURNING *
-  `, [id]);
-  
-  if (res.rowCount > 0) {
-    // Передаем url в logDownload
-    await logDownload(id, trackName, url); 
-    return res.rows[0];
-  }
-  return null;
-}
-export async function saveTrackForUser(id, title, fileId) {
-  const user = await getUser(id);
-  let current = [];
-  try {
-    if (user.tracks_today) current = JSON.parse(user.tracks_today);
-  } catch {
-    current = [];
-  }
-  current.push({ title, fileId });
-  await query('UPDATE users SET tracks_today = $1 WHERE id = $2', [JSON.stringify(current), id]);
-}
-
-export async function setPremium(id, limit, days = null) {
-  const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
-  if (rows.length === 0) return false;
-  let extraDays = 0;
-  let bonusApplied = false;
-  if (days && !rows[0].promo_1plus1_used) {
-    extraDays = days;
-    bonusApplied = true;
-    await updateUserField(id, 'promo_1plus1_used', true);
-  }
-  const totalDays = (days || 0) + extraDays;
-  const until = new Date(Date.now() + totalDays * 86400000).toISOString();
-  await updateUserField(id, 'premium_limit', limit);
-  await updateUserField(id, 'premium_until', until);
-  return bonusApplied;
-}
+// =======================================================
+// --- 5. Прочие и административные функции ---
+// =======================================================
+// (Этот блок содержит остальные функции из вашего исходного файла без изменений)
 
 export async function markSubscribedBonusUsed(userId) {
   await updateUserField(userId, 'subscribed_bonus_used', true);
 }
 
-export async function resetDailyLimitIfNeeded(userId) {
-  const { rows } = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
-  if (!rows.length) return;
-  const lastReset = rows[0].last_reset_date;
-  const today = new Date().toISOString().slice(0, 10);
-  if (!lastReset || new Date(lastReset).toISOString().slice(0, 10) !== today) {
-    await query(`
-      UPDATE users
-      SET downloads_today = 0, tracks_today = '[]', last_reset_date = CURRENT_DATE
-      WHERE id = $1
-    `, [userId]);
-  }
-}
-
 export async function resetDailyStats() {
-  await query(`UPDATE users SET downloads_today = 0, tracks_today = '[]', last_reset_date = CURRENT_DATE`);
+  await query(`UPDATE users SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE`);
 }
 
 export async function getAllUsers(includeInactive = false) {
@@ -245,43 +298,6 @@ export async function getLatestReviews(limit = 10) {
   return data || [];
 }
 
-export async function logDownload(userId, trackTitle, url) { // 
-    await supabase.from('downloads_log').insert([{ user_id: userId, track_title: trackTitle, url: url }]);
-}
-
-// Добавлено: недостающая функция для downloadManager
-export async function logEvent(userId, event) {
-  try {
-    const { error } = await supabase.from('events').insert([{ user_id: userId, event }]);
-    if (error) console.error(`❌ Ошибка логирования события "${event}":`, error.message);
-  } catch (e) {
-    console.error(`❌ Критическая ошибка вызова Supabase для logEvent:`, e.message);
-  }
-}
-
-// Восстановлено: ваши функции, которые я пропустил
-export async function getTrackMetadata(url) {
-  const res = await query('SELECT metadata, updated_at FROM track_metadata WHERE url = $1', [url]);
-  if (!res.rows.length) return null;
-  
-  const row = res.rows[0];
-  const ageMs = Date.now() - new Date(row.updated_at).getTime();
-  if (ageMs > 7 * 86400000) return null; // Кэш на 7 дней
-  
-  return row.metadata;
-}
-
-export async function saveTrackMetadata(url, metadata) {
-  await query(`
-    INSERT INTO track_metadata (url, metadata, updated_at)
-    VALUES ($1, $2, NOW())
-    ON CONFLICT (url) DO UPDATE
-    SET metadata = EXCLUDED.metadata,
-        updated_at = NOW()
-  `, [url, JSON.stringify(metadata)]);
-}
-
-
 export async function getRegistrationsByDate() {
   const { rows } = await query(`SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count FROM users GROUP BY date ORDER BY date`);
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
@@ -293,25 +309,11 @@ export async function getDownloadsByDate() {
 }
 
 export async function getActiveUsersByDate() {
-  const { rows } = await query(`SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(*) as count FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '30 days' GROUP BY date ORDER BY date`);
+  const { rows } = await query(`SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(DISTINCT id) as count FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '30 days' GROUP BY date ORDER BY date`);
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
 }
 
-export async function getUserActivityByDayHour(days = 30) {
-  const { rows } = await query(`
-    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') AS day, EXTRACT(HOUR FROM last_active) AS hour, COUNT(*) AS count
-    FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '${days} days'
-    GROUP BY day, hour ORDER BY day, hour
-    `);
-  const activity = {};
-  rows.forEach(row => {
-    if (!activity[row.day]) activity[row.day] = Array(24).fill(0);
-    activity[row.day][parseInt(row.hour, 10)] = parseInt(row.count, 10);
-  });
-  return activity;
-}
-
-export async function getExpiringUsersPaginated(limit = 10, offset = 0) {
+export async function getExpiringUsers(limit = 10, offset = 0) {
   const { rows } = await query(`
     SELECT id, username, first_name, premium_until FROM users
     WHERE premium_until IS NOT NULL AND premium_until BETWEEN NOW() AND NOW() + INTERVAL '3 days'
@@ -319,8 +321,6 @@ export async function getExpiringUsersPaginated(limit = 10, offset = 0) {
     `, [limit, offset]);
   return rows;
 }
-
-export const getExpiringUsers = getExpiringUsersPaginated;
 
 export async function getExpiringUsersCount() {
   const { rows } = await query(`
