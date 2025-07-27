@@ -497,15 +497,20 @@ ${refLink}
         catch (e) { await handleSendMessageError(e, ctx.from.id); }
     });
 
-    bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        try {
-            const users = await getAllUsers(true);
-            const totalUsers = users.length;
-            const activeUsers = users.filter(u => u.active).length;
-            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-            
-            await ctx.replyWithMarkdownV2(`
+    // ЗАМЕНИТЕ ЭТОТ БЛОК В index.js
+
+bot.command('admin', async (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return;
+    try {
+        const users = await getAllUsers(true);
+        const totalUsers = users.length;
+        const activeUsers = users.filter(u => u.active).length;
+        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+        
+        // <<< ИСПРАВЛЕНИЕ: Экранируем URL, чтобы избежать ошибки MarkdownV2
+        const escapedUrl = WEBHOOK_URL.replace(/\/$/, '').replace(/[-.!]/g, '\\$&');
+        
+        await ctx.replyWithMarkdownV2(`
 📊 *Статистика Бота*
 
 👤 *Пользователи:*
@@ -519,13 +524,13 @@ ${refLink}
    - В работе: *${downloadQueue.active}*
    - В ожидании: *${downloadQueue.size}*
 
-🔗 [Открыть админ\\-панель](${WEBHOOK_URL.replace(/\/$/, '')}/dashboard)
-            `);
-        } catch (e) {
-            console.error('❌ Ошибка в команде /admin:', e);
-            try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-        }
-    });
+🔗 [Открыть админ\\-панель](${escapedUrl}/dashboard)
+        `);
+    } catch (e) {
+        console.error('❌ Ошибка в команде /admin:', e);
+        try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
+    }
+});
 
     bot.on('text', async (ctx) => {
         try {
