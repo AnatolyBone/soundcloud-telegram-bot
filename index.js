@@ -191,12 +191,16 @@ async function startApp() {
         cleanupCache(cacheDir, 60);
 
         if (process.env.NODE_ENV === 'production') {
-    app.use(WEBHOOK_PATH, await bot.createWebhook({ domain: WEBHOOK_URL }));
-    app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-} else {
-    await bot.launch();
-    console.log('✅ Бот запущен в режиме long-polling.');
-}
+            const webhookPath = '/telegram';
+            const webhook = await bot.createWebhook({ domain: WEBHOOK_URL, path: webhookPath });
+
+            app.use(webhookPath, webhook);
+            app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
+        } else {
+            await bot.launch();
+            console.log('✅ Бот запущен в режиме long-polling.');
+        }
+
         startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
 
     } catch (err) {
