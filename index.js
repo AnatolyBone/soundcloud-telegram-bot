@@ -1,5 +1,3 @@
-// index.js
-
 // === Встроенные и сторонние библиотеки ===
 import express from 'express';
 import session from 'express-session';
@@ -127,13 +125,13 @@ async function processUrlForIndexing(url) {
         
         try {
             const message = await bot.telegram.sendAudio(
-    STORAGE_CHANNEL_ID,
-    { source: fs.createReadStream(tempFilePath) },
-    { 
-        caption: trackName,
-        title: trackName // title важен для корректного имени файла при скачивании
-    }
-);
+                STORAGE_CHANNEL_ID,
+                { source: fs.createReadStream(tempFilePath) },
+                { 
+                    caption: trackName,
+                    title: trackName
+                }
+            );
 
             if (message?.audio?.file_id) {
                 await cacheTrack(url, message.audio.file_id, trackName);
@@ -182,21 +180,24 @@ async function startApp() {
         const cacheDir = path.join(__dirname, 'cache');
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-        setupExpress();
+        // ИЗМЕНЕНО: Сначала настраиваем Express, включая вебхук (если он нужен)
+        await setupExpress();
+        
+        // Затем настраиваем логику самого бота
         setupTelegramBot();
         
+        // Запускаем фоновые задачи
         setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
         setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60000);
         setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
         cleanupCache(cacheDir, 60);
 
+        // ИЗМЕНЕНО: Логика запуска сервера/поллинга перенесена сюда для ясности
         if (process.env.NODE_ENV === 'production') {
-            const webhookPath = '/telegram';
-            const webhook = await bot.createWebhook({ domain: WEBHOOK_URL, path: webhookPath });
-
-            app.use(webhookPath, webhook);
             app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
         } else {
+            // Удаляем вебхук, если он был установлен ранее, чтобы избежать конфликтов
+            await bot.telegram.deleteWebhook({ drop_pending_updates: true });
             await bot.launch();
             console.log('✅ Бот запущен в режиме long-polling.');
         }
@@ -209,7 +210,9 @@ async function startApp() {
     }
 }
 
-function setupExpress() {
+// ИЗМЕНЕНО: Функция стала асинхронной для настройки вебхука
+async function setupExpress() {
+    // УЛУЧШЕНО: Вспомогательные функции для дашборда вынесены для чистоты
     function convertObjToArray(dataObj) {
         if (!dataObj) return [];
         return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
@@ -255,17 +258,6 @@ function setupExpress() {
         return months;
     }
 
-    function getFromToByPeriod(period) {
-        const now = new Date();
-        if (!period || period === 'all') return { from: new Date('2000-01-01'), to: now };
-        if (/^\d+$/.test(period)) return { from: new Date(now.getTime() - parseInt(period) * 86400000), to: now };
-        if (/^\d{4}-\d{2}$/.test(period)) {
-            const [year, month] = period.split('-').map(Number);
-            return { from: new Date(year, month - 1, 1), to: new Date(year, month, 0) };
-        }
-        throw new Error('Некорректный формат периода');
-    }
-
     function computeActivityByHour(activityByDayHour) {
         const hours = Array(24).fill(0);
         for (const day in activityByDayHour) {
@@ -287,10 +279,17 @@ function setupExpress() {
         }
         return weekdays;
     }
+
+    // ИЗМЕНЕНО: Обработчик вебхука ставится ДО body-парсеров. Это КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ.
+    if (process.env.NODE_ENV === 'production') {
+        const webhookCallback = await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH });
+        app.use(WEBHOOK_PATH, webhookCallback);
+        console.log(`✅ Вебхук успешно настроен на ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+    }
     
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
-    app.use(express.json());
+    app.use(express.json()); // Теперь этот парсер не будет мешать Telegraf
     app.use(expressLayouts);
     app.set('view engine', 'ejs');
     app.set('views', path.join(__dirname, 'views'));
@@ -312,7 +311,7 @@ function setupExpress() {
             try {
                 req.user = await getUserById(req.session.userId);
                 res.locals.user = req.user;
-            } catch(e) { console.error(e); }
+            } catch(e) { console.error('Ошибка при получении данных пользователя для сессии:', e); }
         }
         next();
     });
@@ -344,6 +343,7 @@ function setupExpress() {
         res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
 
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/api/dashboard-data', requireAuth, async (req, res) => {
         try {
             const { period = '30' } = req.query;
@@ -379,10 +379,12 @@ function setupExpress() {
                 },
             });
         } catch (e) {
-            res.status(500).json({ error: 'Ошибка получения данных' });
+            console.error('❌ Ошибка в /api/dashboard-data:', e);
+            res.status(500).json({ error: 'Ошибка получения данных для дашборда' });
         }
     });
 
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/api/users', requireAuth, async (req, res) => {
         try {
             const { showInactive = 'false', registrationDate } = req.query;
@@ -403,10 +405,12 @@ function setupExpress() {
             const { rows } = await pool.query(queryText, queryParams);
             res.json(rows);
         } catch (e) {
-            res.status(500).json({ error: 'Ошибка получения пользователей' });
+            console.error('❌ Ошибка в /api/users:', e);
+            res.status(500).json({ error: 'Ошибка получения списка пользователей' });
         }
     });
 
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/dashboard', requireAuth, async (req, res) => {
         try {
             const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
@@ -473,6 +477,7 @@ function setupExpress() {
         }
     });
     
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/user/:id', requireAuth, async (req, res) => {
         try {
             const userId = parseInt(req.params.id);
@@ -486,6 +491,7 @@ function setupExpress() {
                 downloads: downloads || [], referrals: referralsResult.rows, page: 'user-profile'
             });
         } catch (e) {
+            console.error(`❌ Ошибка в /user/${req.params.id}:`, e);
             res.status(500).send('Ошибка сервера');
         }
     });
@@ -494,58 +500,93 @@ function setupExpress() {
 
     app.get('/broadcast', requireAuth, (req, res) => { res.render('broadcast-form', { title: 'Рассылка', error: null, success: null }); });
 
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
-        const { message } = req.body;
-        const audio = req.file;
-        if (!message && !audio) return res.status(400).render('broadcast-form', { error: 'Текст или файл обязательны' });
-        const users = await getAllUsers();
-        let success = 0, error = 0;
-        for (const u of users) {
-            if (!u.active) continue;
-            try {
-                if (audio) await bot.telegram.sendAudio(u.id, { source: fs.createReadStream(audio.path) }, { caption: message });
-                else await bot.telegram.sendMessage(u.id, message);
-                success++;
-            } catch (e) {
-                error++;
-                if (e.response?.error_code === 403) await updateUserField(u.id, 'active', false);
-            }
-            await new Promise(r => setTimeout(r, 150));
-        }
-        if (audio) fs.unlinkSync(audio.path);
         try {
-            await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка: ✅ ${success} ❌ ${error}`);
-        } catch (adminError) {
-            console.error('Не удалось отправить отчет админу о рассылке:', adminError.message);
+            const { message } = req.body;
+            const audio = req.file;
+            if (!message && !audio) return res.status(400).render('broadcast-form', { error: 'Текст или файл обязательны' });
+            
+            const users = await getAllUsers();
+            let success = 0, error = 0;
+            
+            for (const u of users) {
+                if (!u.active) continue;
+                try {
+                    if (audio) await bot.telegram.sendAudio(u.id, { source: fs.createReadStream(audio.path) }, { caption: message });
+                    else await bot.telegram.sendMessage(u.id, message);
+                    success++;
+                } catch (e) {
+                    error++;
+                    if (e.response?.error_code === 403) await updateUserField(u.id, 'active', false);
+                }
+                await new Promise(r => setTimeout(r, 150));
+            }
+
+            if (audio) fs.unlinkSync(audio.path);
+            
+            try {
+                await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка: ✅ ${success} ❌ ${error}`);
+            } catch (adminError) {
+                console.error('Не удалось отправить отчет админу о рассылке:', adminError.message);
+            }
+            
+            res.render('broadcast-form', { title: 'Рассылка', success, error });
+        } catch (e) {
+            console.error('❌ Ошибка в /broadcast:', e);
+            res.status(500).render('broadcast-form', { title: 'Рассылка', error: 'Произошла критическая ошибка при рассылке', success: null });
         }
-        res.render('broadcast-form', { title: 'Рассылка', success, error });
     });
     
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/export', requireAuth, async (req, res) => {
-        const users = await getAllUsers(true);
-        const csv = await json2csv.json2csv(users, {});
-        res.header('Content-Type', 'text/csv');
-        res.attachment('users.csv');
-        return res.send(csv);
+        try {
+            const users = await getAllUsers(true);
+            const csv = await json2csv.json2csv(users, {});
+            res.header('Content-Type', 'text/csv');
+            res.attachment('users.csv');
+            return res.send(csv);
+        } catch (e) {
+            console.error('❌ Ошибка в /export:', e);
+            res.status(500).send('Ошибка при экспорте пользователей');
+        }
     });
 
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.get('/expiring-users', requireAuth, async (req, res) => {
-        const page = parseInt(req.query.page) || 1;
-        const perPage = 10;
-        const total = await getExpiringUsersCount();
-        const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
-        res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
+        try {
+            const page = parseInt(req.query.page) || 1;
+            const perPage = 10;
+            const total = await getExpiringUsersCount();
+            const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
+            res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
+        } catch (e) {
+            console.error('❌ Ошибка в /expiring-users:', e);
+            res.status(500).send('Ошибка при получении списка истекающих подписок');
+        }
     });
     
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.post('/set-tariff', requireAuth, async (req, res) => {
-        const { userId, limit, days } = req.body;
-        await setPremium(userId, parseInt(limit), parseInt(days) || 30);
-        res.redirect(req.get('referer') || '/dashboard');
+        try {
+            const { userId, limit, days } = req.body;
+            await setPremium(userId, parseInt(limit), parseInt(days) || 30);
+            res.redirect(req.get('referer') || '/dashboard');
+        } catch (e) {
+            console.error('❌ Ошибка в /set-tariff:', e);
+            res.status(500).send('Ошибка при установке тарифа');
+        }
     });
     
+    // УЛУЧШЕНО: Добавлена обработка ошибок
     app.post('/admin/reset-promo/:id', requireAuth, async (req, res) => {
-        await updateUserField(req.params.id, 'promo_1plus1_used', false);
-        res.redirect(req.get('referer') || '/dashboard');
+        try {
+            await updateUserField(req.params.id, 'promo_1plus1_used', false);
+            res.redirect(req.get('referer') || '/dashboard');
+        } catch (e) {
+            console.error(`❌ Ошибка в /admin/reset-promo/${req.params.id}:`, e);
+            res.status(500).send('Ошибка при сбросе промо');
+        }
     });
 }
 
@@ -743,6 +784,7 @@ ${refLink}
             if (url) {
                 await enqueue(ctx, ctx.from.id, url);
             } else {
+                // Игнорируем нажатия кнопок клавиатуры, так как для них есть hears()
                 if (!Object.values(texts).includes(ctx.message.text)) {
                     await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист.');
                 }
