@@ -409,7 +409,9 @@ ${refLink}
             const activeUsers = users.filter(u => u.active).length;
             const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
             
-            const escapedUrl = WEBHOOK_URL.replace(/\/$/, '').replace(/[-.!_]/g, '\\$&');
+            // <<< ИСПРАВЛЕНИЕ: Более надежное экранирование для MarkdownV2
+            const escapeMarkdown = (text) => text.replace(/[_*[```()~`>#+=|{}.!-]/g, '\\$&');
+            const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
 
             await ctx.replyWithMarkdownV2(`
 📊 *Статистика Бота*
@@ -425,7 +427,7 @@ ${refLink}
    - В работе: *${downloadQueue.active}*
    - В ожидании: *${downloadQueue.size}*
 
-🔗 [Открыть админ\\-панель](${escapedUrl}/dashboard)
+🔗 [Открыть админ\\-панель](${escapedUrl})
             `);
         } catch (e) {
             console.error('❌ Ошибка в команде /admin:', e);
