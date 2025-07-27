@@ -16,13 +16,13 @@ import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
 
 // === Импорты модулей НАШЕГО приложения ===
-// <<< ИЗМЕНЕНИЕ: Строка импорта обновлена. Удалены `createUser` и `findCachedTrack`. Добавлены `findCachedTracksByUrls` и `logEvent`.
+// <<< ИЗМЕНЕНИЕ: Строка импорта обновлена. Удалена `getExpiringUsersPaginated`.
 import {
     pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
     resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
     resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate,
     getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour,
-    logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated, cacheTrack,
+    logUserActivity, getUserById, getExpiringUsersCount, cacheTrack,
     findCachedTracksByUrls, logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
@@ -103,7 +103,6 @@ const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, 
 
 async function getUrlsToIndex() {
     try {
-        // <<< ИЗМЕНЕНИЕ: Запрос теперь работает с новой таблицей 'events'.
         const { rows } = await pool.query(`
             SELECT metadata->>'url' as url, COUNT(metadata->>'url') as download_count
             FROM events
@@ -123,15 +122,14 @@ async function getUrlsToIndex() {
 async function processUrlForIndexing(url) {
     let tempFilePath = null;
     try {
-        // <<< ИЗМЕНЕНИЕ: Заменена проверка кэша на новую функцию.
         const cacheMap = await findCachedTracksByUrls([url]);
         if (cacheMap.has(url)) {
-            return; // Трек уже в кэше, пропускаем
+            return;
         }
 
         console.log(`[Indexer] Индексирую: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true });
-        if (!info || Array.isArray(info.entries)) return; // Пропускаем плейлисты
+        if (!info || Array.isArray(info.entries)) return;
 
         const trackName = (info.title || 'track').slice(0, 100);
         tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
@@ -167,7 +165,6 @@ async function startIndexer() {
             console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
             for (const url of urls) {
                 await processUrlForIndexing(url);
-                // Пауза, чтобы не перегружать API
                 await new Promise(resolve => setTimeout(resolve, 30 * 1000));
             }
         }
@@ -182,26 +179,22 @@ async function startIndexer() {
 
 async function startApp() {
     try {
-        // Инициализация Redis
         const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
         client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
         await client.connect();
         redisClient = client;
         console.log('✅ Redis подключён');
 
-        // Создание директории для кэша
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
         setupExpress();
         setupTelegramBot();
         
-        // Запуск фоновых задач
         setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
         setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60000);
         setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
-        cleanupCache(cacheDir, 60); // Запуск сразу при старте
+        cleanupCache(cacheDir, 60);
 
-        // Запуск сервера и бота
         if (process.env.NODE_ENV === 'production') {
             app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH }));
             app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
@@ -210,7 +203,6 @@ async function startApp() {
             console.log('✅ Бот запущен в режиме long-polling.');
         }
         
-        // Запуск индексатора
         startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
 
     } catch (err) {
@@ -220,9 +212,6 @@ async function startApp() {
 }
 
 function setupExpress() {
-    // Этот блок содержит всю логику для админ-панели.
-    // Он оставлен без изменений, так как его функции совместимы с новым db.js
-    
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
@@ -274,49 +263,12 @@ function setupExpress() {
             res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
         }
     });
-    
-    app.get('/api/queue-status', requireAuth, (req, res) => {
-        res.json({ active: downloadQueue.active, size: downloadQueue.size });
-    });
 
-    app.get('/api/dashboard-data', requireAuth, async (req, res) => {
-        try {
-            const users = await getAllUsers(true);
-            const activityByDayHour = await getUserActivityByDayHour();
-
-            const computeActivityByHour = (data) => {
-                const hours = Array(24).fill(0);
-                for (const day in data) {
-                    if (data[day]) {
-                        for (let h = 0; h < 24; h++) {
-                            hours[h] += data[day][h] || 0;
-                        }
-                    }
-                }
-                return hours;
-            };
-    
-            res.json({
-                stats: {
-                    totalUsers: users.length,
-                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-                    activeToday: Object.values(activityByDayHour[new Date().toISOString().slice(0, 10)] || {}).reduce((a, b) => a + b, 0),
-                },
-                chartDataHourActivity: {
-                    labels: [...Array(24).keys()].map(h => `${h}:00`),
-                    datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
-                },
-            });
-        } catch (e) {
-            res.status(500).json({ error: 'Ошибка получения данных: ' + e.message });
-        }
-    });
-    
     app.get('/dashboard', requireAuth, async (req, res) => {
         try {
             const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
                 getAllUsers(true),
-                getExpiringUsers(),
+                getExpiringUsers(), // <<< ИЗМЕНЕНИЕ: Используем новое имя функции
                 getExpiringUsersCount(),
                 getReferralSourcesStats(),
                 getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
@@ -374,7 +326,7 @@ function setupExpress() {
             return res.status(400).render('broadcast-form', { title: 'Рассылка', error: 'Текст или аудиофайл обязательны для рассылки', success: null, page: 'broadcast' });
         }
         
-        const users = await getAllUsers(false); // Только активные
+        const users = await getAllUsers(false);
         let successCount = 0, errorCount = 0;
         
         for (const user of users) {
@@ -391,7 +343,7 @@ function setupExpress() {
                     await updateUserField(user.id, 'active', false);
                 }
             }
-            await new Promise(r => setTimeout(r, 100)); // Задержка для избежания rate limit
+            await new Promise(r => setTimeout(r, 100));
         }
         
         if (audio) fs.unlinkSync(audio.path);
@@ -413,6 +365,15 @@ function setupExpress() {
         return res.send(csv);
     });
 
+    app.get('/expiring-users', requireAuth, async (req, res) => {
+        const page = parseInt(req.query.page) || 1;
+        const perPage = 10;
+        const total = await getExpiringUsersCount();
+        // <<< ИЗМЕНЕНИЕ: Используем новое имя функции
+        const users = await getExpiringUsers(perPage, (page - 1) * perPage);
+        res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
+    });
+    
     app.post('/set-tariff', requireAuth, async (req, res) => {
         const { userId, limit, days } = req.body;
         await setPremium(userId, parseInt(limit), parseInt(days) || 30);
@@ -475,7 +436,6 @@ ${refLink}
         const userId = ctx.from?.id;
         if (!userId) return next();
         try {
-            // getUser сама справится с созданием или получением пользователя
             ctx.state.user = await getUser(userId, ctx.from.first_name, ctx.from.username);
         } catch (error) { 
             console.error(`Ошибка в мидлваре для userId ${userId}:`, error); 
@@ -485,9 +445,7 @@ ${refLink}
 
     bot.start(async (ctx) => {
         try {
-            // <<< ИЗМЕНЕНИЕ: `getUser` уже был вызван в middleware. `createUser` не нужен.
             const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-            // Тут можно добавить логику обработки рефералов (ctx.startPayload)
             await ctx.reply(formatMenuMessage(user, ctx), kb());
         } catch (e) {
             await handleSendMessageError(e, ctx.from.id);
