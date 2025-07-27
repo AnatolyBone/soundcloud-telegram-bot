@@ -22,7 +22,7 @@ const CONFIG = {
     TELEGRAM_FILE_LIMIT_MB: 49,
     MAX_PLAYLIST_TRACKS_FREE: 10,
     TRACK_TITLE_LIMIT: 100,
-    MAX_CONCURRENT_DOWNLOADS: 8,
+    MAX_CONCURRENT_DOWNLOADS: 3,
     YTDL_TIMEOUT: 180, // 3 минуты на получение метаданных
     YTDL_RETRIES: 3,
     SOCKET_TIMEOUT: 120, // 2 минуты на сетевые операции
