@@ -1,465 +1,236 @@
-// index.js
+// services/downloadManager.js
 
-import express from 'express';
-import session from 'express-session';
-import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
-import multer from 'multer';
-import expressLayouts from 'express-ejs-layouts';
+import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
-import { Telegraf, Markup } from 'telegraf';
-import { createClient } from 'redis';
-import pgSessionFactory from 'connect-pg-simple';
-import json2csv from 'json-2-csv';
+import crypto from 'crypto';
+import { performance } from 'perf_hooks';
 
+import { TaskQueue } from '../lib/TaskQueue.js';
+import { getRedisClient, texts, bot } from '../index.js';
 import {
-    pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
-    resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
-    resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate,
-    getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour,
-    logUserActivity, getUserById, getExpiringUsersCount, cacheTrack,
-    findCachedTracksByUrls, logEvent
-} from './db.js';
-import { enqueue, downloadQueue } from './services/downloadManager.js';
+    getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
+    incrementDownloads, updateUserField, findCachedTracksByUrls, cacheTrack
+} from '../db.js';
 
-// === Константы и конфигурация ===
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = Number(process.env.ADMIN_ID);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const WEBHOOK_PATH = '/telegram';
-const PORT = process.env.PORT ?? 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
-const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID;
-
-if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID) {
-    console.error('❌ Отсутствуют необходимые переменные окружения!');
-    process.exit(1);
-}
-
-// === Глобальные экземпляры и утилиты ===
-const bot = new Telegraf(BOT_TOKEN);
-const app = express();
-const upload = multer({ dest: 'uploads/' });
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const cacheDir = path.join(__dirname, 'cache');
-let redisClient = null;
-
-export function getRedisClient() {
-    if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
-    return redisClient;
-}
-
-async function cleanupCache(directory, maxAgeMinutes = 60) {
-    try {
-        const now = Date.now();
-        const files = await fs.promises.readdir(directory);
-        let cleanedCount = 0;
-        for (const file of files) {
-            try {
-                const filePath = path.join(directory, file);
-                const stat = await fs.promises.stat(filePath);
-                if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
-                    await fs.promises.unlink(filePath);
-                    cleanedCount++;
-                }
-            } catch (fileError) {}
-        }
-        if (cleanedCount > 0) console.log(`[Cache Cleanup] Удалено ${cleanedCount} старых файлов.`);
-    } catch (dirError) {
-        if (dirError.code !== 'ENOENT') {
-            console.error('[Cache Cleanup] Ошибка:', dirError);
-        }
-    }
-}
-
-export const texts = {
-    start: '👋 Пришли ссылку на трек или плейлист с SoundCloud.',
-    menu: '📋 Меню',
-    upgrade: '🔓 Расширить лимит',
-    mytracks: '🎵 Мои треки',
-    help: 'ℹ️ Помощь',
-    error: '❌ Ошибка',
-    noTracks: 'Сегодня нет треков.',
-    limitReached: `🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.\n\n🎁 Бонус\n📣 Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
-    upgradeInfo: `🚀 Хочешь больше треков?\n\n🆓 Free — 10 🟢  \nPlus — 50 🎯 (59₽)  \nPro — 100 💪 (119₽)  \nUnlimited — 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate  \n✉️ После оплаты напиши: @anatolybone\n\n📣 Новости и фишки: @SCM_BLOG`,
-    helpInfo: `ℹ️ Просто пришли ссылку и получишь mp3.  \n🔓 Расширить — оплати и подтверди.  \n🎵 Мои треки — список за сегодня.  \n📋 Меню — тариф, лимиты, рефералы.  \n📣 Канал: @SCM_BLOG`,
+const CONFIG = {
+    TELEGRAM_FILE_LIMIT_MB: 49,
+    MAX_PLAYLIST_TRACKS_FREE: 10,
+    TRACK_TITLE_LIMIT: 100,
+    MAX_CONCURRENT_DOWNLOADS: 2,
+    YTDL_RETRIES: 3,
+    SOCKET_TIMEOUT: 120,
 };
 
-const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(path.dirname(__filename));
 
-// =================================================================
-// ===                    ОСНОВНАЯ ЛОГИКА                       ===
-// =================================================================
+function sanitizeFilename(name) {
+    return (name || 'track').replace(/[<>:"/\\|?*]+/g, '').trim().slice(0, CONFIG.TRACK_TITLE_LIMIT);
+}
 
-async function startApp() {
+async function safeSendMessage(userId, text, extra = {}) {
     try {
-        const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
-        client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
-        await client.connect();
-        redisClient = client;
-        console.log('✅ Redis подключён');
-
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
-        setupExpress();
-        setupTelegramBot();
-        
-        setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-        setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
-        setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
-        cleanupCache(cacheDir, 60);
-
-        if (process.env.NODE_ENV === 'production') {
-            app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH }));
-            app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-        } else {
-            await bot.launch();
-            console.log('✅ Бот запущен в режиме long-polling.');
-        }
-
-    } catch (err) {
-        console.error('🔴 Критическая ошибка при запуске приложения:', err);
-        process.exit(1);
-    }
-}
-
-function setupExpress() {
-    app.use(compression());
-    app.use(express.urlencoded({ extended: true }));
-    app.use(express.json());
-    app.use(expressLayouts);
-    app.set('view engine', 'ejs');
-    app.set('views', path.join(__dirname, 'views'));
-    app.set('layout', 'layout');
-    
-    const pgSession = pgSessionFactory(session);
-    app.use(session({
-        store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-        secret: SESSION_SECRET,
-        resave: false,
-        saveUninitialized: false,
-        cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
-    }));
-
-    app.use(async (req, res, next) => {
-        res.locals.user = null;
-        res.locals.page = '';
-        if (req.session.authenticated && req.session.userId === ADMIN_ID) {
-            try {
-                req.user = await getUserById(req.session.userId);
-                res.locals.user = req.user;
-            } catch(e) { console.error(e); }
-        }
-        next();
-    });
-
-    const requireAuth = (req, res, next) => {
-        if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
-        res.redirect('/admin');
-    };
-    
-    app.get('/health', (req, res) => res.send('OK'));
-    
-    app.get('/admin', (req, res) => {
-        if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
-        res.render('login', { title: 'Вход в админку', error: null });
-    });
-
-    app.post('/admin', (req, res) => {
-        const { username, password } = req.body;
-        if (username === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
-            req.session.authenticated = true;
-            req.session.userId = ADMIN_ID;
-            res.redirect('/dashboard');
-        } else {
-            res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
-        }
-    });
-
-    app.get('/dashboard', requireAuth, async (req, res) => {
-        try {
-            const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
-                getAllUsers(true),
-                getExpiringUsers(),
-                getExpiringUsersCount(),
-                getReferralSourcesStats(),
-                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
-            ]);
-    
-            res.render('dashboard', {
-                title: 'Панель управления', page: 'dashboard',
-                users, expiringSoon, expiringCount, referralStats, funnelData, user: req.user
-            });
-        } catch (e) {
-            console.error('❌ Ошибка при загрузке dashboard:', e);
-            res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
-        }
-    });
-
-    app.get('/user/:id', requireAuth, async (req, res) => {
-        try {
-            const userId = parseInt(req.params.id);
-            if (isNaN(userId)) return res.status(400).send('Неверный ID');
-            const user = await getUserById(userId);
-            if (!user) return res.status(404).send('Пользователь не найден');
-            
-            const [downloadsResult, referralsResult] = await Promise.all([
-                supabase.from('events').select('*').eq('user_id', userId).eq('event_type', 'download_start').order('created_at', { ascending: false }).limit(100),
-                pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
-            ]);
-            
-            res.render('user-profile', {
-                title: `Профиль: ${user.first_name || user.username}`, user,
-                downloads: downloadsResult.data || [], referrals: referralsResult.rows, page: 'user-profile'
-            });
-        } catch (e) {
-            console.error(e);
-            res.status(500).send('Ошибка сервера');
-        }
-    });
-
-    app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
-
-    app.get('/broadcast', requireAuth, (req, res) => { res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast' }); });
-
-    app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
-        const { message } = req.body;
-        const audio = req.file;
-        if (!message && !audio) {
-            return res.status(400).render('broadcast-form', { error: 'Текст или аудиофайл обязательны', success: null, page: 'broadcast' });
-        }
-        
-        const users = await getAllUsers(false);
-        let successCount = 0, errorCount = 0;
-        
-        for (const user of users) {
-            try {
-                if (audio) {
-                    await bot.telegram.sendAudio(user.id, { source: fs.createReadStream(audio.path) }, { caption: message });
-                } else {
-                    await bot.telegram.sendMessage(user.id, message);
-                }
-                successCount++;
-            } catch (e) {
-                errorCount++;
-                if (e.response?.error_code === 403) {
-                    await updateUserField(user.id, 'active', false);
-                }
-            }
-            await new Promise(r => setTimeout(r, 100));
-        }
-        
-        if (audio) fs.unlinkSync(audio.path);
-        
-        try {
-            await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена:\n✅ Успешно: ${successCount}\n❌ Ошибок: ${errorCount}`);
-        } catch (adminError) {
-            console.error('Не удалось отправить отчет админу:', adminError.message);
-        }
-        
-        res.render('broadcast-form', { success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast' });
-    });
-    
-    app.get('/export', requireAuth, async (req, res) => {
-        const users = await getAllUsers(true);
-        const csv = await json2csv.json2csv(users, {});
-        res.header('Content-Type', 'text/csv');
-        res.attachment('users.csv');
-        return res.send(csv);
-    });
-
-    app.get('/expiring-users', requireAuth, async (req, res) => {
-        const page = parseInt(req.query.page) || 1;
-        const perPage = 10;
-        const total = await getExpiringUsersCount();
-        const users = await getExpiringUsers(perPage, (page - 1) * perPage);
-        res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
-    });
-    
-    app.post('/set-tariff', requireAuth, async (req, res) => {
-        const { userId, limit, days } = req.body;
-        await setPremium(userId, parseInt(limit), parseInt(days) || 30);
-        res.redirect(req.get('referer') || '/dashboard');
-    });
-}
-
-function setupTelegramBot() {
-    const handleSendMessageError = async (error, userId) => {
-        if (error.response?.error_code === 403) {
-            console.log(`Пользователь ${userId} заблокировал бота. Отключаем его.`);
+        return await bot.telegram.sendMessage(userId, text, extra);
+    } catch (e) {
+        if (e.response?.error_code === 403) {
+            console.warn(`[SafeSend] Пользователь ${userId} заблокировал бота.`);
             await updateUserField(userId, 'active', false);
         } else {
-            console.error(`Ошибка при отправке сообщения для ${userId}:`, error.message);
+            console.error(`[SafeSend] Ошибка отправки сообщения для ${userId}:`, e.message);
         }
-    };
-
-    const extractUrl = (text = '') => {
-        const regex = /(https?:\/\/[^\s]+)/g;
-        const matches = text.match(regex);
-        return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
-    };
-
-    function getTariffName(limit) {
-        if (limit >= 1000) return 'Unlimited (∞/день)';
-        if (limit >= 100) return 'Pro (100/день)';
-        if (limit >= 50) return 'Plus (50/день)';
-        return 'Free (10/день)';
+        return null;
     }
-
-    function getDaysLeft(premiumUntil) {
-        if (!premiumUntil) return 0;
-        const diff = new Date(premiumUntil) - new Date();
-        return Math.max(Math.ceil(diff / 86400000), 0);
-    }
-
-    function formatMenuMessage(user, ctx) {
-        const tariffLabel = getTariffName(user.premium_limit);
-        const downloadsToday = user.downloads_today || 0;
-        const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
-        const daysLeft = getDaysLeft(user.premium_until);
-        return `
-👋 Привет, ${user.first_name}!
-
-📥 Бот качает треки и плейлисты с SoundCloud в MP3. Просто пришли ссылку.
-
-📣 Новости, фишки и бонусы в нашем канале 👉 @SCM_BLOG
-
-💼 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
-
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
-
-🔗 Твоя реферальная ссылка (пока в разработке):
-${refLink}
-        `.trim();
-    }
-
-    bot.use(async (ctx, next) => {
-        const userId = ctx.from?.id;
-        if (!userId) return next();
-        try {
-            ctx.state.user = await getUser(userId, ctx.from.first_name, ctx.from.username);
-        } catch (error) { 
-            console.error(`Ошибка в мидлваре для userId ${userId}:`, error); 
-        }
-        return next();
-    });
-
-    bot.start(async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-            await ctx.reply(formatMenuMessage(user, ctx), kb());
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
-
-    bot.hears(texts.menu, async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            await ctx.reply(formatMenuMessage(user, ctx), kb());
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
-
-    bot.hears(texts.mytracks, async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            let tracks = [];
-            try { 
-                if (typeof user.tracks_today === 'string') tracks = JSON.parse(user.tracks_today);
-                else if (Array.isArray(user.tracks_today)) tracks = user.tracks_today;
-            } catch {}
-
-            if (!tracks || !tracks.length) {
-                return await ctx.reply(texts.noTracks);
-            }
-
-            for (let i = 0; i < tracks.length; i += 10) {
-                const chunk = tracks.slice(i, i + 10).filter(t => t && t.fileId);
-                if (chunk.length > 0) {
-                    await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
-                }
-            }
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
-
-    bot.hears(texts.help, async (ctx) => {
-        try { await ctx.reply(texts.helpInfo, kb()); } 
-        catch (e) { await handleSendMessageError(e, ctx.from.id); }
-    });
-
-    bot.hears(texts.upgrade, async (ctx) => {
-        try { await ctx.reply(texts.upgradeInfo, kb()); } 
-        catch (e) { await handleSendMessageError(e, ctx.from.id); }
-    });
-
-    bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        try {
-            const users = await getAllUsers(true);
-            const totalUsers = users.length;
-            const activeUsers = users.filter(u => u.active).length;
-            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-            
-            // <<< ИСПРАВЛЕНИЕ: Более надежное экранирование для MarkdownV2
-            const escapeMarkdown = (text) => text.replace(/[_*[```()~`>#+=|{}.!-]/g, '\\$&');
-            const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
-
-            await ctx.replyWithMarkdownV2(`
-📊 *Статистика Бота*
-
-👤 *Пользователи:*
-   - Всего: *${totalUsers}*
-   - Активных: *${activeUsers}*
-
-📥 *Загрузки:*
-   - Всего за все время: *${totalDownloads}*
-
-⚙️ *Очередь сейчас:*
-   - В работе: *${downloadQueue.active}*
-   - В ожидании: *${downloadQueue.size}*
-
-🔗 [Открыть админ\\-панель](${escapedUrl})
-            `);
-        } catch (e) {
-            console.error('❌ Ошибка в команде /admin:', e);
-            try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-        }
-    });
-
-    bot.on('text', async (ctx) => {
-        try {
-            const url = extractUrl(ctx.message.text);
-            if (url) {
-                await enqueue(ctx, ctx.from.id, url);
-            } else if (!Object.values(texts).includes(ctx.message.text)) {
-                await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист SoundCloud.');
-            }
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
 }
 
-const stopBot = (signal) => {
-    console.log(`Получен сигнал ${signal}. Завершение работы...`);
-    if (bot.polling?.isRunning()) {
-        bot.stop(signal);
+function getYtdlErrorMessage(err) {
+    const stderr = err.stderr || '';
+    if (stderr.includes('Unsupported URL')) return 'Неподдерживаемая ссылка.';
+    if (stderr.includes('Video unavailable')) return 'Трек недоступен.';
+    if (stderr.includes('404')) return 'Трек не найден (ошибка 404).';
+    if (err.message.includes('timed out')) return 'Сервис отвечает слишком долго.';
+    return 'Не удалось обработать ссылку.';
+}
+
+async function trackDownloadProcessor(task) {
+    const { userId, url, trackName, uploader, playlistUrl } = task;
+    const startTime = performance.now();
+    console.log(`[Worker] Начинаю стриминг: "${trackName}"`);
+
+    try {
+        const ytdlProcess = ytdl.exec(url, {
+            quiet: true, // <<< ИСПРАВЛЕНО: Отключаем лог-спам от yt-dlp
+            output: '-',
+            extractAudio: true,
+            audioFormat: 'mp3',
+            embedMetadata: true,
+            postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}" -metadata title="${trackName}"`,
+            retries: CONFIG.YTDL_RETRIES,
+            "socket-timeout": CONFIG.SOCKET_TIMEOUT,
+        });
+
+        let stderrOutput = '';
+        ytdlProcess.stderr.on('data', (data) => stderrOutput += data.toString());
+
+        const [sentMessage] = await Promise.all([
+            bot.telegram.sendAudio(userId,
+                { source: ytdlProcess.stdout },
+                { caption: trackName, title: trackName, performer: uploader || 'SoundCloud' }
+            ),
+            new Promise((resolve, reject) => {
+                ytdlProcess.on('close', (code) => {
+                    if (code === 0) {
+                        const duration = (performance.now() - startTime).toFixed(0);
+                        console.log(`[Worker] Стриминг "${trackName}" успешно завершен за ${duration} мс.`);
+                        resolve();
+                    } else {
+                        reject(new Error(`yt-dlp exited with code ${code}. Stderr: ${stderrOutput}`));
+                    }
+                });
+                ytdlProcess.on('error', reject);
+            }),
+        ]);
+
+        if (sentMessage?.audio?.file_id) {
+            await cacheTrack(url, sentMessage.audio.file_id, trackName);
+            await saveTrackForUser(userId, trackName, sentMessage.audio.file_id);
+            await incrementDownloads(userId);
+        }
+
+        if (playlistUrl) {
+            const redisClient = getRedisClient();
+            const playlistKey = `playlist:${userId}:${playlistUrl}`;
+            const remaining = await redisClient.decr(playlistKey);
+            if (remaining <= 0) {
+                await safeSendMessage(userId, '✅ Все треки из плейлиста загружены.');
+                await redisClient.del(playlistKey);
+            }
+        }
+    } catch (err) {
+        const duration = (performance.now() - startTime).toFixed(0);
+        console.error(`❌ Ошибка воркера после ${duration} мс для "${trackName}":`, err.message || err);
+        await safeSendMessage(userId, `❌ Не удалось обработать трек: "${trackName}"`);
     }
-    setTimeout(() => process.exit(0), 500);
-};
+}
 
-process.once('SIGINT', () => stopBot('SIGINT'));
-process.once('SIGTERM', () => stopBot('SIGTERM'));
+export const downloadQueue = new TaskQueue({
+    maxConcurrent: CONFIG.MAX_CONCURRENT_DOWNLOADS,
+    taskProcessor: trackDownloadProcessor
+});
 
-startApp();
+async function getTracksInfo(url) {
+    const info = await ytdl(url, {
+        dumpSingleJson: true,
+        retries: CONFIG.YTDL_RETRIES,
+        "socket-timeout": CONFIG.SOCKET_TIMEOUT,
+    });
+    const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
+    const tracks = isPlaylist
+        ? info.entries.filter(e => e?.webpage_url && e?.id).map(e => ({
+            url: e.webpage_url,
+            trackName: sanitizeFilename(e.title),
+            uploader: e.uploader || 'SoundCloud'
+          }))
+        : [{
+            url: info.webpage_url || url,
+            trackName: sanitizeFilename(info.title),
+            uploader: info.uploader || 'SoundCloud'
+          }];
+    if (tracks.length === 0) throw new Error("Не удалось найти треки для загрузки.");
+    return { tracks, isPlaylist };
+}
 
-export { app, bot };
+function applyUserLimits(tracks, user, isPlaylist) {
+    let limitedTracks = [...tracks];
+    if (isPlaylist && user.premium_limit <= 10 && limitedTracks.length > CONFIG.MAX_PLAYLIST_TRACKS_FREE) {
+        safeSendMessage(user.id, `ℹ️ Бесплатный тариф: можно скачать до ${CONFIG.MAX_PLAYLIST_TRACKS_FREE} треков из плейлиста.`);
+        limitedTracks = limitedTracks.slice(0, CONFIG.MAX_PLAYLIST_TRACKS_FREE);
+    }
+    return limitedTracks;
+}
+
+async function sendCachedTracks(tracks, userId) {
+    const urls = tracks.map(t => t.url);
+    const cachedTracksMap = await findCachedTracksByUrls(urls);
+    const tasksToDownload = [];
+    let sentFromCacheCount = 0;
+    for (const track of tracks) {
+        const cached = cachedTracksMap.get(track.url);
+        if (cached) {
+            try {
+                await bot.telegram.sendAudio(userId, cached.fileId, { caption: track.trackName, title: track.trackName });
+                await saveTrackForUser(userId, track.trackName, cached.fileId);
+                await incrementDownloads(userId);
+                sentFromCacheCount++;
+            } catch (err) {
+                if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
+                    tasksToDownload.push(track);
+                } else {
+                    console.error(`⚠️ Ошибка отправки из кэша для ${userId}: ${err.message}`);
+                }
+            }
+        } else {
+            tasksToDownload.push(track);
+        }
+    }
+    if (sentFromCacheCount > 0) {
+        await safeSendMessage(userId, `✅ ${sentFromCacheCount} трек(ов) отправлено мгновенно из кэша.`);
+    }
+    return tasksToDownload;
+}
+
+async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
+    if (tracks.length === 0) return;
+    const user = await getUser(userId);
+    const remainingLimit = user.premium_limit - user.downloads_today;
+    if (remainingLimit <= 0) {
+        return safeSendMessage(userId, '🚫 Ваш лимит был исчерпан треками, отправленными из кэша.');
+    }
+    let finalTasks = tracks;
+    if (tracks.length > remainingLimit) {
+        await safeSendMessage(userId, `⚠️ Ваш лимит: ${remainingLimit}. Добавляю в очередь только доступное количество треков.`);
+        finalTasks = tracks.slice(0, remainingLimit);
+    }
+    if (finalTasks.length > 0) {
+        await safeSendMessage(userId, `⏳ Добавлено в очередь ${finalTasks.length} трек(ов). Вы получите их по мере готовности.`);
+        if (isPlaylist) {
+            const redisClient = getRedisClient();
+            const playlistKey = `playlist:${userId}:${originalUrl}`;
+            await redisClient.setEx(playlistKey, 3600, finalTasks.length.toString());
+            await logEvent(userId, 'download_playlist', { url: originalUrl });
+        }
+        for (const track of finalTasks) {
+            downloadQueue.add({
+                userId, ...track,
+                playlistUrl: isPlaylist ? originalUrl : null,
+                priority: user.premium_limit
+            });
+            await logEvent(userId, 'download_start', { url: track.url, title: track.trackName });
+        }
+    }
+}
+
+export async function enqueue(ctx, userId, url) {
+    const processingMessage = await safeSendMessage(userId, '🔍 Анализирую ссылку...');
+    try {
+        await resetDailyLimitIfNeeded(userId);
+        const user = await getUser(userId);
+        if ((user.premium_limit - user.downloads_today) <= 0) {
+            await safeSendMessage(userId, texts.limitReached);
+            return;
+        }
+        const { tracks, isPlaylist } = await getTracksInfo(url);
+        const limitedTracks = applyUserLimits(tracks, user, isPlaylist);
+        const tasksToDownload = await sendCachedTracks(limitedTracks, userId);
+        await queueRemainingTracks(tasksToDownload, userId, isPlaylist, url);
+    } catch (err) {
+        console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.stderr || err.message || err);
+        const userFriendlyError = getYtdlErrorMessage(err);
+        await safeSendMessage(userId, `❌ Ошибка: ${userFriendlyError}`);
+    } finally {
+        if (processingMessage) {
+            await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
+        }
+    }
+}
