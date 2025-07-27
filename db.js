@@ -135,6 +135,7 @@ export async function cacheTrack(url, fileId, trackName) {
   if (error) console.error('❌ Ошибка кэширования трека:', error);
 }
 
+// <<< ИСПРАВЛЕНИЕ: ВОССТАНОВЛЕНА ФУНКЦИЯ, КОТОРАЯ ОТСУТСТВОВАЛА В ПРОШЛОЙ ВЕРСИИ
 export async function findCachedTracksByUrls(urls) {
   if (!urls || urls.length === 0) return new Map();
   const { data, error } = await supabase.from('track_cache').select('url, file_id, track_name').in('url', urls);
