@@ -1,6 +1,5 @@
-// index.js
+// index.js (полный, с исправлением для /admin)
 
-// === Встроенные и сторонние библиотеки ===
 import express from 'express';
 import session from 'express-session';
 import compression from 'compression';
@@ -15,7 +14,6 @@ import pgSessionFactory from 'connect-pg-simple';
 import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
 
-// === Импорты модулей НАШЕГО приложения ===
 import {
     pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
     resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
@@ -26,7 +24,6 @@ import {
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 
-// === Константы и конфигурация ===
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
@@ -38,11 +35,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID;
 
 if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID) {
-    console.error('❌ Отсутствуют необходимые переменные окружения! (BOT_TOKEN, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, WEBHOOK_URL, STORAGE_CHANNEL_ID)');
+    console.error('❌ Отсутствуют необходимые переменные окружения!');
     process.exit(1);
 }
 
-// === Глобальные экземпляры и утилиты ===
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -69,7 +65,7 @@ async function cleanupCache(directory, maxAgeMinutes = 60) {
                     await fs.promises.unlink(filePath);
                     cleanedCount++;
                 }
-            } catch (fileError) { /* Игнорируем ошибки для отдельных файлов */ }
+            } catch (fileError) {}
         }
         if (cleanedCount > 0) console.log(`[Cache Cleanup] Удалено ${cleanedCount} старых файлов.`);
     } catch (dirError) {
@@ -96,16 +92,12 @@ export const texts = {
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
-// =================================================================
-// ===           ЛОГИКА БОТА-ИНДЕКСАТОРА ("ПАУКА")              ===
-// =================================================================
-
 async function getUrlsToIndex() {
     try {
         const { rows } = await pool.query(`
             SELECT metadata->>'url' as url, COUNT(metadata->>'url') as download_count
             FROM events
-            WHERE event_type = 'download' AND metadata->>'url' IS NOT NULL AND metadata->>'url' LIKE '%soundcloud.com%'
+            WHERE event_type = 'download_start' AND metadata->>'url' IS NOT NULL AND metadata->>'url' LIKE '%soundcloud.com%'
               AND metadata->>'url' NOT IN (SELECT url FROM track_cache)
             GROUP BY metadata->>'url'
             ORDER BY download_count DESC
@@ -122,9 +114,7 @@ async function processUrlForIndexing(url) {
     let tempFilePath = null;
     try {
         const cacheMap = await findCachedTracksByUrls([url]);
-        if (cacheMap.has(url)) {
-            return;
-        }
+        if (cacheMap.has(url)) return;
 
         console.log(`[Indexer] Индексирую: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true });
@@ -171,10 +161,6 @@ async function startIndexer() {
         await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
     }
 }
-
-// =================================================================
-// ===                    ОСНОВНАЯ ЛОГИКА                       ===
-// =================================================================
 
 async function startApp() {
     try {
@@ -297,7 +283,7 @@ function setupExpress() {
             if (!user) return res.status(404).send('Пользователь не найден');
             
             const [downloadsResult, referralsResult] = await Promise.all([
-                supabase.from('events').select('*').eq('user_id', userId).eq('event_type', 'download').order('created_at', { ascending: false }).limit(100),
+                supabase.from('events').select('*').eq('user_id', userId).eq('event_type', 'download_start').order('created_at', { ascending: false }).limit(100),
                 pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
             ]);
             
@@ -542,8 +528,6 @@ ${refLink}
         }
     });
 }
-
-// === ЗАПУСК ПРИЛОЖЕНИЯ ===
 
 const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
