@@ -16,7 +16,6 @@ import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
 
 // === Импорты модулей НАШЕГО приложения ===
-// <<< ИСПРАВЛЕНО: Эта строка теперь полностью соответствует новому `db.js`.
 import {
     pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
     resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
@@ -191,7 +190,7 @@ async function startApp() {
         setupTelegramBot();
         
         setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-        setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60000);
+        setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
         setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
         cleanupCache(cacheDir, 60);
 
@@ -497,20 +496,18 @@ ${refLink}
         catch (e) { await handleSendMessageError(e, ctx.from.id); }
     });
 
-    // ЗАМЕНИТЕ ЭТОТ БЛОК В index.js
+    bot.command('admin', async (ctx) => {
+        if (ctx.from.id !== ADMIN_ID) return;
+        try {
+            const users = await getAllUsers(true);
+            const totalUsers = users.length;
+            const activeUsers = users.filter(u => u.active).length;
+            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+            
+            // <<< ИСПРАВЛЕНИЕ: Экранируем URL для MarkdownV2
+            const escapedUrl = WEBHOOK_URL.replace(/\/$/, '').replace(/[-.!_]/g, '\\$&');
 
-bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    try {
-        const users = await getAllUsers(true);
-        const totalUsers = users.length;
-        const activeUsers = users.filter(u => u.active).length;
-        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-        
-        // <<< ИСПРАВЛЕНИЕ: Экранируем URL, чтобы избежать ошибки MarkdownV2
-        const escapedUrl = WEBHOOK_URL.replace(/\/$/, '').replace(/[-.!]/g, '\\$&');
-        
-        await ctx.replyWithMarkdownV2(`
+            await ctx.replyWithMarkdownV2(`
 📊 *Статистика Бота*
 
 👤 *Пользователи:*
@@ -525,12 +522,12 @@ bot.command('admin', async (ctx) => {
    - В ожидании: *${downloadQueue.size}*
 
 🔗 [Открыть админ\\-панель](${escapedUrl}/dashboard)
-        `);
-    } catch (e) {
-        console.error('❌ Ошибка в команде /admin:', e);
-        try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-    }
-});
+            `);
+        } catch (e) {
+            console.error('❌ Ошибка в команде /admin:', e);
+            try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
+        }
+    });
 
     bot.on('text', async (ctx) => {
         try {
