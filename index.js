@@ -222,7 +222,7 @@ function setupExpress() {
                 `),
                 pool.query(`SELECT COUNT(*) as total FROM users`)
             ]);
-            
+            const labels = await getLastMonths(6);
             const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
 
             const cohortsMap = {};
