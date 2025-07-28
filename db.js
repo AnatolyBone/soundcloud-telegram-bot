@@ -86,16 +86,14 @@ export async function incrementDownloads(id) {
 }
 
 export async function saveTrackForUser(userId, title, fileId) {
-  const trackInfo = JSON.stringify([{ title, fileId }]); // массив с одним объектом
-  await query(`
-    UPDATE users
-    SET tracks_today = 
-      CASE 
-        WHEN tracks_today IS NULL THEN $1::jsonb
-        ELSE tracks_today || $1::jsonb
-      END
-    WHERE id = $2
-  `, [trackInfo, userId]);
+  const trackInfo = { title, fileId };
+  
+  await query(
+    `UPDATE users
+     SET tracks_today = COALESCE(tracks_today, '[]'::jsonb) || $1::jsonb
+     WHERE id = $2`,
+    [JSON.stringify([trackInfo]), userId]
+  );
 }
 
 export async function resetDailyLimitIfNeeded(userId) {
