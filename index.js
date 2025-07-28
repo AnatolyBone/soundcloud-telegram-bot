@@ -1,3 +1,5 @@
+// index.js
+
 // Core
 import fs from 'fs';
 import path from 'path';
@@ -150,6 +152,65 @@ async function startApp() {
 }
 
 function setupExpress() {
+    // === Вспомогательные функции для дашборда (из старой версии) ===
+    function convertObjToArray(dataObj) {
+        if (!dataObj) return [];
+        return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
+    }
+
+    function filterStatsByPeriod(data, period) {
+        if (!Array.isArray(data)) return [];
+        const now = new Date();
+        if (!isNaN(period)) {
+            const days = parseInt(period);
+            const cutoff = new Date(now.getTime() - days * 86400000);
+            return data.filter(item => new Date(item.date) >= cutoff);
+        }
+        if (/^\d{4}-\d{2}$/.test(period)) {
+            return data.filter(item => item.date && item.date.startsWith(period));
+        }
+        return data;
+    }
+
+    function prepareChartData(registrations, downloads, active) {
+        const dateSet = new Set([...registrations.map(r => r.date), ...downloads.map(d => d.date), ...active.map(a => a.date)]);
+        const dates = Array.from(dateSet).sort();
+        const regMap = new Map(registrations.map(r => [r.date, r.count]));
+        const dlMap = new Map(downloads.map(d => [d.date, d.count]));
+        const actMap = new Map(active.map(a => [a.date, a.count]));
+        return {
+            labels: dates,
+            datasets: [
+                { label: 'Регистрации', data: dates.map(d => regMap.get(d) || 0), borderColor: 'rgba(75, 192, 192, 1)', fill: false },
+                { label: 'Загрузки', data: dates.map(d => dlMap.get(d) || 0), borderColor: 'rgba(255, 99, 132, 1)', fill: false },
+                { label: 'Активные пользователи', data: dates.map(d => actMap.get(d) || 0), borderColor: 'rgba(54, 162, 235, 1)', fill: false }
+            ]
+        };
+    }
+
+    function computeActivityByHour(activityByDayHour) {
+        const hours = Array(24).fill(0);
+        for (const day in activityByDayHour) {
+            const hoursData = activityByDayHour[day];
+            if(hoursData) {
+                for (let h = 0; h < 24; h++) {
+                    hours[h] += hoursData[h] || 0;
+                }
+            }
+        }
+        return hours;
+    }
+
+    function computeActivityByWeekday(activityByDayHour) {
+        const weekdays = Array(7).fill(0); // 0=Воскресенье
+        for (const dayStr in activityByDayHour) {
+            const dayTotal = Object.values(activityByDayHour[dayStr] || {}).reduce((a, b) => a + b, 0);
+            weekdays[new Date(dayStr).getDay()] += dayTotal;
+        }
+        return weekdays;
+    }
+
+    // === Основная настройка Express ===
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
@@ -184,11 +245,12 @@ function setupExpress() {
         res.redirect('/admin');
     };
     
+    // === Маршруты (Routes) ===
     app.get('/health', (req, res) => res.send('OK'));
     
     app.get('/admin', (req, res) => {
         if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
-        res.render('login', { title: 'Вход в админку', error: null });
+        res.render('login', { title: 'Вход в админку', error: null, layout: false }); // Отключаем layout для страницы входа
     });
 
     app.post('/admin', (req, res) => {
@@ -198,82 +260,95 @@ function setupExpress() {
             req.session.userId = ADMIN_ID;
             res.redirect('/dashboard');
         } else {
-            res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль' });
+            res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль', layout: false });
         }
     });
 
-    app.get('/dashboard', requireAuth, async (req, res) => {
+    // === API роуты для дашборда (из старой версии) ===
+    app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
-            const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
+            const { period = '30' } = req.query;
+            const users = await getAllUsers(true);
             const [
-                expiringSoon, expiringCount, referralStats, retentionResult, statsResult
+                downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+                activityByDayHour
             ] = await Promise.all([
-                getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-                getExpiringUsersCount(),
-                getReferralSourcesStats(),
-                pool.query(`
-                    WITH cohorts AS (SELECT id AS user_id, DATE(created_at) AS cohort_date FROM users WHERE created_at IS NOT NULL),
-                    activities AS (SELECT DISTINCT user_id, DATE(downloaded_at) AS activity_day FROM downloads_log),
-                    cohort_activity AS (SELECT c.cohort_date, a.activity_day, COUNT(DISTINCT c.user_id) AS active_users FROM cohorts c JOIN activities a ON c.user_id = a.user_id WHERE a.activity_day >= c.cohort_date GROUP BY c.cohort_date, a.activity_day),
-                    cohort_sizes AS (SELECT cohort_date, COUNT(*) AS cohort_size FROM cohorts GROUP BY cohort_date)
-                    SELECT ca.cohort_date, (ca.activity_day - ca.cohort_date) AS days_since_signup, ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
-                    FROM cohort_activity ca JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
-                    ORDER BY ca.cohort_date, days_since_signup;
-                `),
-                pool.query(`SELECT COUNT(*) as total FROM users`)
+                getDownloadsByDate(), getRegistrationsByDate(), getActiveUsersByDate(),
+                getUserActivityByDayHour()
             ]);
-            const labels = await getLastMonths(6);
-            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
-
-            const cohortsMap = {};
-            retentionResult.rows.forEach(row => {
-                const date = new Date(row.cohort_date).toISOString().split('T')[0];
-                if (!cohortsMap[date]) {
-                    cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
-                }
-                cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
+            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+    
+            res.json({
+                stats: {
+                    totalUsers: users.length,
+                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
+                    free: users.filter(u => u.premium_limit <= 10).length,
+                    plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
+                    pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
+                    unlimited: users.filter(u => u.premium_limit >= 1000).length,
+                },
+                chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
+                chartDataHourActivity: {
+                    labels: [...Array(24).keys()].map(h => `${h}:00`),
+                    datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+                },
+                chartDataWeekdayActivity: {
+                    labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+                    datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+                },
             });
-            const chartDataRetention = {
-                labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
-                datasets: Object.values(cohortsMap).map(cohort => ({
-                    label: cohort.label,
-                    data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
-                    fill: false,
-                    borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
-                    tension: 0.1
-                }))
-            };
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
+        }
+    });
+
+    app.get('/api/users', requireAuth, async (req, res, next) => {
+        try {
+            const { showInactive = 'false', registrationDate } = req.query;
+            let queryText = 'SELECT id, username, first_name, total_downloads, premium_limit, created_at, last_active, active, referral_source, promo_1plus1_used FROM users';
+            const queryParams = [];
+            const whereClauses = [];
+            if (showInactive !== 'true') {
+                whereClauses.push('active = TRUE');
+            }
+            if (registrationDate) {
+                queryParams.push(registrationDate);
+                whereClauses.push(`DATE(created_at) = $${queryParams.length}`);
+            }
+            if (whereClauses.length > 0) {
+                queryText += ' WHERE ' + whereClauses.join(' AND ');
+            }
+            queryText += ' ORDER BY created_at DESC';
+            const { rows } = await pool.query(queryText, queryParams);
+            res.json(rows);
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
+        }
+    });
+
+    // === Основные страницы админки ===
+    app.get('/dashboard', requireAuth, async (req, res, next) => {
+        try {
+            const { period = '30' } = req.query;
+            const lastMonths = await getLastMonths(6);
+            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
 
             res.render('dashboard', {
                 title: 'Панель управления',
                 page: 'dashboard',
-                user: req.user,
-                stats: { totalUsers: statsResult.rows[0].total, totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...', activityByDayHour: {} },
-                users: [],
-                referralStats, expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
-                expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
                 period,
-                // ===== ИСПРАВЛЕНО ЗДЕСЬ =====
-                // Было: lastMonths: getLastMonths(6) <-- передавался Promise, а не массив
-                // Стало: lastMonths: labels <-- используется результат, полученный ранее
-                lastMonths: labels, 
+                lastMonths,
                 funnelData: funnelCounts,
-                chartDataCombined: { labels: [], datasets: [] },
-                chartDataHourActivity: { labels: [], datasets: [] },
-                chartDataWeekdayActivity: { labels: [], datasets: [] },
-                chartDataFunnel: { labels: [], datasets: [] },
-                chartDataRetention,
-                chartDataHeatmap: {},
-                chartDataUserFunnel: {},
-                taskLogs: [],
+                // Данные для графиков будут загружены асинхронно через API
             });
         } catch (e) {
-            console.error('❌ Ошибка при загрузке dashboard:', e);
-            res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
+            next(e); // Передаем ошибку в глобальный обработчик
         }
     });
 
-    app.get('/user/:id', requireAuth, async (req, res) => {
+    app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
             const userId = parseInt(req.params.id);
             if (isNaN(userId)) return res.status(400).send('Неверный ID');
@@ -284,12 +359,14 @@ function setupExpress() {
                 pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
             ]);
             res.render('user-profile', {
-                title: `Профиль: ${user.first_name || user.username}`, user,
-                downloads: downloadsResult.data || [], referrals: referralsResult.rows, page: 'user-profile'
+                title: `Профиль: ${user.first_name || user.username}`,
+                user,
+                downloads: downloadsResult.data || [],
+                referrals: referralsResult.rows,
+                page: 'user-profile'
             });
         } catch (e) {
-            console.error(e);
-            res.status(500).send('Ошибка сервера');
+            next(e); // Передаем ошибку в глобальный обработчик
         }
     });
 
@@ -297,60 +374,77 @@ function setupExpress() {
 
     app.get('/broadcast', requireAuth, (req, res) => { res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast' }); });
 
-    app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res) => {
-        const { message } = req.body;
-        const audio = req.file;
-        if (!message && !audio) {
-            return res.status(400).render('broadcast-form', { error: 'Текст или аудиофайл обязательны', success: null, page: 'broadcast' });
-        }
-        const users = await getAllUsers(false);
-        let successCount = 0, errorCount = 0;
-        for (const user of users) {
-            try {
-                if (audio) {
-                    await bot.telegram.sendAudio(user.id, { source: fs.createReadStream(audio.path) }, { caption: message });
-                } else {
-                    await bot.telegram.sendMessage(user.id, message);
-                }
-                successCount++;
-            } catch (e) {
-                errorCount++;
-                if (e.response?.error_code === 403) await updateUserField(user.id, 'active', false);
-            }
-            await new Promise(r => setTimeout(r, 100));
-        }
-        if (audio) fs.unlinkSync(audio.path);
+    app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res, next) => {
         try {
-            await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена:\n✅ Успешно: ${successCount}\n❌ Ошибок: ${errorCount}`);
-        } catch (adminError) {
-            console.error('Не удалось отправить отчет админу:', adminError.message);
+            const { message } = req.body;
+            const audio = req.file;
+            if (!message && !audio) {
+                return res.status(400).render('broadcast-form', { title: 'Рассылка', error: 'Текст или аудиофайл обязательны', success: null, page: 'broadcast' });
+            }
+            const users = await getAllUsers(false);
+            let successCount = 0, errorCount = 0;
+            for (const user of users) {
+                try {
+                    if (audio) {
+                        await bot.telegram.sendAudio(user.id, { source: fs.createReadStream(audio.path) }, { caption: message });
+                    } else {
+                        await bot.telegram.sendMessage(user.id, message);
+                    }
+                    successCount++;
+                } catch (e) {
+                    errorCount++;
+                    if (e.response?.error_code === 403) await updateUserField(user.id, 'active', false);
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            if (audio) fs.unlinkSync(audio.path);
+            try {
+                await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена:\n✅ Успешно: ${successCount}\n❌ Ошибок: ${errorCount}`);
+            } catch (adminError) {
+                console.error('Не удалось отправить отчет админу:', adminError.message);
+            }
+            res.render('broadcast-form', { title: 'Рассылка', success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast' });
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
         }
-        res.render('broadcast-form', { success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast' });
     });
     
-    app.get('/export', requireAuth, async (req, res) => {
-        const users = await getAllUsers(true);
-        const csv = await json2csv.json2csv(users, {});
-        res.header('Content-Type', 'text/csv');
-        res.attachment('users.csv');
-        return res.send(csv);
+    app.get('/export', requireAuth, async (req, res, next) => {
+        try {
+            const users = await getAllUsers(true);
+            const csv = await json2csv.json2csv(users, {});
+            res.header('Content-Type', 'text/csv');
+            res.attachment('users.csv');
+            return res.send(csv);
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
+        }
     });
 
-    app.get('/expiring-users', requireAuth, async (req, res) => {
-        const page = parseInt(req.query.page) || 1;
-        const perPage = 10;
-        const total = await getExpiringUsersCount();
-        const users = await getExpiringUsers(perPage, (page - 1) * perPage);
-        res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки' });
+    app.get('/expiring-users', requireAuth, async (req, res, next) => {
+        try {
+            const page = parseInt(req.query.page) || 1;
+            const perPage = 10;
+            const total = await getExpiringUsersCount();
+            const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
+            res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки', page: 'expiring-users' });
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
+        }
     });
     
-    app.post('/set-tariff', requireAuth, async (req, res) => {
-        const { userId, limit, days } = req.body;
-        await setPremium(userId, parseInt(limit), parseInt(days) || 30);
-        res.redirect(req.get('referer') || '/dashboard');
+    app.post('/set-tariff', requireAuth, async (req, res, next) => {
+        try {
+            const { userId, limit, days } = req.body;
+            await setPremium(userId, parseInt(limit), parseInt(days) || 30);
+            res.redirect(req.get('referer') || '/dashboard');
+        } catch (e) {
+            next(e); // Передаем ошибку в глобальный обработчик
+        }
     });
-}
-app.use((err, req, res, next) => {
+
+    // Глобальный обработчик ошибок. Должен быть в самом конце!
+    app.use((err, req, res, next) => {
         console.error('🔴 Необработанная ошибка:', err);
         
         const statusCode = err.status || 500;
@@ -358,15 +452,23 @@ app.use((err, req, res, next) => {
 
         res.status(statusCode);
         
+        // Отдаем JSON, если запрос был на API
+        if (req.originalUrl.startsWith('/api/')) {
+            return res.json({ error: message });
+        }
+
+        // Рендерим страницу ошибки для обычных запросов
         res.render('error', {
-            title: `Ошибка ${statusCode}`, // <-- Передаем обязательный title
+            title: `Ошибка ${statusCode}`,
             message: message,
             statusCode: statusCode,
             error: err,
-            page: 'error', // Для подсветки меню, если нужно
-            layout: 'layout' // Убеждаемся, что используется основной layout
+            page: 'error',
+            layout: 'layout' 
         });
     });
+}
+
 function setupTelegramBot() {
     const handleSendMessageError = async (error, userId) => {
         if (error.response?.error_code === 403) {
@@ -502,8 +604,11 @@ ${refLink}
         const activeUsers = users.filter(u => u.active).length;
         const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
         
-        // Функция экранирования MarkdownV2
-        const escapeMarkdown = (text) => text.replace(/[_*[```()`~>#+=|{}.!-]/g, '\\$&');
+        const escapeMarkdown = (text) => {
+          if (typeof text !== 'string') return '';
+          return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
+        };
+
         const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
         
         const message = `
