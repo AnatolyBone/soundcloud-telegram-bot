@@ -329,24 +329,25 @@ function setupExpress() {
     });
 
     // === Основные страницы админки ===
-    app.get('/dashboard', requireAuth, async (req, res, next) => {
-        try {
-            const { period = '30' } = req.query;
-            const lastMonths = await getLastMonths(6);
-            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
-
-            res.render('dashboard', {
-                title: 'Панель управления',
-                page: 'dashboard',
-                period,
-                lastMonths,
-                funnelData: funnelCounts,
-                // Данные для графиков будут загружены асинхронно через API
-            });
-        } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
-        }
-    });
+    // index.js, около строки 330
+app.get('/dashboard', requireAuth, async (req, res, next) => {
+    try {
+        const { period = '30', showInactive = 'false' } = req.query; // Достаем showInactive из запроса
+        const lastMonths = await getLastMonths(6);
+        const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
+        
+        res.render('dashboard', {
+            title: 'Панель управления',
+            page: 'dashboard',
+            period,
+            lastMonths,
+            funnelData: funnelCounts,
+            showInactive: showInactive === 'true' // Передаем showInactive в шаблон
+        });
+    } catch (e) {
+        next(e);
+    }
+});
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
