@@ -239,7 +239,7 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
         
         if (isPlaylist) {
             const redisClient = getRedisClient();
-            const playlistKey = `playlist:${userId}:${originalUrl}`; // <<< ИСПРАВЛЕННАЯ СТРОКА
+            const playlistKey = `playlist:${userId}:${originalUrl}`;
             await redisClient.setEx(playlistKey, 3600, finalTasks.length.toString());
             await logEvent(userId, 'download_playlist', { url: originalUrl });
         }
