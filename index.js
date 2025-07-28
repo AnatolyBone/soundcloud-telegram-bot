@@ -192,23 +192,28 @@ function setupExpress() {
         ]);
         
         res.render('dashboard', {
-            title: 'Панель управления',
-            page: 'dashboard',
-            users,
-            expiringSoon,
-            expiringCount,
-            referralStats,
-            funnelData,
-            user: req.user,
-            
-            period, // добавляем period для выбора периода в шаблоне
-            lastMonths, // и массив месяцев, если он нужен для селекта
-        });
-    } catch (e) {
-        console.error('❌ Ошибка при загрузке dashboard:', e);
-        res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
-    }
-});
+                title: 'Панель управления',
+                page: 'dashboard',
+                user: req.user,
+                stats: { totalUsers: statsResult.rows[0].total, totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...', activityByDayHour: {} },
+                users: [],
+                referralStats, expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
+                expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
+                period, lastMonths: getLastMonths(6), funnelData: funnelCounts,
+                chartDataCombined: { labels: [], datasets: [] },
+                chartDataHourActivity: { labels: [], datasets: [] },
+                chartDataWeekdayActivity: { labels: [], datasets: [] },
+                chartDataFunnel: { labels: [], datasets: [] },
+                chartDataRetention,
+                chartDataHeatmap: {},
+                chartDataUserFunnel: {},
+                taskLogs: [],
+            });
+        } catch (e) {
+            console.error('❌ Ошибка при загрузке dashboard:', e);
+            res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
+        }
+    });
 
     app.get('/user/:id', requireAuth, async (req, res) => {
         try {
