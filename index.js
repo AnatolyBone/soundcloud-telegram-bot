@@ -42,6 +42,7 @@ import {
   getReferralSourcesStats,
   markSubscribedBonusUsed,
   getUserActivityByDayHour,
+  getLastMonths,
   logUserActivity,
   getUserById,
   getExpiringUsersCount,
