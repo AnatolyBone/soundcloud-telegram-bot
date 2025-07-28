@@ -342,7 +342,8 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
             period,
             lastMonths,
             funnelData: funnelCounts,
-            showInactive: showInactive === 'true' // Передаем showInactive в шаблон
+            showInactive: showInactive === 'true', // Передаем showInactive в шаблон
+            stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' }
         });
     } catch (e) {
         next(e);
