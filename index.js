@@ -252,7 +252,12 @@ function setupExpress() {
                 users: [],
                 referralStats, expiringSoon, expiringCount, expiringOffset: parseInt(expiringOffset),
                 expiringLimit: parseInt(expiringLimit), showInactive: showInactive === 'true',
-                period, lastMonths: getLastMonths(6), funnelData: funnelCounts,
+                period,
+                // ===== ИСПРАВЛЕНО ЗДЕСЬ =====
+                // Было: lastMonths: getLastMonths(6) <-- передавался Promise, а не массив
+                // Стало: lastMonths: labels <-- используется результат, полученный ранее
+                lastMonths: labels, 
+                funnelData: funnelCounts,
                 chartDataCombined: { labels: [], datasets: [] },
                 chartDataHourActivity: { labels: [], datasets: [] },
                 chartDataWeekdayActivity: { labels: [], datasets: [] },
@@ -482,7 +487,7 @@ ${refLink}
         const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
         
         // Функция экранирования MarkdownV2
-        const escapeMarkdown = (text) => text.replace(/[_*[\]()`~>#+=|{}.!-]/g, '\\$&');
+        const escapeMarkdown = (text) => text.replace(/[_*[```()`~>#+=|{}.!-]/g, '\\$&');
         const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
         
         const message = `
