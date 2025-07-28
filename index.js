@@ -173,25 +173,48 @@ function setupExpress() {
     });
 
     app.get('/dashboard', requireAuth, async (req, res) => {
-    try {
-        const period = req.query.period || '7'; // например, берём из параметра или ставим 7 дней по умолчанию
-        
-        // Формируем список последних месяцев для выбора периода, если нужно
-        const lastMonths = [
-            { value: '2025-06', label: 'Июнь 2025' },
-            { value: '2025-05', label: 'Май 2025' },
-            // можно динамически генерировать по текущей дате
-        ];
-        
-        const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
-            getAllUsers(true),
-            getExpiringUsers(),
-            getExpiringUsersCount(),
-            getReferralSourcesStats(),
-            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
-        ]);
-        
-        res.render('dashboard', {
+        try {
+            const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
+            const [
+                expiringSoon, expiringCount, referralStats, retentionResult, statsResult
+            ] = await Promise.all([
+                getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
+                getExpiringUsersCount(),
+                getReferralSourcesStats(),
+                pool.query(`
+                    WITH cohorts AS (SELECT id AS user_id, DATE(created_at) AS cohort_date FROM users WHERE created_at IS NOT NULL),
+                    activities AS (SELECT DISTINCT user_id, DATE(downloaded_at) AS activity_day FROM downloads_log),
+                    cohort_activity AS (SELECT c.cohort_date, a.activity_day, COUNT(DISTINCT c.user_id) AS active_users FROM cohorts c JOIN activities a ON c.user_id = a.user_id WHERE a.activity_day >= c.cohort_date GROUP BY c.cohort_date, a.activity_day),
+                    cohort_sizes AS (SELECT cohort_date, COUNT(*) AS cohort_size FROM cohorts GROUP BY cohort_date)
+                    SELECT ca.cohort_date, (ca.activity_day - ca.cohort_date) AS days_since_signup, ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
+                    FROM cohort_activity ca JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
+                    ORDER BY ca.cohort_date, days_since_signup;
+                `),
+                pool.query(`SELECT COUNT(*) as total FROM users`)
+            ]);
+            
+            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
+
+            const cohortsMap = {};
+            retentionResult.rows.forEach(row => {
+                const date = new Date(row.cohort_date).toISOString().split('T')[0];
+                if (!cohortsMap[date]) {
+                    cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
+                }
+                cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
+            });
+            const chartDataRetention = {
+                labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
+                datasets: Object.values(cohortsMap).map(cohort => ({
+                    label: cohort.label,
+                    data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
+                    fill: false,
+                    borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
+                    tension: 0.1
+                }))
+            };
+
+            res.render('dashboard', {
                 title: 'Панель управления',
                 page: 'dashboard',
                 user: req.user,
