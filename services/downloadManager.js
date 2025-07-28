@@ -1,11 +1,11 @@
 // services/downloadManager.js
-// <<< НОВЫЙ РЕФАКТОРИНГ: Код переписан с акцентом на читаемость и надежность.
 
 import path from 'path';
 import fs from 'fs';
 import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import pTimeout, { TimeoutError } from 'p-timeout'; // <<< ИЗМЕНЕНИЕ: Импортируем p-timeout
 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts, bot } from '../index.js';
@@ -23,9 +23,9 @@ const CONFIG = {
     MAX_PLAYLIST_TRACKS_FREE: 10,
     TRACK_TITLE_LIMIT: 100,
     MAX_CONCURRENT_DOWNLOADS: 3,
-    YTDL_TIMEOUT: 180, // 3 минуты на получение метаданных
+    METADATA_FETCH_TIMEOUT_MS: 45000, // <<< ИЗМЕНЕНИЕ: 45 секунд на получение метаданных
     YTDL_RETRIES: 3,
-    SOCKET_TIMEOUT: 120, // 2 минуты на сетевые операции
+    SOCKET_TIMEOUT: 120,
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -56,6 +56,10 @@ async function safeSendMessage(userId, text, extra = {}) {
 
 /** Извлекает из ошибки ytdl-exec понятное сообщение */
 function getYtdlErrorMessage(err) {
+    // <<< ИЗМЕНЕНИЕ: Проверяем нашу кастомную ошибку в первую очередь
+    if (err instanceof TimeoutError || err.message.includes('Превышен таймаут получения метаданных')) {
+        return 'Не удалось получить информацию о плейлисте (слишком большой или SoundCloud медленно отвечает).';
+    }
     if (err.stderr) {
         if (err.stderr.includes('Unsupported URL')) return 'Неподдерживаемая ссылка.';
         if (err.stderr.includes('Video unavailable')) return 'Трек недоступен.';
@@ -94,7 +98,7 @@ async function trackDownloadProcessor(task) {
         const stats = await fs.promises.stat(tempFilePath);
         if (stats.size / (1024 * 1024) > CONFIG.TELEGRAM_FILE_LIMIT_MB) {
             await safeSendMessage(userId, `⚠️ Трек "${trackName}" слишком большой и был пропущен.`);
-            return; // Не считаем ошибкой, просто пропускаем
+            return;
         }
         
         const sentMessage = await bot.telegram.sendAudio(userId, { source: fs.createReadStream(tempFilePath) }, {
@@ -137,11 +141,18 @@ export const downloadQueue = new TaskQueue({
 // ======================================================================
 
 async function getTracksInfo(url) {
-    const info = await ytdl(url, {
+    // <<< ИЗМЕНЕНИЕ: Оборачиваем долгую операцию в pTimeout
+    const ytdlPromise = ytdl(url, {
         dumpSingleJson: true,
         retries: CONFIG.YTDL_RETRIES,
         "socket-timeout": CONFIG.SOCKET_TIMEOUT
     });
+
+    const info = await pTimeout(ytdlPromise, {
+        milliseconds: CONFIG.METADATA_FETCH_TIMEOUT_MS,
+        message: 'Превышен таймаут получения метаданных плейлиста.' // Наше кастомное сообщение для отладки
+    });
+    // --- Конец изменений ---
 
     const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
     
@@ -193,7 +204,7 @@ async function sendCachedTracks(tracks, userId) {
                 sentFromCacheCount++;
             } catch (err) {
                 if (err.description?.includes('FILE_REFERENCE_EXPIRED')) {
-                    tasksToDownload.push(track); // Истекший кэш, нужно перезакачать
+                    tasksToDownload.push(track);
                 } else {
                     console.error(`⚠️ Ошибка отправки из кэша для ${userId}: ${err.message}`);
                 }
@@ -212,7 +223,7 @@ async function sendCachedTracks(tracks, userId) {
 async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
     if (tracks.length === 0) return;
 
-    const user = await getUser(userId); // Получаем свежайшие данные о пользователе
+    const user = await getUser(userId);
     const remainingLimit = user.premium_limit - user.downloads_today;
 
     if (remainingLimit <= 0) {
@@ -230,52 +241,4 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
         
         if (isPlaylist) {
             const redisClient = getRedisClient();
-            const playlistKey = `playlist:${userId}:${originalUrl}`;
-            await redisClient.setEx(playlistKey, 3600, finalTasks.length.toString());
-            await logEvent(userId, 'download_playlist', { url: originalUrl });
-        }
-        
-        for (const track of finalTasks) {
-            downloadQueue.add({
-                userId,
-                ...track,
-                playlistUrl: isPlaylist ? originalUrl : null,
-                priority: user.premium_limit // Премиум пользователи имеют более высокий приоритет
-            });
-            await logEvent(userId, 'download_start', { url: track.url, title: track.trackName });
-        }
-    }
-}
-
-
-// =======================================================
-// --- 5. Основная входная точка ---
-// =======================================================
-
-export async function enqueue(ctx, userId, url) {
-    const processingMessage = await safeSendMessage(userId, '🔍 Анализирую ссылку...');
-
-    try {
-        await resetDailyLimitIfNeeded(userId);
-        const user = await getUser(userId);
-
-        if ((user.premium_limit - user.downloads_today) <= 0) {
-            return safeSendMessage(userId, texts.limitReached);
-        }
-
-        // --- Запуск конвейера ---
-        const { tracks, isPlaylist } = await getTracksInfo(url);
-        const limitedTracks = applyUserLimits(tracks, user, isPlaylist);
-        const tasksToDownload = await sendCachedTracks(limitedTracks, userId);
-        await queueRemainingTracks(tasksToDownload, userId, isPlaylist, url);
-
-    } catch (err) {
-        console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.message);
-        const userFriendlyError = getYtdlErrorMessage(err);
-        await safeSendMessage(userId, `❌ Ошибка: ${userFriendlyError}`);
-    } finally {
-        if (processingMessage) {
-            await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
-        }
-    }
-}
+            const playlistKey = 
