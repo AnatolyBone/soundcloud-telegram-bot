@@ -33,9 +33,9 @@ export async function getUser(id, first_name = '', username = '') {
     'UPDATE users SET last_active = NOW() WHERE id = $1 AND active = TRUE RETURNING *',
     [id]
   );
-
+  
   if (rows.length > 0) return rows[0];
-
+  
   await query(`
     INSERT INTO users (id, username, first_name, last_reset_date, created_at, last_active)
     VALUES ($1, $2, $3, CURRENT_DATE, NOW(), NOW())
@@ -86,11 +86,16 @@ export async function incrementDownloads(id) {
 }
 
 export async function saveTrackForUser(userId, title, fileId) {
-  const trackInfo = JSON.stringify({ title, fileId });
-  await query(
-    `UPDATE users SET tracks_today = tracks_today || $1::jsonb WHERE id = $2`,
-    [trackInfo, userId]
-  );
+  const trackInfo = JSON.stringify([{ title, fileId }]); // массив с одним объектом
+  await query(`
+    UPDATE users
+    SET tracks_today = 
+      CASE 
+        WHEN tracks_today IS NULL THEN $1::jsonb
+        ELSE tracks_today || $1::jsonb
+      END
+    WHERE id = $2
+  `, [trackInfo, userId]);
 }
 
 export async function resetDailyLimitIfNeeded(userId) {
@@ -99,7 +104,7 @@ export async function resetDailyLimitIfNeeded(userId) {
   
   const lastReset = new Date(rows[0].last_reset_date).toISOString().slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
-
+  
   if (lastReset !== today) {
     await query(`
       UPDATE users
@@ -112,7 +117,7 @@ export async function resetDailyLimitIfNeeded(userId) {
 export async function setPremium(id, limit, days = null) {
   const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
   if (rows.length === 0) return false;
-
+  
   let extraDays = 0;
   let bonusApplied = false;
   if (days && !rows[0].promo_1plus1_used) {
@@ -120,7 +125,7 @@ export async function setPremium(id, limit, days = null) {
     bonusApplied = true;
     await updateUserField(id, 'promo_1plus1_used', true);
   }
-
+  
   const totalDays = (days || 0) + extraDays;
   const until = new Date(Date.now() + totalDays * 86400000).toISOString();
   await updateUserField(id, 'premium_limit', limit);
@@ -156,31 +161,31 @@ export async function logUserActivity(userId) {
 }
 
 export async function logEvent(userId, event_type, metadata = {}) {
-    const { error } = await supabase.from('events').insert({ user_id: userId, event_type, metadata });
-    if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
+  const { error } = await supabase.from('events').insert({ user_id: userId, event_type, metadata });
+  if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
 }
 
 const funnelCache = new Map();
 export async function getFunnelData(from, to) {
-    const key = `${from}_${to}`;
-    if (funnelCache.has(key) && (Date.now() - funnelCache.get(key).timestamp < 60000)) {
-      return funnelCache.get(key).data;
-    }
-    const [registrations, firstDownloads, subscriptions] = await Promise.all([
-      supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
-      supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
-      supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
-    ]);
-    if (registrations.error || firstDownloads.error || subscriptions.error) {
-      throw new Error('Ошибка Supabase при получении данных воронки');
-    }
-    const result = {
-      registrationCount: registrations.count || 0,
-      firstDownloadCount: firstDownloads.count || 0,
-      subscriptionCount: subscriptions.count || 0,
-    };
-    funnelCache.set(key, { data: result, timestamp: Date.now() });
-    return result;
+  const key = `${from}_${to}`;
+  if (funnelCache.has(key) && (Date.now() - funnelCache.get(key).timestamp < 60000)) {
+    return funnelCache.get(key).data;
+  }
+  const [registrations, firstDownloads, subscriptions] = await Promise.all([
+    supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
+    supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
+    supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
+  ]);
+  if (registrations.error || firstDownloads.error || subscriptions.error) {
+    throw new Error('Ошибка Supabase при получении данных воронки');
+  }
+  const result = {
+    registrationCount: registrations.count || 0,
+    firstDownloadCount: firstDownloads.count || 0,
+    subscriptionCount: subscriptions.count || 0,
+  };
+  funnelCache.set(key, { data: result, timestamp: Date.now() });
+  return result;
 }
 
 export async function markSubscribedBonusUsed(userId) {
