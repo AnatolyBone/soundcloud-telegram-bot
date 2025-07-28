@@ -380,39 +380,42 @@ ${refLink}
     });
 
     bot.command('admin', async (ctx) => {
-        if (ctx.from.id !== ADMIN_ID) return;
-        try {
-            const users = await getAllUsers(true);
-            const totalUsers = users.length;
-            const activeUsers = users.filter(u => u.active).length;
-            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-            
-            // <<< ИСПРАВЛЕНИЕ: Более надежное экранирование для MarkdownV2
-            const escapeMarkdown = (text) => text.replace(/[_*[```()~`>#+=|{}.!-]/g, '\\$&');
-            const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
-
-            await ctx.replyWithMarkdownV2(`
+    if (ctx.from.id !== ADMIN_ID) return;
+    try {
+        const users = await getAllUsers(true);
+        const totalUsers = users.length;
+        const activeUsers = users.filter(u => u.active).length;
+        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+        
+        // Функция экранирования MarkdownV2
+        const escapeMarkdown = (text) => text.replace(/[_*[\]()`~>#+=|{}.!-]/g, '\\$&');
+        const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
+        
+        const message = `
 📊 *Статистика Бота*
 
 👤 *Пользователи:*
-   - Всего: *${totalUsers}*
-   - Активных: *${activeUsers}*
+   \\- Всего: *${totalUsers}*
+   \\- Активных: *${activeUsers}*
 
 📥 *Загрузки:*
-   - Всего за все время: *${totalDownloads}*
+   \\- Всего за все время: *${totalDownloads}*
 
 ⚙️ *Очередь сейчас:*
-   - В работе: *${downloadQueue.active}*
-   - В ожидании: *${downloadQueue.size}*
+   \\- В работе: *${downloadQueue.active}*
+   \\- В ожидании: *${downloadQueue.size}*
 
 🔗 [Открыть админ\\-панель](${escapedUrl})
-            `);
-        } catch (e) {
-            console.error('❌ Ошибка в команде /admin:', e);
-            try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-        }
-    });
-
+        `.trim();
+        
+        await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+    } catch (e) {
+        console.error('❌ Ошибка в команде /admin:', e);
+        try {
+            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
+        } catch {}
+    }
+});
     bot.on('text', async (ctx) => {
         try {
             const url = extractUrl(ctx.message.text);
