@@ -1,0 +1,12 @@
+<% // views/error.ejs %>
+<div class="container mt-5">
+  <div class="alert alert-danger">
+    <h1>Ошибка <%= statusCode %></h1>
+    <p class="lead">Что-то пошло не так на сервере.</p>
+    <hr>
+    <p>Сообщение: <%= message %></p>
+    <% if (process.env.NODE_ENV !== 'production' && error.stack) { %>
+      <pre><code><%= error.stack %></code></pre>
+    <% } %>
+  </div>
+</div>
