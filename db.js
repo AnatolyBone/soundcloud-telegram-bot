@@ -128,7 +128,7 @@ export async function setPremium(id, limit, days = null) {
   const currentPremiumUntil = rows[0].premium_until ? new Date(rows[0].premium_until) : new Date();
   const newPremiumUntil = currentPremiumUntil > new Date() ? currentPremiumUntil : new Date();
   const until = new Date(newPremiumUntil.getTime() + totalDays * 86400000).toISOString();
-
+  
   await updateUserField(id, 'premium_limit', limit);
   await updateUserField(id, 'premium_until', until);
   return bonusApplied;
