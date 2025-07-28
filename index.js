@@ -18,7 +18,7 @@ import {
     resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
     resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate,
     getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour,
-    logUserActivity, getUserById, getExpiringUsersCount, cacheTrack,
+    logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated, cacheTrack,
     findCachedTracksByUrls, logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
