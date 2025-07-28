@@ -10,27 +10,28 @@
     "dev": "concurrently \"npm:start\" \"npm:start:indexer\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.6",
-    "axios": "^1.6.8",
+    "@supabase/supabase-js": "^2.44.2",
+    "axios": "^1.7.2",
     "compression": "^1.7.4",
     "concurrently": "^8.2.2",
-    "connect-pg-simple": "^8.0.0",
-    "ejs": "^3.1.9",
+    "connect-pg-simple": "^9.0.1",
+    "ejs": "^3.1.10",
     "express": "^4.19.2",
     "express-ejs-layouts": "^2.5.1",
-    "express-session": "^1.17.3",
+    "express-session": "^1.18.0",
     "file-type": "^19.0.0",
-    "googleapis": "^118.0.0",
+    "googleapis": "^140.0.1",
     "json-2-csv": "^5.5.9",
     "multer": "^1.4.5-lts.1",
-    "node-id3": "^0.2.0",
-    "redis": "^4.6.7",
+    "node-id3": "^0.2.6",
+    "p-limit": "^4.0.0",
+    "p-timeout": "^6.1.2",
+    "redis": "^4.6.15",
     "telegraf": "^4.16.3",
-    "youtube-dl-exec": "^2.0.1",
-    "p-limit": "^4.0.0"
+    "youtube-dl-exec": "^3.0.4"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   },
   "author": "Anatoly Bone",
   "license": "MIT",
