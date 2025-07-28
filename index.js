@@ -350,24 +350,41 @@ ${refLink}
     });
 
     bot.hears(texts.mytracks, async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            let tracks = [];
-            try { 
-                if (typeof user.tracks_today === 'string') tracks = JSON.parse(user.tracks_today);
-                else if (Array.isArray(user.tracks_today)) tracks = user.tracks_today;
-            } catch {}
-            if (!tracks || !tracks.length) return await ctx.reply(texts.noTracks);
-            for (let i = 0; i < tracks.length; i += 10) {
-                const chunk = tracks.slice(i, i + 10).filter(t => t && t.fileId);
-                if (chunk.length > 0) {
-                    await ctx.replyWithMediaGroup(chunk.map(t => ({ type: 'audio', media: t.fileId })));
-                }
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id);
+        
+        let tracks = [];
+        if (Array.isArray(user.tracks_today)) {
+            tracks = user.tracks_today;
+        } else if (typeof user.tracks_today === 'string') {
+            try {
+                tracks = JSON.parse(user.tracks_today);
+            } catch (e) {
+                tracks = [];
             }
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
         }
-    });
+        
+        const validTracks = tracks.filter(t => t && t.fileId);
+        
+        if (!validTracks.length) {
+            return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
+        }
+        
+        // Отправка пачками по 5 аудиофайлов
+        for (let i = 0; i < validTracks.length; i += 5) {
+            const chunk = validTracks.slice(i, i + 5);
+            await ctx.replyWithMediaGroup(chunk.map(track => ({
+                type: 'audio',
+                media: track.fileId,
+                title: track.title,
+            })));
+        }
+        
+    } catch (err) {
+        console.error('Ошибка в /mytracks:', err);
+        await ctx.reply('Произошла ошибка при получении треков.');
+    }
+});
 
     bot.hears(texts.help, async (ctx) => {
         try { await ctx.reply(texts.helpInfo, kb()); } 
