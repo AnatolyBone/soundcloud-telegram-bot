@@ -270,7 +270,23 @@ export async function getExpiringUsersCount() {
     `);
   return parseInt(rows[0].count, 10);
 }
+export async function getExpiringUsersPaginated(limit = 10, offset = 0) {
+  const { rows } = await query(`
+    SELECT id, username, premium_until
+    FROM users
+    WHERE premium_until IS NOT NULL AND premium_until > NOW()
+    ORDER BY premium_until ASC
+    LIMIT $1 OFFSET $2
+  `, [limit, offset]);
+  return rows;
+}
 
+export async function getExpiringUsersPaginatedCount() {
+  const { rows } = await query(`
+    SELECT COUNT(*) FROM users WHERE premium_until IS NOT NULL AND premium_until > NOW()
+  `);
+  return parseInt(rows[0].count, 10);
+}
 export async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
