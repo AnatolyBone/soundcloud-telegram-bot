@@ -1,25 +1,54 @@
-// index.js
+// Core
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+// Middleware
+import compression from 'compression';
 import express from 'express';
 import session from 'express-session';
-import compression from 'compression';
-import path from 'path';
-import fs from 'fs';
 import multer from 'multer';
 import expressLayouts from 'express-ejs-layouts';
-import { fileURLToPath } from 'url';
+
+// Telegram
 import { Telegraf, Markup } from 'telegraf';
+
+// Storage
 import { createClient } from 'redis';
 import pgSessionFactory from 'connect-pg-simple';
+
+// Utils
 import json2csv from 'json-2-csv';
 
+// Database logic
 import {
-    pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers,
-    resetDailyStats, addReview, saveTrackForUser, hasLeftReview, getLatestReviews,
-    resetDailyLimitIfNeeded, getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate,
-    getExpiringUsers, getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour,
-    logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated, cacheTrack,
-    findCachedTracksByUrls, logEvent
+  pool,
+  supabase,
+  getFunnelData,
+  getUser,
+  updateUserField,
+  setPremium,
+  getAllUsers,
+  resetDailyStats,
+  addReview,
+  saveTrackForUser,
+  hasLeftReview,
+  getLatestReviews,
+  resetDailyLimitIfNeeded,
+  getRegistrationsByDate,
+  getDownloadsByDate,
+  getActiveUsersByDate,
+  getExpiringUsers,
+  getReferralSourcesStats,
+  markSubscribedBonusUsed,
+  getUserActivityByDayHour,
+  logUserActivity,
+  getUserById,
+  getExpiringUsersCount,
+  getExpiringUsersPaginated,
+  cacheTrack,
+  findCachedTracksByUrls,
+  logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 
