@@ -5,7 +5,7 @@ import fs from 'fs';
 import ytdl from 'youtube-dl-exec';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import pTimeout, { TimeoutError } from 'p-timeout'; // <<< ИЗМЕНЕНИЕ: Импортируем p-timeout
+import pTimeout, { TimeoutError } from 'p-timeout';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
 import { getRedisClient, texts, bot } from '../index.js';
@@ -23,7 +23,7 @@ const CONFIG = {
     MAX_PLAYLIST_TRACKS_FREE: 10,
     TRACK_TITLE_LIMIT: 100,
     MAX_CONCURRENT_DOWNLOADS: 3,
-    METADATA_FETCH_TIMEOUT_MS: 45000, // <<< ИЗМЕНЕНИЕ: 45 секунд на получение метаданных
+    METADATA_FETCH_TIMEOUT_MS: 45000,
     YTDL_RETRIES: 3,
     SOCKET_TIMEOUT: 120,
 };
@@ -56,7 +56,6 @@ async function safeSendMessage(userId, text, extra = {}) {
 
 /** Извлекает из ошибки ytdl-exec понятное сообщение */
 function getYtdlErrorMessage(err) {
-    // <<< ИЗМЕНЕНИЕ: Проверяем нашу кастомную ошибку в первую очередь
     if (err instanceof TimeoutError || err.message.includes('Превышен таймаут получения метаданных')) {
         return 'Не удалось получить информацию о плейлисте (слишком большой или SoundCloud медленно отвечает).';
     }
@@ -141,7 +140,6 @@ export const downloadQueue = new TaskQueue({
 // ======================================================================
 
 async function getTracksInfo(url) {
-    // <<< ИЗМЕНЕНИЕ: Оборачиваем долгую операцию в pTimeout
     const ytdlPromise = ytdl(url, {
         dumpSingleJson: true,
         retries: CONFIG.YTDL_RETRIES,
@@ -150,9 +148,8 @@ async function getTracksInfo(url) {
 
     const info = await pTimeout(ytdlPromise, {
         milliseconds: CONFIG.METADATA_FETCH_TIMEOUT_MS,
-        message: 'Превышен таймаут получения метаданных плейлиста.' // Наше кастомное сообщение для отладки
+        message: 'Превышен таймаут получения метаданных плейлиста.'
     });
-    // --- Конец изменений ---
 
     const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
     
@@ -220,6 +217,7 @@ async function sendCachedTracks(tracks, userId) {
     
     return tasksToDownload;
 }
+
 async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
     if (tracks.length === 0) return;
 
@@ -241,4 +239,51 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
         
         if (isPlaylist) {
             const redisClient = getRedisClient();
-            const playlistKey = 
+            const playlistKey = `playlist:${userId}:${originalUrl}`; // <<< ИСПРАВЛЕННАЯ СТРОКА
+            await redisClient.setEx(playlistKey, 3600, finalTasks.length.toString());
+            await logEvent(userId, 'download_playlist', { url: originalUrl });
+        }
+        
+        for (const track of finalTasks) {
+            downloadQueue.add({
+                userId,
+                ...track,
+                playlistUrl: isPlaylist ? originalUrl : null,
+                priority: user.premium_limit
+            });
+            await logEvent(userId, 'download_start', { url: track.url, title: track.trackName });
+        }
+    }
+}
+
+
+// =======================================================
+// --- 5. Основная входная точка ---
+// =======================================================
+
+export async function enqueue(ctx, userId, url) {
+    const processingMessage = await safeSendMessage(userId, '🔍 Анализирую ссылку...');
+
+    try {
+        await resetDailyLimitIfNeeded(userId);
+        const user = await getUser(userId);
+
+        if ((user.premium_limit - user.downloads_today) <= 0) {
+            return safeSendMessage(userId, texts.limitReached);
+        }
+
+        const { tracks, isPlaylist } = await getTracksInfo(url);
+        const limitedTracks = applyUserLimits(tracks, user, isPlaylist);
+        const tasksToDownload = await sendCachedTracks(limitedTracks, userId);
+        await queueRemainingTracks(tasksToDownload, userId, isPlaylist, url);
+
+    } catch (err) {
+        console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.message);
+        const userFriendlyError = getYtdlErrorMessage(err);
+        await safeSendMessage(userId, `❌ Ошибка: ${userFriendlyError}`);
+    } finally {
+        if (processingMessage) {
+            await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
+        }
+    }
+}
