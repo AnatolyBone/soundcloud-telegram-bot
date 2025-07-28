@@ -350,7 +350,23 @@ function setupExpress() {
         res.redirect(req.get('referer') || '/dashboard');
     });
 }
+app.use((err, req, res, next) => {
+        console.error('🔴 Необработанная ошибка:', err);
+        
+        const statusCode = err.status || 500;
+        const message = err.message || 'Внутренняя ошибка сервера';
 
+        res.status(statusCode);
+        
+        res.render('error', {
+            title: `Ошибка ${statusCode}`, // <-- Передаем обязательный title
+            message: message,
+            statusCode: statusCode,
+            error: err,
+            page: 'error', // Для подсветки меню, если нужно
+            layout: 'layout' // Убеждаемся, что используется основной layout
+        });
+    });
 function setupTelegramBot() {
     const handleSendMessageError = async (error, userId) => {
         if (error.response?.error_code === 403) {
