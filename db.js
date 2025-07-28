@@ -280,7 +280,18 @@ export async function getExpiringUsersPaginatedCount() {
   `);
   return parseInt(rows[0].count, 10);
 }
+export async function getLastMonths(n = 6) {
+  const months = [];
+  const now = new Date();
 
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+    months.unshift(label);
+  }
+
+  return months;
+}
 export async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
