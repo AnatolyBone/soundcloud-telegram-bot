@@ -173,23 +173,42 @@ function setupExpress() {
     });
 
     app.get('/dashboard', requireAuth, async (req, res) => {
-        try {
-            const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
-                getAllUsers(true),
-                getExpiringUsers(),
-                getExpiringUsersCount(),
-                getReferralSourcesStats(),
-                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
-            ]);
-            res.render('dashboard', {
-                title: 'Панель управления', page: 'dashboard',
-                users, expiringSoon, expiringCount, referralStats, funnelData, user: req.user
-            });
-        } catch (e) {
-            console.error('❌ Ошибка при загрузке dashboard:', e);
-            res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
-        }
-    });
+    try {
+        const period = req.query.period || '7'; // например, берём из параметра или ставим 7 дней по умолчанию
+        
+        // Формируем список последних месяцев для выбора периода, если нужно
+        const lastMonths = [
+            { value: '2025-06', label: 'Июнь 2025' },
+            { value: '2025-05', label: 'Май 2025' },
+            // можно динамически генерировать по текущей дате
+        ];
+        
+        const [users, expiringSoon, expiringCount, referralStats, funnelData] = await Promise.all([
+            getAllUsers(true),
+            getExpiringUsers(),
+            getExpiringUsersCount(),
+            getReferralSourcesStats(),
+            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString())
+        ]);
+        
+        res.render('dashboard', {
+            title: 'Панель управления',
+            page: 'dashboard',
+            users,
+            expiringSoon,
+            expiringCount,
+            referralStats,
+            funnelData,
+            user: req.user,
+            
+            period, // добавляем period для выбора периода в шаблоне
+            lastMonths, // и массив месяцев, если он нужен для селекта
+        });
+    } catch (e) {
+        console.error('❌ Ошибка при загрузке dashboard:', e);
+        res.status(500).send('Внутренняя ошибка сервера: ' + e.message);
+    }
+});
 
     app.get('/user/:id', requireAuth, async (req, res) => {
         try {
