@@ -683,7 +683,9 @@ ${refLink}
         catch (e) { await handleSendMessageError(e, ctx.from.id); }
     });
 
-    bot.command('admin', async (ctx) => {
+    // В файле index.js
+
+bot.command('admin', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     try {
         const users = await getAllUsers(true);
@@ -691,11 +693,16 @@ ${refLink}
         const activeUsers = users.filter(u => u.active).length;
         const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
         
+        // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Добавляем расчет activeToday >>>
+        const now = new Date();
+        const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
+        // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
+        
         const escapeMarkdown = (text) => {
-          if (typeof text !== 'string') return '';
-          return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
+            if (typeof text !== 'string') return '';
+            return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
         };
-
+        
         const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
         
         const message = `
@@ -703,7 +710,7 @@ ${refLink}
 
 👤 *Пользователи:*
    \\- Всего: *${totalUsers}*
-   \\- Активных: *${activeUsers}*
+   \\- Активных \KATEX_INLINE_OPENв целом\KATEX_INLINE_CLOSE: *${activeUsers}*
    \\- Активных сегодня: *${activeToday}*
 
 📥 *Загрузки:*
