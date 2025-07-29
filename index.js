@@ -710,7 +710,7 @@ bot.command('admin', async (ctx) => {
 
 👤 *Пользователи:*
    \\- Всего: *${totalUsers}*
-   \\- Активных \KATEX_INLINE_OPENв целом\KATEX_INLINE_CLOSE: *${activeUsers}*
+   \\- Активных в целом: *${activeUsers}*
    \\- Активных сегодня: *${activeToday}*
 
 📥 *Загрузки:*
