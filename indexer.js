@@ -25,14 +25,13 @@ const bot = new Telegraf(BOT_TOKEN);
 
 /**
  * Получает список URL'ов треков для индексации.
- * Пока что просто берем самые популярные из логов.
  */
 async function getUrlsToIndex() {
     console.log('[Indexer] Получаю список популярных треков из логов...');
     const { rows } = await pool.query(`
         SELECT url, COUNT(url) as download_count
         FROM downloads_log
-        WHERE url NOT IN (SELECT soundcloud_url FROM track_cache)
+        WHERE url NOT IN (SELECT url FROM track_cache)
         GROUP BY url
         ORDER BY download_count DESC
         LIMIT 20;
@@ -56,14 +55,33 @@ async function processUrl(url) {
         const info = await ytdl(url, { dumpSingleJson: true });
         if (!info || Array.isArray(info.entries)) return; // Пропускаем плейлисты
 
+        // <<< ИЗМЕНЕНИЕ 1: Получаем и имя, и исполнителя >>>
         const trackName = (info.title || 'track').slice(0, 100);
+        const uploader = info.uploader || 'SoundCloud'; // Получаем имя исполнителя
+        
         tempFilePath = path.join(cacheDir, `${info.id || Date.now()}.mp3`);
         
-        await ytdl(url, { output: tempFilePath, extractAudio: true, audioFormat: 'mp3' });
+        // <<< ИЗМЕНЕНИЕ 2: Встраиваем метаданные в MP3-файл (хорошая практика) >>>
+        await ytdl(url, { 
+            output: tempFilePath, 
+            extractAudio: true, 
+            audioFormat: 'mp3',
+            embedMetadata: true, // Включаем встраивание метаданных
+            postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
+        });
 
         if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
 
-        const message = await bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: tempFilePath });
+        // <<< ИЗМЕНЕНИЕ 3: Отправляем аудио с правильными метаданными >>>
+        const message = await bot.telegram.sendAudio(
+            STORAGE_CHANNEL_ID, 
+            { source: fs.createReadStream(tempFilePath) }, // Используем stream для эффективности
+            { // Добавляем метаданные для Telegram
+                title: trackName,
+                performer: uploader
+                // Мы НЕ добавляем 'caption', чтобы избежать дублирования
+            }
+        );
 
         if (message?.audio?.file_id) {
             await cacheTrack(url, message.audio.file_id, trackName);
@@ -72,7 +90,9 @@ async function processUrl(url) {
     } catch (err) {
         console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
     } finally {
-        if (tempFilePath) await fs.promises.unlink(tempFilePath).catch(() => {});
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            await fs.promises.unlink(tempFilePath).catch(() => {});
+        }
     }
 }
 
@@ -101,4 +121,7 @@ async function main() {
     }
 }
 
-main();
+main().catch(err => {
+    console.error("🔴 Критическая ошибка в главном цикле индексатора:", err);
+    process.exit(1);
+});
