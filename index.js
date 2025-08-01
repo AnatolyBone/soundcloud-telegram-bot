@@ -21,6 +21,7 @@ import pgSessionFactory from 'connect-pg-simple';
 
 // Utils
 import json2csv from 'json-2-csv';
+import ytdl from 'youtube-dl-exec'; // <<< ВОЗВРАЩАЕМ ИМПОРТ ДЛЯ ПАУКА
 
 // Database logic
 import {
@@ -51,6 +52,7 @@ import {
   getExpiringUsersPaginated,
   cacheTrack,
   findCachedTracksByUrls,
+  findCachedTrack, // <<< ВОЗВРАЩАЕМ ИМПОРТ ДЛЯ ПАУКА
   logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
@@ -121,6 +123,84 @@ export const texts = {
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
+// <<< НАЧАЛО: КОД ДЛЯ "ПАУКА" >>>
+async function getUrlsToIndex() {
+    try {
+        const { rows } = await pool.query(`
+            SELECT url, COUNT(url) as download_count
+            FROM downloads_log
+            WHERE url IS NOT NULL AND url LIKE '%soundcloud.com%' AND url NOT IN (SELECT soundcloud_url FROM track_cache)
+            GROUP BY url
+            ORDER BY download_count DESC
+            LIMIT 10;
+        `);
+        return rows.map(row => row.url);
+    } catch (e) {
+        console.error('[Indexer] Ошибка получения URL для индексации:', e);
+        return [];
+    }
+}
+
+async function processUrlForIndexing(url) {
+    let tempFilePath = null;
+    try {
+        const isCached = await findCachedTrack(url);
+        if (isCached) return;
+
+        console.log(`[Indexer] Индексирую: ${url}`);
+        const info = await ytdl(url, { dumpSingleJson: true });
+        if (!info || Array.isArray(info.entries)) return;
+
+        const trackName = (info.title || 'track').slice(0, 100);
+        tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
+        
+        await ytdl(url, { output: tempFilePath, extractAudio: true, audioFormat: 'mp3' });
+
+        if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
+        
+        const message = await bot.telegram.sendAudio(
+            STORAGE_CHANNEL_ID,
+            { source: fs.createReadStream(tempFilePath) },
+            { caption: trackName, title: trackName }
+        );
+
+        if (message?.audio?.file_id) {
+            await cacheTrack(url, message.audio.file_id, trackName);
+            console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
+        }
+    } catch (err) {
+        console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
+    } finally {
+        if (tempFilePath) await fs.promises.unlink(tempFilePath).catch(() => {});
+    }
+}
+
+async function startIndexer() {
+    console.log('🚀 Запуск фонового индексатора...');
+    // Небольшая задержка перед первым запуском, чтобы основное приложение успело инициализироваться
+    await new Promise(resolve => setTimeout(resolve, 60 * 1000)); // 1 минута
+
+    while (true) {
+        try {
+            const urls = await getUrlsToIndex();
+            if (urls.length > 0) {
+                console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
+                for (const url of urls) {
+                    await processUrlForIndexing(url);
+                    await new Promise(resolve => setTimeout(resolve, 30 * 1000)); // Пауза 30 секунд
+                }
+            }
+            console.log('[Indexer] Пауза на 1 час.');
+            await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
+        } catch (err) {
+            console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
+            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+        }
+    }
+}
+// <<< КОНЕЦ: КОД ДЛЯ "ПАУКА" >>>
+
+
 async function startApp() {
     try {
         const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
@@ -145,6 +225,10 @@ async function startApp() {
             await bot.launch();
             console.log('✅ Бот запущен в режиме long-polling.');
         }
+
+        // <<< ЗАПУСКАЕМ ПАУКА В ФОНЕ >>>
+        startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
+
     } catch (err) {
         console.error('🔴 Критическая ошибка при запуске приложения:', err);
         process.exit(1);
@@ -152,7 +236,7 @@ async function startApp() {
 }
 
 function setupExpress() {
-    // === Вспомогательные функции для дашборда (из старой версии) ===
+    // Вспомогательные функции для дашборда
     function convertObjToArray(dataObj) {
         if (!dataObj) return [];
         return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
@@ -210,7 +294,7 @@ function setupExpress() {
         return weekdays;
     }
 
-    // === Основная настройка Express ===
+    // Основная настройка Express
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
@@ -245,12 +329,12 @@ function setupExpress() {
         res.redirect('/admin');
     };
     
-    // === Маршруты (Routes) ===
+    // Маршруты
     app.get('/health', (req, res) => res.send('OK'));
     
     app.get('/admin', (req, res) => {
         if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
-        res.render('login', { title: 'Вход в админку', error: null, layout: false }); // Отключаем layout для страницы входа
+        res.render('login', { title: 'Вход в админку', error: null, layout: false });
     });
 
     app.post('/admin', (req, res) => {
@@ -264,7 +348,7 @@ function setupExpress() {
         }
     });
 
-    // === API роуты для дашборда (из старой версии) ===
+    // API роуты для дашборда
     app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
             const { period = '30' } = req.query;
@@ -300,7 +384,7 @@ function setupExpress() {
                 },
             });
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
 
@@ -324,116 +408,30 @@ function setupExpress() {
             const { rows } = await pool.query(queryText, queryParams);
             res.json(rows);
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
 
-    // === Основные страницы админки ===
-    // index.js, около строки 330
-// В файле index.js
+    // Основные страницы админки
+    app.get('/dashboard', requireAuth, async (req, res, next) => {
+        try {
+            const { period = '30', showInactive = 'false' } = req.query;
+            const lastMonths = await getLastMonths(6);
+            const funnelCounts = await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString());
 
-app.get('/dashboard', requireAuth, async (req, res, next) => {
-    try {
-        const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-        
-        // --- Выполняем все запросы к базе данных параллельно для скорости ---
-        const [
-            expiringSoon,
-            expiringCount,
-            referralStats,
-            retentionResult,
-            statsResult,
-            funnelCounts,
-            lastMonthsData
-        ] = await Promise.all([
-            getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-            getExpiringUsersCount(),
-            getReferralSourcesStats(),
-            pool.query(`
-                WITH cohorts AS (SELECT id AS user_id, DATE(created_at) AS cohort_date FROM users WHERE created_at IS NOT NULL),
-                activities AS (SELECT DISTINCT user_id, DATE(downloaded_at) AS activity_day FROM downloads_log),
-                cohort_activity AS (SELECT c.cohort_date, a.activity_day, COUNT(DISTINCT c.user_id) AS active_users FROM cohorts c JOIN activities a ON c.user_id = a.user_id WHERE a.activity_day >= c.cohort_date GROUP BY c.cohort_date, a.activity_day),
-                cohort_sizes AS (SELECT cohort_date, COUNT(*) AS cohort_size FROM cohorts GROUP BY cohort_date)
-                SELECT ca.cohort_date, (ca.activity_day - ca.cohort_date) AS days_since_signup, ROUND((ca.active_users::decimal / cs.cohort_size) * 100, 2) AS retention_percent
-                FROM cohort_activity ca JOIN cohort_sizes cs ON ca.cohort_date = cs.cohort_date WHERE (ca.activity_day - ca.cohort_date) IN (0, 1, 3, 7, 14)
-                ORDER BY ca.cohort_date, days_since_signup;
-            `),
-            pool.query(`SELECT COUNT(*) as total FROM users`),
-            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-            getLastMonths(6) // Получаем данные для выпадающего списка месяцев
-        ]);
-        
-        // --- Обрабатываем данные для графика удержания (Retention) ---
-        const cohortsMap = {};
-        retentionResult.rows.forEach(row => {
-            const date = new Date(row.cohort_date).toISOString().split('T')[0];
-            if (!cohortsMap[date]) {
-                cohortsMap[date] = { label: date, data: { 0: null, 1: null, 3: null, 7: null, 14: null } };
-            }
-            cohortsMap[date].data[row.days_since_signup] = row.retention_percent;
-        });
-        const chartDataRetention = {
-            labels: ['Day 0', 'Day 1', 'Day 3', 'Day 7', 'Day 14'],
-            datasets: Object.values(cohortsMap).map(cohort => ({
-                label: cohort.label,
-                data: [cohort.data[0], cohort.data[1], cohort.data[3], cohort.data[7], cohort.data[14]],
-                fill: false,
-                borderColor: `hsl(${Math.random() * 360}, 70%, 60%)`,
-                tension: 0.1
-            }))
-        };
-        
-        // --- Отправляем все данные в шаблон ---
-        res.render('dashboard', {
-            title: 'Панель управления',
-            page: 'dashboard',
-            user: req.user,
-            
-            // Данные для карточек статистики
-            stats: {
-                totalUsers: statsResult.rows[0].total,
-                // Примечание: остальные данные stats грузятся через API в вашем старом коде,
-                // поэтому здесь ставим заглушки, чтобы не усложнять.
-                // Если нужно, их тоже можно добавить в Promise.all выше.
-                totalDownloads: '...',
-                free: '...',
-                plus: '...',
-                pro: '...',
-                unlimited: '...',
-                activityByDayHour: {}
-            },
-            
-            // Данные для таблиц
-            users: [], // Список пользователей все равно грузится через API, оставляем пустым
-            referralStats,
-            expiringSoon,
-            expiringCount,
-            
-            // Данные для фильтров
-            expiringOffset: parseInt(expiringOffset),
-            expiringLimit: parseInt(expiringLimit),
-            showInactive: showInactive === 'true',
-            period,
-            lastMonths: lastMonthsData,
-            funnelData: funnelCounts,
-            
-            // Данные для графиков
-            chartDataRetention,
-            // Остальные графики грузятся через API, поэтому передаем пустые заглушки
-            chartDataCombined: { labels: [], datasets: [] },
-            chartDataHourActivity: { labels: [], datasets: [] },
-            chartDataWeekdayActivity: { labels: [], datasets: [] },
-            chartDataFunnel: { labels: [], datasets: [] },
-            chartDataHeatmap: {},
-            chartDataUserFunnel: {},
-            
-            taskLogs: [],
-        });
-    } catch (e) {
-        // Если что-то пойдет не так, передаем ошибку в глобальный обработчик
-        next(e);
-    }
-});
+            res.render('dashboard', {
+                title: 'Панель управления',
+                page: 'dashboard',
+                period,
+                lastMonths,
+                funnelData: funnelCounts,
+                showInactive: showInactive === 'true',
+                stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' }
+            });
+        } catch (e) {
+            next(e);
+        }
+    });
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
@@ -453,7 +451,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
                 page: 'user-profile'
             });
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
 
@@ -492,7 +490,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
             }
             res.render('broadcast-form', { title: 'Рассылка', success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast' });
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
     
@@ -504,7 +502,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
             res.attachment('users.csv');
             return res.send(csv);
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
 
@@ -516,7 +514,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
             const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
             res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки', page: 'expiring-users' });
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
     
@@ -526,11 +524,11 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
             await setPremium(userId, parseInt(limit), parseInt(days) || 30);
             res.redirect(req.get('referer') || '/dashboard');
         } catch (e) {
-            next(e); // Передаем ошибку в глобальный обработчик
+            next(e);
         }
     });
 
-    // Глобальный обработчик ошибок. Должен быть в самом конце!
+    // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
         console.error('🔴 Необработанная ошибка:', err);
         
@@ -539,12 +537,10 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
 
         res.status(statusCode);
         
-        // Отдаем JSON, если запрос был на API
         if (req.originalUrl.startsWith('/api/')) {
             return res.json({ error: message });
         }
 
-        // Рендерим страницу ошибки для обычных запросов
         res.render('error', {
             title: `Ошибка ${statusCode}`,
             message: message,
@@ -657,7 +653,6 @@ ${refLink}
             return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
         }
         
-        // Отправка пачками по 5 аудиофайлов
         for (let i = 0; i < validTracks.length; i += 5) {
             const chunk = validTracks.slice(i, i + 5);
             await ctx.replyWithMediaGroup(chunk.map(track => ({
@@ -683,9 +678,7 @@ ${refLink}
         catch (e) { await handleSendMessageError(e, ctx.from.id); }
     });
 
-    // В файле index.js
-
-bot.command('admin', async (ctx) => {
+    bot.command('admin', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     try {
         const users = await getAllUsers(true);
@@ -693,16 +686,14 @@ bot.command('admin', async (ctx) => {
         const activeUsers = users.filter(u => u.active).length;
         const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
         
-        // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Добавляем расчет activeToday >>>
         const now = new Date();
         const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
-        // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
         
         const escapeMarkdown = (text) => {
-            if (typeof text !== 'string') return '';
-            return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
+          if (typeof text !== 'string') return '';
+          return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
         };
-        
+
         const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
         
         const message = `
@@ -710,7 +701,7 @@ bot.command('admin', async (ctx) => {
 
 👤 *Пользователи:*
    \\- Всего: *${totalUsers}*
-   \\- Активных в целом: *${activeUsers}*
+   \\- Активных \KATEX_INLINE_OPENв целом\KATEX_INLINE_CLOSE: *${activeUsers}*
    \\- Активных сегодня: *${activeToday}*
 
 📥 *Загрузки:*
