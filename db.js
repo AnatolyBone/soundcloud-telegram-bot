@@ -124,30 +124,29 @@ export async function setPremium(id, limit, days = null) {
   return bonusApplied;
 }
 
+// <<< ИЗМЕНЕНО: Используем 'url' вместо 'soundcloud_url' >>>
 export async function cacheTrack(url, fileId, trackName) {
-  // В вашей таблице поле называется soundcloud_url, а не url
   const { error } = await supabase
     .from('track_cache')
-    .upsert({ soundcloud_url: url, file_id: fileId, track_name: trackName }, { onConflict: 'soundcloud_url' });
+    .upsert({ url: url, file_id: fileId, track_name: trackName }, { onConflict: 'url' });
   if (error) console.error('❌ Ошибка кэширования трека:', error);
 }
 
-// <<< НАЧАЛО: ДОБАВЛЕННАЯ ФУНКЦИЯ >>>
+// <<< ДОБАВЛЕНА НОВАЯ ФУНКЦИЯ >>>
 /**
  * Проверяет, закэширован ли трек по URL.
  * Используется "пауком" для предотвращения дублирующей работы.
- * @param {string} soundcloudUrl - URL трека на SoundCloud.
+ * @param {string} url - URL трека.
  * @returns {Promise<object|null>} - Объект с данными кэша или null.
  */
-export async function findCachedTrack(soundcloudUrl) {
+export async function findCachedTrack(url) {
     try {
         const { data, error } = await supabase
             .from('track_cache')
             .select('file_id, track_name')
-            .eq('soundcloud_url', soundcloudUrl)
+            .eq('url', url) // <<< ИЗМЕНЕНО: Используем 'url'
             .single();
 
-        // PGRST116 = 'no rows found', это не ошибка для нас, а нормальный результат
         if (error && error.code !== 'PGRST116') { 
             console.error('Ошибка при поиске в кэше (findCachedTrack):', error.message);
             return null;
@@ -158,19 +157,18 @@ export async function findCachedTrack(soundcloudUrl) {
         return null;
     }
 }
-// <<< КОНЕЦ: ДОБАВЛЕННАЯ ФУНКЦИЯ >>>
 
+// <<< ИЗМЕНЕНО: Используем 'url' вместо 'soundcloud_url' >>>
 export async function findCachedTracksByUrls(urls) {
   if (!urls || urls.length === 0) return new Map();
-  // В вашей таблице поле называется soundcloud_url, а не url
-  const { data, error } = await supabase.from('track_cache').select('soundcloud_url, file_id, track_name').in('soundcloud_url', urls);
+  const { data, error } = await supabase.from('track_cache').select('url, file_id, track_name').in('url', urls);
   if (error) {
     console.error('❌ Ошибка массового поиска в кэше:', error);
     return new Map();
   }
   const cacheMap = new Map();
   for (const track of data) {
-    cacheMap.set(track.soundcloud_url, { fileId: track.file_id, trackName: track.track_name });
+    cacheMap.set(track.url, { fileId: track.file_id, trackName: track.track_name });
   }
   return cacheMap;
 }
