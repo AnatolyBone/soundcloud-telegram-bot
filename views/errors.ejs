@@ -2,8 +2,8 @@
 
 <div class="container mt-5">
   <div class="alert alert-danger" role="alert">
-    <h4 class="alert-heading">Ошибка <%= statusCode %></h4>
-    <p><%= message %></p>
+    <h4 class="alert-heading">Ошибка <%= typeof statusCode !== 'undefined' ? statusCode : '500' %></h4>
+    <p><%= typeof message !== 'undefined' ? message : 'Произошла непредвиденная ошибка.' %></p>
     <hr>
     <% if (process.env.NODE_ENV !== 'production' && typeof error !== 'undefined' && error.stack) { %>
       <p class="mb-0"><strong>Стек вызовов:</strong></p>
