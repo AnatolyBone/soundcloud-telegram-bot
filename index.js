@@ -123,6 +123,18 @@ export const texts = {
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
+function getTariffName(limit) {
+        if (limit >= 1000) return 'Unlimited (∞/день)';
+        if (limit >= 100) return 'Pro (100/день)';
+        if (limit >= 50) return 'Plus (50/день)';
+        return 'Free (10/день)';
+    }
+
+    function getDaysLeft(premiumUntil) {
+        if (!premiumUntil) return 0;
+        const diff = new Date(premiumUntil) - new Date();
+        return Math.max(Math.ceil(diff / 86400000), 0);
+    }
 // <<< НАЧАЛО: КОД ДЛЯ "ПАУКА" >>>
 async function getUrlsToIndex() {
     try {
@@ -635,19 +647,6 @@ function setupTelegramBot() {
         const matches = text.match(regex);
         return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
     };
-
-    function getTariffName(limit) {
-        if (limit >= 1000) return 'Unlimited (∞/день)';
-        if (limit >= 100) return 'Pro (100/день)';
-        if (limit >= 50) return 'Plus (50/день)';
-        return 'Free (10/день)';
-    }
-
-    function getDaysLeft(premiumUntil) {
-        if (!premiumUntil) return 0;
-        const diff = new Date(premiumUntil) - new Date();
-        return Math.max(Math.ceil(diff / 86400000), 0);
-    }
 
     function formatMenuMessage(user, ctx) {
         const tariffLabel = getTariffName(user.premium_limit);
