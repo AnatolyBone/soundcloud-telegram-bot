@@ -129,7 +129,7 @@ async function getUrlsToIndex() {
         const { rows } = await pool.query(`
             SELECT url, COUNT(url) as download_count
             FROM downloads_log
-            WHERE url IS NOT NULL AND url LIKE '%soundcloud.com%' AND url NOT IN (SELECT soundcloud_url FROM track_cache)
+            WHERE url IS NOT NULL AND url LIKE '%soundcloud.com%' AND url NOT IN (SELECT url FROM track_cache)
             GROUP BY url
             ORDER BY download_count DESC
             LIMIT 10;
@@ -560,15 +560,41 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
         }
     });
     
-    app.post('/set-tariff', requireAuth, async (req, res, next) => {
+  // index.js, ~строка 495
+app.post('/set-tariff', requireAuth, async (req, res, next) => {
+    try {
+        const { userId, limit, days } = req.body;
+        const parsedLimit = parseInt(limit);
+        const parsedDays = parseInt(days) || 30;
+        
+        // Обновляем данные в базе
+        await setPremium(userId, parsedLimit, parsedDays);
+        
+        // <<< НАЧАЛО НОВОГО КОДА >>>
+        // Формируем сообщение для пользователя
+        const tariffName = getTariffName(parsedLimit); // Используем нашу вспомогательную функцию
+        const message = `🎉 Ваш тариф был изменен!\n\n` +
+            `✨ Новый тариф: **${tariffName}**\n` +
+            `⏳ Срок действия: **${parsedDays} дней**\n\n` +
+            `Спасибо, что пользуетесь нашим ботом!`;
+        
         try {
-            const { userId, limit, days } = req.body;
-            await setPremium(userId, parseInt(limit), parseInt(days) || 30);
-            res.redirect(req.get('referer') || '/dashboard');
-        } catch (e) {
-            next(e);
+            await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
+            console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
+        } catch (telegramError) {
+            console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
+            // Не прерываем процесс, даже если не удалось отправить.
+            // Главное, что тариф в базе данных изменен.
         }
-    });
+        // <<< КОНЕЦ НОВОГО КОДА >>>
+        
+        // Перенаправляем админа обратно
+        res.redirect(req.get('referer') || '/dashboard');
+        
+    } catch (e) {
+        next(e);
+    }
+});
 
     // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
