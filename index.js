@@ -124,11 +124,11 @@ export const texts = {
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
 function getTariffName(limit) {
-        if (limit >= 1000) return 'Unlimited (∞/день)';
-        if (limit >= 100) return 'Pro (50/день)';
-        if (limit >= 50) return 'Plus (25/день)';
-        return 'Free (5/день)';
-    }
+    if (limit >= 1000) return 'Unlimited (∞/день)';
+    if (limit === 50) return 'Pro (50/день)';
+    if (limit === 25) return 'Plus (25/день)';
+    return 'Free (5/день)';
+}
 
     function getDaysLeft(premiumUntil) {
         if (!premiumUntil) return 0;
@@ -648,6 +648,7 @@ function setupTelegramBot() {
     };
 
     function formatMenuMessage(user, ctx) {
+        console.log('[DEBUG] user in formatMenuMessage:', user);
         const tariffLabel = getTariffName(user.premium_limit);
         const downloadsToday = user.downloads_today || 0;
         const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
