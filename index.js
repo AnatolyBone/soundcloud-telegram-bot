@@ -53,11 +53,14 @@ import {
   getExpiringUsersPaginated,
   cacheTrack,
   findCachedTracksByUrls,
+  findUsersToNotify,
+  markAsNotified,
   getDashboardStats,
   findCachedTrack,
   logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
+import { initNotifier, startNotifier } from './services/notifier.js';
 
 // ... (все константы и начальная настройка остаются без изменений) ...
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -76,6 +79,7 @@ if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL |
 }
 
 const bot = new Telegraf(BOT_TOKEN);
+initNotifier(bot);
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 const __filename = fileURLToPath(import.meta.url);
@@ -242,6 +246,7 @@ async function startApp() {
         }
 
         startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
+        startNotifier().catch(err => console.error("🔴 Критическая ошибка в планировщике:", err));
 
     } catch (err) {
         console.error('🔴 Критическая ошибка при запуске приложения:', err);
@@ -362,6 +367,7 @@ function setupExpress() {
         }
     });
 
+    // <<< НАЧАЛО ИЗМЕНЕНИЙ В API >>>
     // API роуты для дашборда
     app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
@@ -414,41 +420,25 @@ function setupExpress() {
         res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
 
-    // <<< ИСПРАВЛЕННЫЙ /DASHBOARD >>>
-    // Он просто отдает каркас, а данные грузятся через API
+    // <<< ИСПРАВЛЕНО: Упрощаем /dashboard, он отдает только каркас >>>
     app.get('/dashboard', requireAuth, async (req, res, next) => {
         try {
             const { period = '30', showInactive = 'false' } = req.query;
-            
-            // Запрашиваем только самые необходимые данные, которые не меняются динамически
-            const [lastMonths, funnelCounts, expiringCount, expiringSoon, referralStats] = await Promise.all([
-                getLastMonths(6),
-                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-                getExpiringUsersCount(),
-                getExpiringUsersPaginated(10, 0), // Получаем первую страницу
-                getReferralSourcesStats()
-            ]);
+            const lastMonths = await getLastMonths(6);
             
             res.render('dashboard', {
                 title: 'Панель управления',
                 page: 'dashboard',
-                user: req.user,
                 period,
-                showInactive: showInactive === 'true',
                 lastMonths,
-                funnelData: funnelCounts,
-                expiringCount,
-                expiringSoon,
-                referralStats,
-                // Пустые заглушки для того, что будет загружено через JS
-                stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
-                expiringLimit: 10,
-                expiringOffset: 0
+                showInactive: showInactive === 'true'
+                // Больше ничего не передаем, все загрузится через API
             });
         } catch (e) {
             next(e);
         }
     });
+    // <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
     // ... (остальные маршруты: /user/:id, /logout, и т.д. без изменений) ...
     app.get('/user/:id', requireAuth, async (req, res, next) => {
@@ -583,6 +573,7 @@ function setupExpress() {
         });
     });
 }
+
 // ... (setupTelegramBot и остальное без изменений) ...
 
 function setupTelegramBot() {
