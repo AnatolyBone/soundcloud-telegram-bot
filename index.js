@@ -426,65 +426,50 @@ function setupExpress() {
 
     // Основные страницы админки
     // <<< НАЧАЛО ОБНОВЛЕННОГО БЛОКА >>>
+import { getDashboardStats } from './db.js'; // убедись, что путь правильный
+
 app.get('/dashboard', requireAuth, async (req, res, next) => {
-                try {
-                    const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-                    
-                    // --- Выполняем все запросы к базе данных параллельно для скорости ---
-                    const [
-                        expiringSoon,
-                        expiringCount,
-                        referralStats,
-                        statsResult,
-                        funnelCounts,
-                        lastMonthsData,
-                        usersData // Получаем данные о пользователях для статистики
-                    ] = await Promise.all([
-                        getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-                        getExpiringUsersCount(),
-                        getReferralSourcesStats(),
-                        pool.query(`SELECT COUNT(*) as total FROM users`),
-                        getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-                        getLastMonths(6),
-                        getAllUsers(true) // Получаем всех пользователей для подсчета тарифов
-                    ]);
-                    
-                    // Считаем статистику по тарифам
-                    const freeUsers = usersData.filter(u => u.premium_limit === 5).length;
-                    const plusUsers = usersData.filter(u => u.premium_limit === 25).length;
-                    const proUsers = usersData.filter(u => u.premium_limit === 50).length;
-                    const unlimitedUsers = usersData.filter(u => u.premium_limit >= 1000).length;
-                    
-                    // --- Отправляем все данные в шаблон ---
-                    res.render('dashboard', {
-                        title: 'Панель управления',
-                        page: 'dashboard',
-                        user: req.user,
-                        
-                        stats: {
-                            totalUsers: statsResult.rows[0].total,
-                            totalDownloads: totalDownloads,
-                            free: freeUsers,
-                            plus: plusUsers,
-                            pro: proUsers,
-                            unlimited: unlimitedUsers
-                        },
-                        
-                        referralStats,
-                        expiringSoon,
-                        expiringCount,
-                        
-                        expiringOffset: parseInt(expiringOffset),
-                        expiringLimit: parseInt(expiringLimit),
-                        showInactive: showInactive === 'true',
-                        period,
-                        lastMonths: lastMonthsData,
-                        funnelData: funnelCounts,
-                    });
-        } catch (e) {
-            next(e);
-        }
-    });
+    try {
+        const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
+        
+        const [
+            expiringSoon,
+            expiringCount,
+            referralStats,
+            funnelCounts,
+            lastMonthsData,
+            stats
+        ] = await Promise.all([
+            getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
+            getExpiringUsersCount(),
+            getReferralSourcesStats(),
+            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+            getLastMonths(6),
+            getDashboardStats()
+        ]);
+        
+        res.render('dashboard', {
+            title: 'Панель управления',
+            page: 'dashboard',
+            user: req.user,
+            
+            stats, // уже содержит: totalUsers, totalDownloads, free, plus, pro, unlimited
+            
+            referralStats,
+            expiringSoon,
+            expiringCount,
+            
+            expiringOffset: parseInt(expiringOffset),
+            expiringLimit: parseInt(expiringLimit),
+            showInactive: showInactive === 'true',
+            period,
+            lastMonths: lastMonthsData,
+            funnelData: funnelCounts,
+        });
+    } catch (e) {
+        next(e);
+    }
+});
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
