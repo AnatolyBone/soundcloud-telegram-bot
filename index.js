@@ -117,7 +117,7 @@ export const texts = {
     error: '❌ Ошибка',
     noTracks: 'Сегодня нет треков.',
     limitReached: `🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.\n\n🎁 Бонус\n📣 Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
-    upgradeInfo: `🚀 Хочешь больше треков?\n\n🆓 Free 5 🟢  \nPlus — 25 🎯 (59₽)  \nPro — 50 💪 (119₽)  \nUnlimited — 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate  \n✉️ После оплаты напиши: @anatolybone\n\n📣 Новости и фишки: @SCM_BLOG`,
+    upgradeInfo: `🚀 Хочешь больше треков?\n\n🆓 Free - 5 🟢  \nPlus — 25 🎯 (59₽)  \nPro — 50 💪 (119₽)  \nUnlimited — 💎 (199₽)\n\n👉 Донат: https://boosty.to/anatoly_bone/donate  \n✉️ После оплаты напиши: @anatolybone\n\n📣 Новости и фишки: @SCM_BLOG`,
     helpInfo: `ℹ️ Просто пришли ссылку и получишь mp3.  \n🔓 Расширить — оплати и подтверди.  \n🎵 Мои треки — список за сегодня.  \n📋 Меню — тариф, лимиты, рефералы.  \n📣 Канал: @SCM_BLOG`,
 };
 
@@ -450,10 +450,9 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
                     ]);
                     
                     // Считаем статистику по тарифам
-                    const totalDownloads = usersData.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-                    const freeUsers = usersData.filter(u => u.premium_limit <= 10).length;
-                    const plusUsers = usersData.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length;
-                    const proUsers = usersData.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length;
+                    const freeUsers = usersData.filter(u => u.premium_limit === 5).length;
+                    const plusUsers = usersData.filter(u => u.premium_limit === 25).length;
+                    const proUsers = usersData.filter(u => u.premium_limit === 50).length;
                     const unlimitedUsers = usersData.filter(u => u.premium_limit >= 1000).length;
                     
                     // --- Отправляем все данные в шаблон ---
