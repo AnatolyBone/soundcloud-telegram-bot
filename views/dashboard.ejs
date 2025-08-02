@@ -1,6 +1,6 @@
+<%# views/dashboard.ejs %>
 <% title = 'Админка'; page = 'dashboard'; %>
 
-<!-- Заголовок страницы -->
 <section class="content-header">
   <div class="container-fluid d-flex justify-content-between align-items-center mb-3">
     <h1>📊 Админка</h1>
@@ -8,7 +8,6 @@
   </div>
 </section>
 
-<!-- Форма выбора периода -->
 <form id="filtersForm" class="mb-3 d-flex gap-2 align-items-center flex-wrap">
   <label for="periodSelectMain" class="form-label mb-0">Период:</label>
   <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;">
@@ -28,35 +27,10 @@
   <a href="/export?period=<%= encodeURIComponent(period) %>" id="exportLink" class="btn btn-outline-secondary ms-2">Выгрузить CSV</a>
 </form>
 
-<!-- Основной контент -->
 <section class="content">
   <div class="container-fluid">
-
-    <!-- Вкладки -->
-    <ul class="nav nav-tabs" id="dashboardTabs" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button" role="tab" aria-controls="stats" aria-selected="true">Статистика</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersTab" type="button" role="tab" aria-controls="usersTab" aria-selected="false">Пользователи</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="broadcast-tab" data-bs-toggle="tab" data-bs-target="#broadcastTab" type="button" role="tab" aria-controls="broadcastTab" aria-selected="false">Рассылка</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab" aria-controls="analyticsTab" aria-selected="false">Аналитика</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="retention-tab" data-bs-toggle="tab" data-bs-target="#retentionTab" type="button" role="tab" aria-controls="retentionTab" aria-selected="false">Удержание и Воронка</button>
-      </li>
-    </ul>
-
     <div class="tab-content mt-3" id="dashboardTabsContent">
-
-      <!-- Вкладка Статистика -->
       <div class="tab-pane fade show active" id="stats" role="tabpanel" aria-labelledby="stats-tab">
-
-        <!-- Real-time мониторинг очереди -->
         <div class="row mb-3">
             <div class="col-md-6">
                 <div class="info-box bg-primary shadow-sm"><span class="info-box-icon"><i class="fas fa-cogs"></i></span>
@@ -69,108 +43,40 @@
                 </div>
             </div>
         </div>
-
-        <!-- Статистические плашки -->
         <div class="row mb-3">
           <div class="col-md-4">
             <div class="info-box bg-info"><span class="info-box-icon"><i class="fas fa-users"></i></span>
-              <div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number" data-stat="totalUsers"><%= stats.totalUsers %></span></div>
+              <div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number" data-stat="totalUsers">...</span></div>
             </div>
           </div>
           <div class="col-md-4">
             <div class="info-box bg-success"><span class="info-box-icon"><i class="fas fa-download"></i></span>
-              <div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number" data-stat="totalDownloads"><%= stats.totalDownloads %></span></div>
+              <div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number" data-stat="totalDownloads">...</span></div>
             </div>
           </div>
           <div class="col-md-4">
             <div class="info-box bg-warning"><span class="info-box-icon"><i class="fas fa-star"></i></span>
               <div class="info-box-content"><span class="info-box-text">Тарифы (F/P/P/U)</span>
-                <span class="info-box-number" data-stat="tariffs"><%= stats.free %> / <%= stats.plus %> / <%= stats.pro %> / <%= stats.unlimited %></span>
+                <span class="info-box-number" data-stat="tariffs">... / ... / ... / ...</span>
               </div>
             </div>
           </div>
         </div>
-
-        <!-- Графики -->
         <div class="card card-primary card-outline">
           <div class="card-header"><h3 class="card-title">Регистрации, Загрузки, Активные</h3></div>
           <div class="card-body"><canvas id="combinedChart" style="height: 250px;"></canvas></div>
         </div>
-        <div class="row mt-3">
-          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по часам</h3></div><div class="card-body"><canvas id="hourActivityChart" style="height: 250px;"></canvas></div></div></div>
-          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по дням недели</h3></div><div class="card-body"><canvas id="weekdayActivityChart" style="height: 250px;"></canvas></div></div></div>
-        </div>
-        <div class="card card-secondary card-outline mt-3">
-          <div class="card-header"><h3 class="card-title">Тепловая карта активности</h3></div>
-          <div class="card-body" style="height: 400px;"><canvas id="heatmapChart"></canvas></div>
-        </div>
-        <div class="card card-danger card-outline mt-3">
-          <div class="card-header"><h3 class="card-title">Истекающие подписки (<%= expiringCount %>)</h3></div>
-          <div class="card-body"><%- include('partials/_expiring-users', { expiringSoon, expiringOffset, expiringLimit, expiringCount }) %></div>
-        </div>
-        <div class="card card-light card-outline mt-3">
-          <div class="card-header"><h3 class="card-title">Источники трафика</h3></div>
-          <div class="card-body p-0"><%- include('partials/_referral-stats', { referralStats }) %></div>
-        </div>
-      </div>
-
-      <!-- Вкладка Пользователи -->
-      <div class="tab-pane fade" id="usersTab" role="tabpanel" aria-labelledby="users-tab">
-        <div class="table-responsive">
-            <table id="usersTable" class="table table-bordered table-hover w-100 text-nowrap">
-              <thead>
-                <tr>
-                  <th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th>
-                  <th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th>
-                  <th>Тариф</th><th>1+1</th><th>Сброс</th>
-                </tr>
-              </thead>
-              <tbody>
-                <!-- Изначально пусто, будет заполнено через AJAX -->
-              </tbody>
-            </table>
-        </div>
-      </div>
-
-      <!-- Вкладка Рассылка -->
-      <div class="tab-pane fade" id="broadcastTab" role="tabpanel" aria-labelledby="broadcast-tab"><%- include('partials/_broadcast-form') %></div>
-      <!-- Вкладка Аналитика -->
-      <div class="tab-pane fade" id="analyticsTab" role="tabpanel" aria-labelledby="analytics-tab">
-        <div class="card"><div class="card-header"><h3 class="card-title">Воронка пользователей</h3></div><div class="card-body"><canvas id="funnelChart" style="height: 200px;"></canvas></div></div>
-        <div class="card mt-3"><div class="card-header"><h3 class="card-title">User Funnel</h3></div><div class="card-body"><canvas id="userFunnelChart" style="height: 200px;"></canvas></div></div>
-      </div>
-      <!-- Вкладка Удержание и Воронка -->
-      <div class="tab-pane fade" id="retentionTab" role="tabpanel" aria-labelledby="retention-tab">
-        <div class="card"><div class="card-header"><h3 class="card-title">Retention</h3></div><div class="card-body"><canvas id="retentionChart" style="height: 300px;"></canvas></div></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Логи задач -->
-<section class="content mt-4">
-  <div class="container-fluid">
-    <h3>Логи задач</h3>
-    <pre id="taskLogs" class="bg-dark text-white p-3 rounded" style="max-height: 300px; overflow-y: auto;">Логи отсутствуют.</pre>
-  </div>
-</section>
-
-<!-- Подключение скриптов -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
-    // === ИНИЦИАЛИЗАЦИЯ ===
     let charts = {};
-    const usersTable = new DataTable('#usersTable', {
-        paging: true, searching: true, ordering: true, order: [[5, 'desc']], scrollX: true,
-        language: { url: 'https://cdn.datatables.net/plug-ins/1.10.25/i18n/Russian.json' }
-    });
 
-    // Универсальная функция для создания/обновления графиков
     function initializeOrUpdateChart(id, type, data, options) {
         const ctx = document.getElementById(id)?.getContext('2d');
         if (!ctx) return;
@@ -178,116 +84,34 @@
         charts[id] = new Chart(ctx, { type, data, options });
     }
     
-    // Функция для рендеринга строки таблицы
-    function renderUserRow(user) {
-        const registrationDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : '-';
-        const lastActiveDate = user.last_active ? new Date(user.last_active).toLocaleDateString() : '-';
-        const isNew = user.created_at && (new Date(user.created_at).getTime() > Date.now() - 86400000);
-        
-        let statusIcon = '🔴';
-        if (user.last_active && new Date(user.last_active) > Date.now() - 86400000) {
-            statusIcon = '🟢';
-        } else if (user.last_active) {
-            statusIcon = '🟡';
-        }
-        
-        return [
-            `<a href="/user/${user.id}">${user.id}</a>`,
-            user.username ? `@${user.username}` : '',
-            `${user.first_name || ''} ${isNew ? '<span class="badge bg-info text-dark">🆕</span>' : ''}`,
-            user.total_downloads || 0,
-            user.premium_limit,
-            registrationDate,
-            lastActiveDate,
-            statusIcon,
-            user.referral_source ? String(user.referral_source).replace(/</g, "&lt;") : '—',
-            <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
-    <input type="hidden" name="userId" value="${user.id}">
-    <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
-        <option value="5" ${user.premium_limit === 5 ? 'selected' : ''}>Free</option>
-        <option value="25" ${user.premium_limit === 25 ? 'selected' : ''}>Plus</option>
-        <option value="50" ${user.premium_limit === 50 ? 'selected' : ''}>Pro</option>
-        <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
-    </select>
-    <button type="submit" class="btn btn-primary btn-sm">✔️</button>
-</form>
-            user.promo_1plus1_used ? '✅' : '❌',
-            `<form action="/admin/reset-promo/${user.id}" method="POST" onsubmit="return confirm('Сбросить?')">
-                <button class="btn btn-sm btn-warning">🔄</button>
-             </form>`
-        ];
-    }
-
-    // === ЛОГИКА AJAX-ОБНОВЛЕНИЯ ===
     const filtersForm = document.getElementById('filtersForm');
 
     async function updateDashboard() {
         const formData = new FormData(filtersForm);
         const params = new URLSearchParams(formData);
-
         document.body.style.cursor = 'wait';
         
         try {
-            const [statsResponse, usersResponse] = await Promise.all([
-                fetch(`/api/dashboard-data?${params.toString()}`),
-                fetch(`/api/users?${params.toString()}`)
-            ]);
-            
+            const statsResponse = await fetch(`/api/dashboard-data?${params.toString()}`);
+            if (!statsResponse.ok) throw new Error('Ошибка сети при загрузке статистики');
             const statsData = await statsResponse.json();
-            const usersData = await usersResponse.json();
 
-            // Обновляем статистические плашки
             document.querySelector('[data-stat="totalUsers"]').textContent = statsData.stats.totalUsers;
             document.querySelector('[data-stat="totalDownloads"]').textContent = statsData.stats.totalDownloads;
-            document.querySelector('[data-stat="tariffs"]').textContent = ` ${statsData.stats.free}/${statsData.stats.plus}/${statsData.stats.pro}/${statsData.stats.unlimited}`;
-
-            // Обновляем графики
+            document.querySelector('[data-stat="tariffs"]').textContent = `${statsData.stats.free}/${statsData.stats.plus}/${statsData.stats.pro}/${statsData.stats.unlimited}`;
             initializeOrUpdateChart('combinedChart', 'line', statsData.chartDataCombined, { responsive: true, scales: { y: { beginAtZero: true } } });
-            initializeOrUpdateChart('hourActivityChart', 'bar', statsData.chartDataHourActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
-            initializeOrUpdateChart('weekdayActivityChart', 'bar', statsData.chartDataWeekdayActivity, { responsive: true, scales: { y: { beginAtZero: true } } });
             
-            // Обновляем таблицу
-            usersTable.clear();
-            usersTable.rows.add(usersData.map(renderUserRow)).draw();
-            
-            // Обновляем ссылку на экспорт
-            document.getElementById('exportLink').href = `/export?${params.toString()}`;
         } catch (error) {
             console.error('Ошибка при обновлении дашборда:', error);
+            // Можно добавить уведомление для пользователя
         } finally {
             document.body.style.cursor = 'default';
         }
     }
     
-    // Первоначальная загрузка и вешаем обработчики
     updateDashboard();
     filtersForm.addEventListener('change', updateDashboard);
-
-    // Обработчик кликов по главному графику (Drill-down)
-    document.getElementById('combinedChart').addEventListener('click', async (evt) => {
-        const points = charts.combinedChart?.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
-        if (points?.length) {
-            const dateLabel = charts.combinedChart.data.labels[points[0].index];
-            document.getElementById('usersTable').scrollIntoView({ behavior: 'smooth' });
-            new bootstrap.Tab(document.getElementById('users-tab')).show();
-            await updateUsersTable(`registrationDate=${dateLabel}&showInactive=true`);
-        }
-    });
-
-    async function updateUsersTable(queryParams = '') {
-        try {
-            document.body.style.cursor = 'wait';
-            const response = await fetch(`/api/users?${queryParams}`);
-            const usersData = await response.json();
-            usersTable.clear().rows.add(usersData.map(renderUserRow)).draw();
-        } catch (error) {
-            console.error('Ошибка загрузки пользователей:', error);
-        } finally {
-            document.body.style.cursor = 'default';
-        }
-    }
-
-    // === REAL-TIME МОНИТОРИНГ ОЧЕРЕДИ ===
+    
     const queueActiveEl = document.getElementById('queueActive');
     const queueSizeEl = document.getElementById('queueSize');
     async function updateQueueStatus() {
