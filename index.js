@@ -1,6 +1,5 @@
-// index.js (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// index.js
 
-// ... (все импорты и начальная настройка остаются без изменений) ...
 // Core
 import fs from 'fs';
 import path from 'path';
@@ -62,7 +61,6 @@ import {
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
 
-// ... (все константы и начальная настройка остаются без изменений) ...
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
@@ -124,8 +122,7 @@ export const texts = {
     error: '❌ Ошибка',
     noTracks: 'Сегодня нет треков.',
     limitReached: `🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.\n\n🎁 Бонус\n📣 Подпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`,
-    // index.js
-upgradeInfo: `🚀 **Обновленные тарифы!**\n\n` +
+    upgradeInfo: `🚀 **Обновленные тарифы!**\n\n` +
     `💡 Платные тарифы получают **приоритет в очереди** и обрабатываются первыми.\n\n` +
     `🆓 **Free** — 5 треков/день\n` +
     `🎯 **Plus** — 30 треков/день — **119₽/мес.**\n` +
@@ -139,7 +136,6 @@ upgradeInfo: `🚀 **Обновленные тарифы!**\n\n` +
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
-// index.js
 function getTariffName(limit) {
     if (limit >= 1000) return 'Unlimited (∞/день)';
     if (limit === 100) return 'Pro (100/день)';
@@ -377,23 +373,15 @@ function setupExpress() {
         }
     });
 
-    // <<< НАЧАЛО ИЗМЕНЕНИЙ В API >>>
     // API роуты для дашборда
     app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
             const { period = '30' } = req.query;
             const [
-                stats,
-                downloadsByDateRaw, 
-                registrationsByDateRaw, 
-                activeByDateRaw, 
-                activityByDayHour
+                stats, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, activityByDayHour
             ] = await Promise.all([
-                getDashboardStats(),
-                getDownloadsByDate(), 
-                getRegistrationsByDate(), 
-                getActiveUsersByDate(),
-                getUserActivityByDayHour()
+                getDashboardStats(), getDownloadsByDate(), getRegistrationsByDate(), 
+                getActiveUsersByDate(), getUserActivityByDayHour()
             ]);
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
             const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
@@ -430,42 +418,38 @@ function setupExpress() {
         res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
 
-    // <<< ИСПРАВЛЕНО: Упрощаем /dashboard, он отдает только каркас >>>
+    // Маршрут для рендеринга страницы дашборда
     app.get('/dashboard', requireAuth, async (req, res, next) => {
-    try {
-        const { period = '30', showInactive = 'false' } = req.query;
-        const [lastMonths, funnelCounts, expiringCount, expiringSoon, referralStats] = await Promise.all([
-            getLastMonths(6),
-            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-            getExpiringUsersCount(),
-            getExpiringUsersPaginated(10, 0),
-            getReferralSourcesStats()
-        ]);
-        
-        res.render('dashboard', {
-            title: 'Панель управления',
-            page: 'dashboard',
-            user: req.user,
-            period,
-            showInactive: showInactive === 'true',
-            lastMonths,
-            // Передаем статические данные
-            funnelData,
-            expiringCount,
-            expiringSoon,
-            referralStats,
-            // Пустые заглушки для того, что будет загружено через JS
-            stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
-            expiringLimit: 10,
-            expiringOffset: 0
-        });
-    } catch (e) {
-        next(e);
-    }
-});
-    // <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
+        try {
+            const { period = '30', showInactive = 'false' } = req.query;
+            const [lastMonths, funnelCounts, expiringCount, expiringSoon, referralStats] = await Promise.all([
+                getLastMonths(6),
+                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+                getExpiringUsersCount(),
+                getExpiringUsersPaginated(10, 0),
+                getReferralSourcesStats()
+            ]);
+            
+            res.render('dashboard', {
+                title: 'Панель управления',
+                page: 'dashboard',
+                user: req.user,
+                period,
+                showInactive: showInactive === 'true',
+                lastMonths,
+                funnelData,
+                expiringCount,
+                expiringSoon,
+                referralStats,
+                stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
+                expiringLimit: 10,
+                expiringOffset: 0
+            });
+        } catch (e) {
+            next(e);
+        }
+    });
 
-    // ... (остальные маршруты: /user/:id, /logout, и т.д. без изменений) ...
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
             const userId = parseInt(req.params.id);
@@ -551,6 +535,7 @@ function setupExpress() {
         }
     });
     
+    // <<< ИСПРАВЛЕННЫЙ БЛОК /set-tariff >>>
     app.post('/set-tariff', requireAuth, async (req, res, next) => {
         try {
             const { userId, limit, days } = req.body;
@@ -573,7 +558,6 @@ function setupExpress() {
             }
             
             res.redirect(req.get('referer') || '/dashboard');
-            
         } catch (e) {
             next(e);
         }
@@ -581,28 +565,26 @@ function setupExpress() {
 
     // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
-    console.error('🔴 Необработанная ошибка:', err);
-    const statusCode = err.status || 500;
-    const message = err.message || 'Внутренняя ошибка сервера';
-    res.status(statusCode);
-    if (req.originalUrl.startsWith('/api/')) {
-        return res.json({ error: message });
-    }
-    // Указываем правильное имя файла 'errors.ejs'
-    res.render('errors', {
-        title: `Ошибка ${statusCode}`,
-        message: message,
-        statusCode: statusCode,
-        error: err,
-        page: 'error',
-        layout: 'layout'
+        console.error('🔴 Необработанная ошибка:', err);
+        const statusCode = err.status || 500;
+        const message = err.message || 'Внутренняя ошибка сервера';
+        res.status(statusCode);
+        if (req.originalUrl.startsWith('/api/')) {
+            return res.json({ error: message });
+        }
+        // Указываем правильное имя файла 'errors.ejs'
+        res.render('errors', {
+            title: `Ошибка ${statusCode}`,
+            message: message,
+            statusCode: statusCode,
+            error: err,
+            page: 'error',
+            layout: 'layout' 
+        });
     });
-});
-// <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
 }
 
-// ... (setupTelegramBot и остальное без изменений) ...
-
+// --- Настройка Telegraf ---
 function setupTelegramBot() {
     const handleSendMessageError = async (error, userId) => {
         if (error.response?.error_code === 403) {
