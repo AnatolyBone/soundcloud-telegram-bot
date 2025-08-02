@@ -420,39 +420,82 @@ function setupExpress() {
 
     // Маршрут для рендеринга страницы дашборда
     app.get('/dashboard', requireAuth, async (req, res, next) => {
-    try {
-        const { period = '30', showInactive = 'false' } = req.query;
-        
-        // Запрашиваем только данные, которые нужны для СТАТИЧЕСКОЙ части страницы
-        const [lastMonths, expiringCount, expiringSoon, referralStats] = await Promise.all([
-            getLastMonths(6),
-            getExpiringUsersCount(),
-            getExpiringUsersPaginated(10, 0), // Только первая страница для начального отображения
-            getReferralSourcesStats()
-        ]);
-        
-        res.render('dashboard', {
-            title: 'Панель управления',
-            page: 'dashboard',
-            user: req.user,
-            period,
-            showInactive: showInactive === 'true',
-            lastMonths,
-            // Передаем статические данные
-            expiringCount,
-            expiringSoon,
-            referralStats,
-            // Данные для воронки тоже лучше грузить асинхронно, но пока оставим
-            funnelData: await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-            // Пустые заглушки для того, что будет загружено через JS
-            stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
-            expiringLimit: 10,
-            expiringOffset: 0
-        });
-    } catch (e) {
-        next(e);
-    }
-});
+        try {
+            const { period = '30', showInactive = 'false', expiringLimit = '10', expiringOffset = '0' } = req.query;
+
+            // --- ШАГ 1: Собираем ВСЕ данные для страницы параллельно ---
+            const [
+                stats,
+                downloadsByDateRaw, 
+                registrationsByDateRaw, 
+                activeByDateRaw, 
+                activityByDayHour,
+                expiringSoon,
+                expiringCount,
+                referralStats,
+                funnelCounts,
+                lastMonths,
+                users // Загружаем список пользователей сразу
+            ] = await Promise.all([
+                getDashboardStats(),
+                getDownloadsByDate(), 
+                getRegistrationsByDate(), 
+                getActiveUsersByDate(),
+                getUserActivityByDayHour(),
+                getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
+                getExpiringUsersCount(),
+                getReferralSourcesStats(),
+                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+                getLastMonths(6),
+                getAllUsers(showInactive === 'true')
+            ]);
+
+            // --- ШАГ 2: Готовим данные для графиков ---
+            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
+            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+
+            const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
+            const chartDataHourActivity = {
+                labels: [...Array(24).keys()].map(h => `${h}:00`),
+                datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+            };
+            const chartDataWeekdayActivity = {
+                labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+                datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+            };
+
+            // --- ШАГ 3: Отправляем ВСЕ в шаблон ---
+            res.render('dashboard', {
+                title: 'Панель управления',
+                page: 'dashboard',
+                user: req.user,
+                period,
+                showInactive: showInactive === 'true',
+                
+                // Данные для карточек
+                stats,
+                
+                // Данные для таблиц и блоков
+                users,
+                expiringSoon,
+                expiringCount,
+                referralStats,
+                funnelData: funnelCounts,
+                // Данные для фильтров
+                lastMonths,
+                expiringLimit: parseInt(expiringLimit),
+                expiringOffset: parseInt(expiringOffset),
+                
+                // Готовые данные для графиков
+                chartDataCombined,
+                chartDataHourActivity,
+                chartDataWeekdayActivity
+            });
+        } catch (e) {
+            next(e);
+        }
+    });
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
