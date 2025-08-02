@@ -52,6 +52,7 @@ import {
   getExpiringUsersPaginated,
   cacheTrack,
   findCachedTracksByUrls,
+  getDashboardStats,
   findCachedTrack, // <<< ВОЗВРАЩАЕМ ИМПОРТ ДЛЯ ПАУКА
   logEvent
 } from './db.js';
@@ -423,10 +424,6 @@ function setupExpress() {
             next(e);
         }
     });
-
-    // Основные страницы админки
-    // <<< НАЧАЛО ОБНОВЛЕННОГО БЛОКА >>>
-import { getDashboardStats } from './db.js'; // убедись, что путь правильный
 
 app.get('/dashboard', requireAuth, async (req, res, next) => {
     try {
