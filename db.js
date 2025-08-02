@@ -58,7 +58,7 @@ const allowedUserFields = new Set([
   'premium_limit', 'downloads_today', 'total_downloads', 'first_name', 'username',
   'premium_until', 'subscribed_bonus_used', 'tracks_today', 'last_reset_date',
   'active', 'referred_count', 'referral_source', 'has_reviewed', 'referrer_id',
-  'promo_1plus1_used'
+  'promo_1plus1_used', 'expiration_notified_at' // Добавляем новое поле в разрешенные
 ]);
 
 export async function updateUserField(id, field, value) {
@@ -121,6 +121,8 @@ export async function setPremium(id, limit, days = null) {
   const until = new Date(Date.now() + totalDays * 86400000).toISOString();
   await updateUserField(id, 'premium_limit', limit);
   await updateUserField(id, 'premium_until', until);
+  // Сбрасываем флаг уведомления при смене тарифа
+  await updateUserField(id, 'expiration_notified_at', null); 
   return bonusApplied;
 }
 
@@ -317,16 +319,14 @@ export async function exportUsersToCSV() {
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
 }
 
-// <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
-// db.js
 export async function getDashboardStats() {
   const { rows } = await query(`
     SELECT 
       COUNT(*) AS total_users,
       SUM(total_downloads) AS total_downloads,
       COUNT(*) FILTER (WHERE premium_limit <= 10 OR premium_limit IS NULL) AS free,
-      COUNT(*) FILTER (WHERE premium_limit = 25) AS plus,
-      COUNT(*) FILTER (WHERE premium_limit = 50) AS pro,
+      COUNT(*) FILTER (WHERE premium_limit = 30) AS plus,
+      COUNT(*) FILTER (WHERE premium_limit = 100) AS pro,
       COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
     FROM users
     WHERE active = TRUE
@@ -334,25 +334,15 @@ export async function getDashboardStats() {
 
   const r = rows[0];
   return {
-    totalUsers: parseInt(r.total_users, 10),
+    totalUsers: parseInt(r.total_users, 10) || 0,
     totalDownloads: parseInt(r.total_downloads || 0, 10),
     free: parseInt(r.free || 0, 10),
     plus: parseInt(r.plus || 0, 10),
     pro: parseInt(r.pro || 0, 10),
     unlimited: parseInt(r.unlimited || 0, 10)
   };
-  
-}
-// db.js
+} // <<< ИСПРАВЛЕНИЕ: Закрывающая скобка была пропущена
 
-// ... ваш существующий код до самого конца ...
-
-// <<< НАЧАЛО НОВОГО КОДА >>>
-/**
- * Находит пользователей для уведомления об истечении подписки.
- * @param {number} days - За сколько дней до истечения искать.
- * @returns {Promise<Array>} - Массив пользователей.
- */
 export async function findUsersToNotify(days) {
   const targetDate = new Date();
   targetDate.setDate(targetDate.getDate() + days);
@@ -372,10 +362,6 @@ export async function findUsersToNotify(days) {
   return data;
 }
 
-/**
- * Помечает, что пользователю отправлено уведомление.
- * @param {string|number} userId - ID пользователя.
- */
 export async function markAsNotified(userId) {
   const { error } = await supabase
     .from('users')
@@ -386,5 +372,23 @@ export async function markAsNotified(userId) {
     console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
   }
 }
-// <<< КОНЕЦ НОВОГО КОДА >>>
-// <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
+
+export async function resetAllSubscriptionBonuses() {
+  try {
+    const { count, error } = await supabase
+      .from('users')
+      .update({ subscribed_bonus_used: false })
+      .neq('subscribed_bonus_used', false);
+
+    if (error) {
+      console.error('❌ Ошибка при массовом сбросе бонусов:', error);
+      return { success: false, error };
+    }
+    
+    console.log(`[Admin] Успешно сброшен бонус за подписку для ${count || 0} пользователей.`);
+    return { success: true, count: count || 0 };
+  } catch (e) {
+    console.error('🔴 Критическая ошибка при массовом сбросе бонусов:', e);
+    return { success: false, error: e };
+  }
+}
