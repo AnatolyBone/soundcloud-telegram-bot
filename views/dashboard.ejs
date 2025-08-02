@@ -201,16 +201,16 @@
             lastActiveDate,
             statusIcon,
             user.referral_source ? String(user.referral_source).replace(/</g, "&lt;") : '—',
-            `<form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
-                <input type="hidden" name="userId" value="${user.id}">
-                <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
-                    <option value="10" ${user.premium_limit <= 10 ? 'selected' : ''}>Free</option>
-                    <option value="50" ${user.premium_limit > 10 && user.premium_limit <= 50 ? 'selected' : ''}>Plus</option>
-                    <option value="100" ${user.premium_limit > 50 && user.premium_limit < 1000 ? 'selected' : ''}>Pro</option>
-                    <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
-                </select>
-                <button type="submit" class="btn btn-primary btn-sm">✔️</button>
-             </form>`,
+            <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
+    <input type="hidden" name="userId" value="${user.id}">
+    <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
+        <option value="5" ${user.premium_limit === 5 ? 'selected' : ''}>Free</option>
+        <option value="25" ${user.premium_limit === 25 ? 'selected' : ''}>Plus</option>
+        <option value="50" ${user.premium_limit === 50 ? 'selected' : ''}>Pro</option>
+        <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">✔️</button>
+</form>
             user.promo_1plus1_used ? '✅' : '❌',
             `<form action="/admin/reset-promo/${user.id}" method="POST" onsubmit="return confirm('Сбросить?')">
                 <button class="btn btn-sm btn-warning">🔄</button>
