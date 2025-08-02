@@ -25,39 +25,13 @@ import ytdl from 'youtube-dl-exec';
 
 // Database logic
 import {
-  pool,
-  supabase,
-  getFunnelData,
-  getUser,
-  updateUserField,
-  setPremium,
-  getAllUsers,
-  resetDailyStats,
-  addReview,
-  saveTrackForUser,
-  hasLeftReview,
-  getLatestReviews,
-  resetDailyLimitIfNeeded,
-  getRegistrationsByDate,
-  getDownloadsByDate,
-  getActiveUsersByDate,
-  getExpiringUsers,
-  getReferralSourcesStats,
-  markSubscribedBonusUsed,
-  getUserActivityByDayHour,
-  getLastMonths,
-  logUserActivity,
-  getUserById,
-  getExpiringUsersCount,
-  getExpiringUsersPaginated,
-  cacheTrack,
-  findCachedTracksByUrls,
-  resetAllSubscriptionBonuses,
-  findUsersToNotify,
-  markAsNotified,
-  getDashboardStats,
-  findCachedTrack,
-  logEvent
+  pool, supabase, getFunnelData, getUser, updateUserField, setPremium, getAllUsers, resetDailyStats,
+  addReview, saveTrackForUser, hasLeftReview, getLatestReviews, resetDailyLimitIfNeeded,
+  getRegistrationsByDate, getDownloadsByDate, getActiveUsersByDate, getExpiringUsers,
+  getReferralSourcesStats, markSubscribedBonusUsed, getUserActivityByDayHour, getLastMonths,
+  logUserActivity, getUserById, getExpiringUsersCount, getExpiringUsersPaginated, cacheTrack,
+  findCachedTracksByUrls, findUsersToNotify, markAsNotified, getDashboardStats, findCachedTrack,
+  logEvent, resetAllSubscriptionBonuses
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
@@ -171,23 +145,15 @@ async function processUrlForIndexing(url) {
     let tempFilePath = null;
     try {
         const isCached = await findCachedTrack(url);
-        if (isCached) {
-            console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
-            return;
-        }
-
-        console.log(`[Indexer] Индексирую: ${url}`);
+        if (isCached) return;
         const info = await ytdl(url, { dumpSingleJson: true });
-
         if (!info || info._type === 'playlist') {
             console.log(`[Indexer] Пропуск: ${url} является плейлистом.`);
             return;
         }
-
         const trackName = (info.title || 'track').slice(0, 100);
         const uploader = info.uploader || 'SoundCloud';
         tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
-        
         await ytdl(url, {
             output: tempFilePath,
             extractAudio: true,
@@ -195,15 +161,12 @@ async function processUrlForIndexing(url) {
             embedMetadata: true,
             postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
         });
-
         if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
-        
         const message = await bot.telegram.sendAudio(
             STORAGE_CHANNEL_ID,
             { source: fs.createReadStream(tempFilePath) },
             { title: trackName, performer: uploader }
         );
-
         if (message?.audio?.file_id) {
             await cacheTrack(url, message.audio.file_id, trackName);
             console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
@@ -274,7 +237,6 @@ async function startApp() {
 }
 
 function setupExpress() {
-    // Вспомогательные функции для дашборда
     function convertObjToArray(dataObj) {
         if (!dataObj) return [];
         return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
@@ -332,7 +294,6 @@ function setupExpress() {
         return weekdays;
     }
 
-    // Основная настройка Express
     app.use(compression());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
@@ -367,7 +328,6 @@ function setupExpress() {
         res.redirect('/admin');
     };
     
-    // Маршруты
     app.get('/health', (req, res) => res.send('OK'));
     
     app.get('/admin', (req, res) => {
@@ -523,8 +483,8 @@ function setupExpress() {
             
             const tariffName = getTariffName(parsedLimit);
             const message = `🎉 Ваш тариф был изменен!\n\n` +
-                `✨ Новый тариф: **${tariffName}**\n` +
-                `⏳ Срок действия: **${parsedDays} дней**\n\n` +
+                `✨ Новый тариф: *${tariffName}*\n` +
+                `⏳ Срок действия: *${parsedDays} дней*\n\n` +
                 `Спасибо, что пользуетесь нашим ботом!`;
             
             try {
@@ -533,7 +493,6 @@ function setupExpress() {
             } catch (telegramError) {
                 console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
             }
-            
             res.redirect(req.get('referer') || '/dashboard');
         } catch (e) {
             next(e);
@@ -558,7 +517,7 @@ function setupExpress() {
             layout: 'layout' 
         });
     });
-} // <<< ИСПРАВЛЕНИЕ ЗДЕСЬ: Эта скобка закрывает setupExpress
+}
 
 // --- Настройка Telegraf ---
 function setupTelegramBot() {
@@ -686,7 +645,7 @@ ${refLink}
         try {
             const user = ctx.state.user || await getUser(ctx.from.id);
             const messageText = formatMenuMessage(user, ctx);
-            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user) });
+            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user), ...kb() });
         } catch (e) {
             await handleSendMessageError(e, ctx.from.id);
         }
@@ -736,32 +695,26 @@ ${refLink}
             const now = new Date();
             const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
             
-            const escapeMarkdown = (text) => {
-              if (typeof text !== 'string') return '';
-              return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
-            };
-
-            const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
+            const dashboardUrl = `${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`;
             
-            const message = `
-📊 *Статистика Бота*
+            const message = 
+`📊 **Статистика Бота**
 
-👤 *Пользователи:*
-   \\- Всего: *${totalUsers}*
-   \\- Активных всего: *${activeUsers}*
-   \\- Активных сегодня: *${activeToday}*
+👤 **Пользователи:**
+- Всего: *${totalUsers}*
+- Активных всего: *${activeUsers}*
+- Активных сегодня: *${activeToday}*
 
-📥 *Загрузки:*
-   \\- Всего за все время: *${totalDownloads}*
+📥 **Загрузки:**
+- Всего за все время: *${totalDownloads}*
 
-⚙️ *Очередь сейчас:*
-   \\- В работе: *${downloadQueue.active}*
-   \\- В ожидании: *${downloadQueue.size}*
+⚙️ **Очередь сейчас:**
+- В работе: *${downloadQueue.active}*
+- В ожидании: *${downloadQueue.size}*
 
-🔗 [Открыть админ\\-панель](${escapedUrl})
-            `.trim();
+🔗 [Открыть админ-панель](${dashboardUrl})`;
             
-            await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+            await ctx.replyWithHTML(message.trim());
         } catch (e) {
             console.error('❌ Ошибка в команде /admin:', e);
             try {
