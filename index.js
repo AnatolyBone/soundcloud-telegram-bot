@@ -21,7 +21,7 @@ import pgSessionFactory from 'connect-pg-simple';
 
 // Utils
 import json2csv from 'json-2-csv';
-import ytdl from 'youtube-dl-exec'; // <<< ВОЗВРАЩАЕМ ИМПОРТ ДЛЯ ПАУКА
+import ytdl from 'youtube-dl-exec';
 
 // Database logic
 import {
@@ -53,7 +53,7 @@ import {
   cacheTrack,
   findCachedTracksByUrls,
   getDashboardStats,
-  findCachedTrack, // <<< ВОЗВРАЩАЕМ ИМПОРТ ДЛЯ ПАУКА
+  findCachedTrack,
   logEvent
 } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
@@ -124,6 +124,7 @@ export const texts = {
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
+// --- Глобальные вспомогательные функции ---
 function getTariffName(limit) {
     if (limit >= 1000) return 'Unlimited (∞/день)';
     if (limit === 50) return 'Pro (50/день)';
@@ -131,12 +132,13 @@ function getTariffName(limit) {
     return 'Free (5/день)';
 }
 
-    function getDaysLeft(premiumUntil) {
-        if (!premiumUntil) return 0;
-        const diff = new Date(premiumUntil) - new Date();
-        return Math.max(Math.ceil(diff / 86400000), 0);
-    }
-// <<< НАЧАЛО: КОД ДЛЯ "ПАУКА" >>>
+function getDaysLeft(premiumUntil) {
+    if (!premiumUntil) return 0;
+    const diff = new Date(premiumUntil) - new Date();
+    return Math.max(Math.ceil(diff / 86400000), 0);
+}
+
+// --- Логика "Паука" (Indexer) ---
 async function getUrlsToIndex() {
     try {
         const { rows } = await pool.query(`
@@ -165,16 +167,23 @@ async function processUrlForIndexing(url) {
         if (!info || Array.isArray(info.entries)) return;
 
         const trackName = (info.title || 'track').slice(0, 100);
+        const uploader = info.uploader || 'SoundCloud';
         tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
         
-        await ytdl(url, { output: tempFilePath, extractAudio: true, audioFormat: 'mp3' });
+        await ytdl(url, { 
+            output: tempFilePath, 
+            extractAudio: true, 
+            audioFormat: 'mp3',
+            embedMetadata: true,
+            postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
+        });
 
         if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
         
         const message = await bot.telegram.sendAudio(
             STORAGE_CHANNEL_ID,
             { source: fs.createReadStream(tempFilePath) },
-            { caption: trackName, title: trackName }
+            { title: trackName, performer: uploader }
         );
 
         if (message?.audio?.file_id) {
@@ -184,14 +193,15 @@ async function processUrlForIndexing(url) {
     } catch (err) {
         console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
     } finally {
-        if (tempFilePath) await fs.promises.unlink(tempFilePath).catch(() => {});
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            await fs.promises.unlink(tempFilePath).catch(() => {});
+        }
     }
 }
 
 async function startIndexer() {
     console.log('🚀 Запуск фонового индексатора...');
-    // Небольшая задержка перед первым запуском, чтобы основное приложение успело инициализироваться
-    await new Promise(resolve => setTimeout(resolve, 60 * 1000)); // 1 минута
+    await new Promise(resolve => setTimeout(resolve, 60 * 1000)); 
 
     while (true) {
         try {
@@ -200,7 +210,7 @@ async function startIndexer() {
                 console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
                 for (const url of urls) {
                     await processUrlForIndexing(url);
-                    await new Promise(resolve => setTimeout(resolve, 30 * 1000)); // Пауза 30 секунд
+                    await new Promise(resolve => setTimeout(resolve, 30 * 1000));
                 }
             }
             console.log('[Indexer] Пауза на 1 час.');
@@ -211,9 +221,8 @@ async function startIndexer() {
         }
     }
 }
-// <<< КОНЕЦ: КОД ДЛЯ "ПАУКА" >>>
 
-
+// --- Основная функция запуска приложения ---
 async function startApp() {
     try {
         const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
@@ -239,7 +248,6 @@ async function startApp() {
             console.log('✅ Бот запущен в режиме long-polling.');
         }
 
-        // <<< ЗАПУСКАЕМ ПАУКА В ФОНЕ >>>
         startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
 
     } catch (err) {
@@ -248,6 +256,7 @@ async function startApp() {
     }
 }
 
+// --- Настройка Express ---
 function setupExpress() {
     // Вспомогательные функции для дашборда
     function convertObjToArray(dataObj) {
@@ -365,12 +374,17 @@ function setupExpress() {
     app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
             const { period = '30' } = req.query;
-            const users = await getAllUsers(true);
             const [
-                downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+                stats,
+                downloadsByDateRaw, 
+                registrationsByDateRaw, 
+                activeByDateRaw, 
                 activityByDayHour
             ] = await Promise.all([
-                getDownloadsByDate(), getRegistrationsByDate(), getActiveUsersByDate(),
+                getDashboardStats(), // <<< ИСПОЛЬЗУЕМ ОПТИМИЗИРОВАННУЮ ФУНКЦИЮ
+                getDownloadsByDate(), 
+                getRegistrationsByDate(), 
+                getActiveUsersByDate(),
                 getUserActivityByDayHour()
             ]);
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
@@ -378,14 +392,7 @@ function setupExpress() {
             const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
     
             res.json({
-                stats: {
-                    totalUsers: users.length,
-                    totalDownloads: users.reduce((sum, u) => sum + (u.total_downloads || 0), 0),
-                    free: users.filter(u => u.premium_limit <= 10).length,
-                    plus: users.filter(u => u.premium_limit > 10 && u.premium_limit <= 50).length,
-                    pro: users.filter(u => u.premium_limit > 50 && u.premium_limit < 1000).length,
-                    unlimited: users.filter(u => u.premium_limit >= 1000).length,
-                },
+                stats, // <<< ВОЗВРАЩАЕМ ГОТОВЫЙ ОБЪЕКТ
                 chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
                 chartDataHourActivity: {
                     labels: [...Array(24).keys()].map(h => `${h}:00`),
@@ -425,48 +432,45 @@ function setupExpress() {
         }
     });
 
-app.get('/dashboard', requireAuth, async (req, res, next) => {
-    try {
-        const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
-        
-        const [
-            expiringSoon,
-            expiringCount,
-            referralStats,
-            funnelCounts,
-            lastMonthsData,
-            stats
-        ] = await Promise.all([
-            getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-            getExpiringUsersCount(),
-            getReferralSourcesStats(),
-            getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-            getLastMonths(6),
-            getDashboardStats()
-        ]);
-        
-        res.render('dashboard', {
-            title: 'Панель управления',
-            page: 'dashboard',
-            user: req.user,
+    app.get('/dashboard', requireAuth, async (req, res, next) => {
+        try {
+            const { showInactive = 'false', period = '30', expiringLimit = '10', expiringOffset = '0' } = req.query;
             
-            stats, // уже содержит: totalUsers, totalDownloads, free, plus, pro, unlimited
+            const [
+                expiringSoon,
+                expiringCount,
+                referralStats,
+                funnelCounts,
+                lastMonthsData,
+                stats
+            ] = await Promise.all([
+                getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
+                getExpiringUsersCount(),
+                getReferralSourcesStats(),
+                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+                getLastMonths(6),
+                getDashboardStats() // Используем оптимизированную функцию
+            ]);
             
-            referralStats,
-            expiringSoon,
-            expiringCount,
-            
-            expiringOffset: parseInt(expiringOffset),
-            expiringLimit: parseInt(expiringLimit),
-            showInactive: showInactive === 'true',
-            period,
-            lastMonths: lastMonthsData,
-            funnelData: funnelCounts,
-        });
-    } catch (e) {
-        next(e);
-    }
-});
+            res.render('dashboard', {
+                title: 'Панель управления',
+                page: 'dashboard',
+                user: req.user,
+                stats,
+                referralStats,
+                expiringSoon,
+                expiringCount,
+                expiringOffset: parseInt(expiringOffset),
+                expiringLimit: parseInt(expiringLimit),
+                showInactive: showInactive === 'true',
+                period,
+                lastMonths: lastMonthsData,
+                funnelData: funnelCounts,
+            });
+        } catch (e) {
+            next(e);
+        }
+    });
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
@@ -553,41 +557,33 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
         }
     });
     
-  // index.js, ~строка 495
-app.post('/set-tariff', requireAuth, async (req, res, next) => {
-    try {
-        const { userId, limit, days } = req.body;
-        const parsedLimit = parseInt(limit);
-        const parsedDays = parseInt(days) || 30;
-        
-        // Обновляем данные в базе
-        await setPremium(userId, parsedLimit, parsedDays);
-        
-        // <<< НАЧАЛО НОВОГО КОДА >>>
-        // Формируем сообщение для пользователя
-        const tariffName = getTariffName(parsedLimit); // Используем нашу вспомогательную функцию
-        const message = `🎉 Ваш тариф был изменен!\n\n` +
-            `✨ Новый тариф: **${tariffName}**\n` +
-            `⏳ Срок действия: **${parsedDays} дней**\n\n` +
-            `Спасибо, что пользуетесь нашим ботом!`;
-        
+    app.post('/set-tariff', requireAuth, async (req, res, next) => {
         try {
-            await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
-            console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
-        } catch (telegramError) {
-            console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
-            // Не прерываем процесс, даже если не удалось отправить.
-            // Главное, что тариф в базе данных изменен.
+            const { userId, limit, days } = req.body;
+            const parsedLimit = parseInt(limit);
+            const parsedDays = parseInt(days) || 30;
+            
+            await setPremium(userId, parsedLimit, parsedDays);
+            
+            const tariffName = getTariffName(parsedLimit);
+            const message = `🎉 Ваш тариф был изменен!\n\n` +
+                `✨ Новый тариф: **${tariffName}**\n` +
+                `⏳ Срок действия: **${parsedDays} дней**\n\n` +
+                `Спасибо, что пользуетесь нашим ботом!`;
+            
+            try {
+                await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
+                console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
+            } catch (telegramError) {
+                console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
+            }
+            
+            res.redirect(req.get('referer') || '/dashboard');
+            
+        } catch (e) {
+            next(e);
         }
-        // <<< КОНЕЦ НОВОГО КОДА >>>
-        
-        // Перенаправляем админа обратно
-        res.redirect(req.get('referer') || '/dashboard');
-        
-    } catch (e) {
-        next(e);
-    }
-});
+    });
 
     // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
@@ -613,6 +609,7 @@ app.post('/set-tariff', requireAuth, async (req, res, next) => {
     });
 }
 
+// --- Настройка Telegraf ---
 function setupTelegramBot() {
     const handleSendMessageError = async (error, userId) => {
         if (error.response?.error_code === 403) {
@@ -785,6 +782,7 @@ ${refLink}
     });
 }
 
+// --- Запуск приложения ---
 const stopBot = (signal) => {
     console.log(`Получен сигнал ${signal}. Завершение работы...`);
     if (bot.polling?.isRunning()) {
