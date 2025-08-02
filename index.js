@@ -52,6 +52,7 @@ import {
   getExpiringUsersPaginated,
   cacheTrack,
   findCachedTracksByUrls,
+  resetAllSubscriptionBonuses,
   findUsersToNotify,
   markAsNotified,
   getDashboardStats,
@@ -166,26 +167,22 @@ async function getUrlsToIndex() {
     }
 }
 
-// index.js
-
 async function processUrlForIndexing(url) {
     let tempFilePath = null;
     try {
         const isCached = await findCachedTrack(url);
         if (isCached) {
             console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
-            return; // Возвращаемся, если уже закэшировано
+            return;
         }
 
         console.log(`[Indexer] Индексирую: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true });
 
-        // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Улучшенная проверка на плейлист >>>
         if (!info || info._type === 'playlist') {
             console.log(`[Indexer] Пропуск: ${url} является плейлистом.`);
-            return; // Явно пропускаем плейлисты
+            return;
         }
-        // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
 
         const trackName = (info.title || 'track').slice(0, 100);
         const uploader = info.uploader || 'SoundCloud';
@@ -219,6 +216,7 @@ async function processUrlForIndexing(url) {
         }
     }
 }
+
 async function startIndexer() {
     console.log('🚀 Запуск фонового индексатора...');
     await new Promise(resolve => setTimeout(resolve, 60 * 1000));
@@ -388,39 +386,22 @@ function setupExpress() {
         }
     });
 
-    // <<< ФИНАЛЬНАЯ ВЕРСИЯ МАРШРУТА /dashboard >>>
     app.get('/dashboard', requireAuth, async (req, res, next) => {
         try {
             const { period = '30', showInactive = 'false', expiringLimit = '10', expiringOffset = '0' } = req.query;
-
-            // ШАГ 1: Собираем ВСЕ данные для страницы параллельно
             const [
-                stats,
-                downloadsByDateRaw, 
-                registrationsByDateRaw, 
-                activeByDateRaw, 
-                activityByDayHour,
-                expiringSoon,
-                expiringCount,
-                referralStats,
-                funnelCounts,
-                lastMonths,
-                users
+                stats, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, 
+                activityByDayHour, expiringSoon, expiringCount, referralStats, 
+                funnelCounts, lastMonths, users
             ] = await Promise.all([
-                getDashboardStats(),
-                getDownloadsByDate(), 
-                getRegistrationsByDate(), 
-                getActiveUsersByDate(),
-                getUserActivityByDayHour(),
+                getDashboardStats(), getDownloadsByDate(), getRegistrationsByDate(), 
+                getActiveUsersByDate(), getUserActivityByDayHour(),
                 getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-                getExpiringUsersCount(),
-                getReferralSourcesStats(),
+                getExpiringUsersCount(), getReferralSourcesStats(),
                 getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-                getLastMonths(6),
-                getAllUsers(showInactive === 'true')
+                getLastMonths(6), getAllUsers(showInactive === 'true')
             ]);
 
-            // ШАГ 2: Готовим данные для графиков
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
             const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
             const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
@@ -435,25 +416,12 @@ function setupExpress() {
                 datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
             };
 
-            // ШАГ 3: Отправляем ВСЕ в шаблон
             res.render('dashboard', {
-                title: 'Панель управления',
-                page: 'dashboard',
-                user: req.user,
-                period,
-                showInactive: showInactive === 'true',
-                stats,
-                users,
-                expiringSoon,
-                expiringCount,
-                referralStats,
-                funnelData: funnelCounts,
-                lastMonths,
-                expiringLimit: parseInt(expiringLimit),
-                expiringOffset: parseInt(expiringOffset),
-                chartDataCombined,
-                chartDataHourActivity,
-                chartDataWeekdayActivity
+                title: 'Панель управления', page: 'dashboard', user: req.user, period,
+                showInactive: showInactive === 'true', stats, users, expiringSoon,
+                expiringCount, referralStats, funnelData: funnelCounts, lastMonths,
+                expiringLimit: parseInt(expiringLimit), expiringOffset: parseInt(expiringOffset),
+                chartDataCombined, chartDataHourActivity, chartDataWeekdayActivity
             });
         } catch (e) {
             next(e);
@@ -581,17 +549,16 @@ function setupExpress() {
         if (req.originalUrl.startsWith('/api/')) {
             return res.json({ error: message });
         }
-        // Указываем правильное имя файла 'errors.ejs'
         res.render('errors', {
             title: `Ошибка ${statusCode}`,
-            message,
-            statusCode,
+            message: message,
+            statusCode: statusCode,
             error: err,
             page: 'error',
             layout: 'layout' 
         });
     });
-}
+} // <<< ИСПРАВЛЕНИЕ ЗДЕСЬ: Эта скобка закрывает setupExpress
 
 // --- Настройка Telegraf ---
 function setupTelegramBot() {
@@ -621,7 +588,7 @@ function setupTelegramBot() {
     };
 
     function formatMenuMessage(user, ctx) {
-        console.log('[DEBUG] user in formatMenuMessage:', user);
+        // console.log('[DEBUG] user in formatMenuMessage:', user);
         const tariffLabel = getTariffName(user.premium_limit);
         const downloadsToday = user.downloads_today || 0;
         const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
@@ -643,52 +610,12 @@ function setupTelegramBot() {
 ${refLink}
         `.trim();
         
-        // Добавляем блок с бонусом, только если пользователь его еще не получал
         if (!user.subscribed_bonus_used) {
-            message += `\n\n🎁 **Бонус!**\nПодпишись на наш канал @SCM_BLOG и получи **7 дней тарифа Plus** бесплатно!`;
+            message += `\n\n🎁 **Бонус!**\nПодпишись на наш новостной канал @SCM_BLOG и получи **7 дней тарифа Plus** бесплатно!`;
         }
         
         return message;
     }
-
-    // Обработчик нажатия на кнопку "Я подписался"
-    bot.action('check_subscription', async (ctx) => {
-        try {
-            // Сначала отвечаем на callback, чтобы кнопка перестала "грузиться"
-            await ctx.answerCbQuery();
-            
-            const user = ctx.state.user;
-            if (user.subscribed_bonus_used) {
-                return await ctx.reply('Вы уже получали этот бонус. Спасибо за вашу поддержку!');
-            }
-
-            const channel = '@SCM_BLOG'; // Ваш канал
-            if (await isSubscribed(ctx.from.id, channel)) {
-                // Начисляем бонус
-                await setPremium(ctx.from.id, 30, 7); // 30 треков/день, на 7 дней
-                await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-                
-                await ctx.editMessageText(
-                    '🎉 Поздравляем! Ваша подписка на канал подтверждена.\n\n' +
-                    'Вам начислено **7 дней тарифа Plus** (30 треков/день).\n\n' +
-                    'Спасибо, что остаетесь с нами!',
-                    { parse_mode: 'Markdown' }
-                );
-            } else {
-                await ctx.reply(`Кажется, вы еще не подписаны на канал ${channel}. Пожалуйста, подпишитесь и нажмите кнопку еще раз.`, {
-                    // Добавляем кнопку "Перейти в канал" для удобства
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: '➡️ Перейти в канал', url: 'https://t.me/SCM_BLOG' }]
-                        ]
-                    }
-                });
-            }
-        } catch (e) {
-            console.error('Ошибка в обработчике check_subscription:', e);
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
 
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
@@ -701,84 +628,92 @@ ${refLink}
         return next();
     });
 
-    bot.start(async (ctx) => {
-    try {
-        const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-        const messageText = formatMenuMessage(user, ctx);
-        
-        // Собираем клавиатуру
+    const getBonusKeyboard = (user) => {
         const keyboard = [];
         if (!user.subscribed_bonus_used) {
             keyboard.push([{ text: '✅ Я подписался, получить бонус!', callback_data: 'check_subscription' }]);
         }
-        
-        await ctx.reply(messageText, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: keyboard
-            }
-        });
-    } catch (e) {
-        await handleSendMessageError(e, ctx.from.id);
-    }
-});
+        return { inline_keyboard: keyboard };
+    };
 
-    bot.hears(texts.menu, async (ctx) => {
-    try {
-        const user = ctx.state.user || await getUser(ctx.from.id);
-        const messageText = formatMenuMessage(user, ctx);
-        
-        const keyboard = [];
-        if (!user.subscribed_bonus_used) {
-            keyboard.push([{ text: '✅ Я подписался, получить бонус!', callback_data: 'check_subscription' }]);
-        }
-        
-        await ctx.reply(messageText, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: keyboard
+    bot.action('check_subscription', async (ctx) => {
+        try {
+            const user = ctx.state.user || await getUser(ctx.from.id);
+            if (user.subscribed_bonus_used) {
+                return await ctx.answerCbQuery('Вы уже получали этот бонус. Спасибо!', { show_alert: true });
             }
-        });
-    } catch (e) {
-        await handleSendMessageError(e, ctx.from.id);
-    }
-});
+
+            const channel = '@SCM_BLOG';
+            if (await isSubscribed(ctx.from.id, channel)) {
+                await setPremium(ctx.from.id, 30, 7);
+                await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+                
+                await ctx.editMessageText(
+                    '🎉 **Поздравляем!**\n\nВаша подписка на канал подтверждена. ' +
+                    'Вам начислен бонус: **7 дней тарифа Plus**.\n\n' +
+                    'Чтобы увидеть обновленный статус, нажмите /menu.',
+                    { parse_mode: 'Markdown' }
+                );
+            } else {
+                await ctx.answerCbQuery('Кажется, вы еще не подписаны на канал.', { show_alert: true });
+                await ctx.reply(`Пожалуйста, сначала подпишитесь на ${channel}, а затем нажмите кнопку еще раз.`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '➡️ Перейти в канал', url: 'https://t.me/SCM_BLOG' }],
+                            [{ text: '✅ Я подписался!', callback_data: 'check_subscription' }]
+                        ]
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Ошибка в обработчике check_subscription:', e);
+            await ctx.answerCbQuery('Произошла ошибка, попробуйте позже.', { show_alert: true });
+            await handleSendMessageError(e, ctx.from.id);
+        }
+    });
+    
+    bot.start(async (ctx) => {
+        try {
+            const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
+            const messageText = formatMenuMessage(user, ctx);
+            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user) });
+        } catch (e) {
+            await handleSendMessageError(e, ctx.from.id);
+        }
+    });
+    
+    bot.hears(texts.menu, async (ctx) => {
+        try {
+            const user = ctx.state.user || await getUser(ctx.from.id);
+            const messageText = formatMenuMessage(user, ctx);
+            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user) });
+        } catch (e) {
+            await handleSendMessageError(e, ctx.from.id);
+        }
+    });
 
     bot.hears(texts.mytracks, async (ctx) => {
-    try {
-        const user = ctx.state.user || await getUser(ctx.from.id);
-        
-        let tracks = [];
-        if (Array.isArray(user.tracks_today)) {
-            tracks = user.tracks_today;
-        } else if (typeof user.tracks_today === 'string') {
-            try {
-                tracks = JSON.parse(user.tracks_today);
-            } catch (e) {
-                tracks = [];
+        try {
+            const user = ctx.state.user || await getUser(ctx.from.id);
+            let tracks = [];
+            if (Array.isArray(user.tracks_today)) {
+                tracks = user.tracks_today;
+            } else if (typeof user.tracks_today === 'string') {
+                try { tracks = JSON.parse(user.tracks_today); } catch (e) { tracks = []; }
             }
+            const validTracks = tracks.filter(t => t && t.fileId);
+            if (!validTracks.length) {
+                return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
+            }
+            for (let i = 0; i < validTracks.length; i += 5) {
+                const chunk = validTracks.slice(i, i + 5);
+                await ctx.replyWithMediaGroup(chunk.map(track => ({ type: 'audio', media: track.fileId, title: track.title })));
+            }
+        } catch (err) {
+            console.error('Ошибка в /mytracks:', err);
+            await ctx.reply('Произошла ошибка при получении треков.');
         }
-        
-        const validTracks = tracks.filter(t => t && t.fileId);
-        
-        if (!validTracks.length) {
-            return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
-        }
-        
-        for (let i = 0; i < validTracks.length; i += 5) {
-            const chunk = validTracks.slice(i, i + 5);
-            await ctx.replyWithMediaGroup(chunk.map(track => ({
-                type: 'audio',
-                media: track.fileId,
-                title: track.title,
-            })));
-        }
-        
-    } catch (err) {
-        console.error('Ошибка в /mytracks:', err);
-        await ctx.reply('Произошла ошибка при получении треков.');
-    }
-});
+    });
 
     bot.hears(texts.help, async (ctx) => {
         try { await ctx.reply(texts.helpInfo, kb()); } 
@@ -791,24 +726,24 @@ ${refLink}
     });
 
     bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    try {
-        const users = await getAllUsers(true);
-        const totalUsers = users.length;
-        const activeUsers = users.filter(u => u.active).length;
-        const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-        
-        const now = new Date();
-        const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
-        
-        const escapeMarkdown = (text) => {
-          if (typeof text !== 'string') return '';
-          return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
-        };
+        if (ctx.from.id !== ADMIN_ID) return;
+        try {
+            const users = await getAllUsers(true);
+            const totalUsers = users.length;
+            const activeUsers = users.filter(u => u.active).length;
+            const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
+            
+            const now = new Date();
+            const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
+            
+            const escapeMarkdown = (text) => {
+              if (typeof text !== 'string') return '';
+              return text.replace(/[_*[```()~`>#+\-=|{}.!]/g, '\\$&');
+            };
 
-        const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
-        
-        const message = `
+            const escapedUrl = escapeMarkdown(`${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`);
+            
+            const message = `
 📊 *Статистика Бота*
 
 👤 *Пользователи:*
@@ -824,16 +759,17 @@ ${refLink}
    \\- В ожидании: *${downloadQueue.size}*
 
 🔗 [Открыть админ\\-панель](${escapedUrl})
-        `.trim();
+            `.trim();
+            
+            await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+        } catch (e) {
+            console.error('❌ Ошибка в команде /admin:', e);
+            try {
+                await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
+            } catch {}
+        }
+    });
         
-        await ctx.reply(message, { parse_mode: 'MarkdownV2' });
-    } catch (e) {
-        console.error('❌ Ошибка в команде /admin:', e);
-        try {
-            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
-        } catch {}
-    }
-});
     bot.on('text', async (ctx) => {
         try {
             const url = extractUrl(ctx.message.text);
