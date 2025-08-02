@@ -420,35 +420,39 @@ function setupExpress() {
 
     // Маршрут для рендеринга страницы дашборда
     app.get('/dashboard', requireAuth, async (req, res, next) => {
-        try {
-            const { period = '30', showInactive = 'false' } = req.query;
-            const [lastMonths, funnelCounts, expiringCount, expiringSoon, referralStats] = await Promise.all([
-                getLastMonths(6),
-                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-                getExpiringUsersCount(),
-                getExpiringUsersPaginated(10, 0),
-                getReferralSourcesStats()
-            ]);
-            
-            res.render('dashboard', {
-                title: 'Панель управления',
-                page: 'dashboard',
-                user: req.user,
-                period,
-                showInactive: showInactive === 'true',
-                lastMonths,
-                funnelData,
-                expiringCount,
-                expiringSoon,
-                referralStats,
-                stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
-                expiringLimit: 10,
-                expiringOffset: 0
-            });
-        } catch (e) {
-            next(e);
-        }
-    });
+    try {
+        const { period = '30', showInactive = 'false' } = req.query;
+        
+        // Запрашиваем только данные, которые нужны для СТАТИЧЕСКОЙ части страницы
+        const [lastMonths, expiringCount, expiringSoon, referralStats] = await Promise.all([
+            getLastMonths(6),
+            getExpiringUsersCount(),
+            getExpiringUsersPaginated(10, 0), // Только первая страница для начального отображения
+            getReferralSourcesStats()
+        ]);
+        
+        res.render('dashboard', {
+            title: 'Панель управления',
+            page: 'dashboard',
+            user: req.user,
+            period,
+            showInactive: showInactive === 'true',
+            lastMonths,
+            // Передаем статические данные
+            expiringCount,
+            expiringSoon,
+            referralStats,
+            // Данные для воронки тоже лучше грузить асинхронно, но пока оставим
+            funnelData: await getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+            // Пустые заглушки для того, что будет загружено через JS
+            stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
+            expiringLimit: 10,
+            expiringOffset: 0
+        });
+    } catch (e) {
+        next(e);
+    }
+});
 
     app.get('/user/:id', requireAuth, async (req, res, next) => {
         try {
@@ -537,31 +541,31 @@ function setupExpress() {
     
     // <<< ИСПРАВЛЕННЫЙ БЛОК /set-tariff >>>
     app.post('/set-tariff', requireAuth, async (req, res, next) => {
+    try {
+        const { userId, limit, days } = req.body;
+        const parsedLimit = parseInt(limit);
+        const parsedDays = parseInt(days) || 30;
+        
+        await setPremium(userId, parsedLimit, parsedDays);
+        
+        const tariffName = getTariffName(parsedLimit);
+        const message = `🎉 Ваш тариф был изменен!\n\n` +
+            `✨ Новый тариф: **${tariffName}**\n` +
+            `⏳ Срок действия: **${parsedDays} дней**\n\n` +
+            `Спасибо, что пользуетесь нашим ботом!`;
+        
         try {
-            const { userId, limit, days } = req.body;
-            const parsedLimit = parseInt(limit);
-            const parsedDays = parseInt(days) || 30;
-            
-            await setPremium(userId, parsedLimit, parsedDays);
-            
-            const tariffName = getTariffName(parsedLimit);
-            const message = `🎉 Ваш тариф был изменен!\n\n` +
-                `✨ Новый тариф: **${tariffName}**\n` +
-                `⏳ Срок действия: **${parsedDays} дней**\n\n` +
-                `Спасибо, что пользуетесь нашим ботом!`;
-            
-            try {
-                await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
-                console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
-            } catch (telegramError) {
-                console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
-            }
-            
-            res.redirect(req.get('referer') || '/dashboard');
-        } catch (e) {
-            next(e);
+            await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
+            console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
+        } catch (telegramError) {
+            console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
         }
-    });
+        
+        res.redirect(req.get('referer') || '/dashboard');
+    } catch (e) {
+        next(e);
+    }
+});
 
     // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
