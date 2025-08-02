@@ -124,7 +124,6 @@ export async function setPremium(id, limit, days = null) {
   return bonusApplied;
 }
 
-// <<< ИЗМЕНЕНО: Используем 'url' вместо 'soundcloud_url' >>>
 export async function cacheTrack(url, fileId, trackName) {
   const { error } = await supabase
     .from('track_cache')
@@ -132,19 +131,12 @@ export async function cacheTrack(url, fileId, trackName) {
   if (error) console.error('❌ Ошибка кэширования трека:', error);
 }
 
-// <<< ДОБАВЛЕНА НОВАЯ ФУНКЦИЯ >>>
-/**
- * Проверяет, закэширован ли трек по URL.
- * Используется "пауком" для предотвращения дублирующей работы.
- * @param {string} url - URL трека.
- * @returns {Promise<object|null>} - Объект с данными кэша или null.
- */
 export async function findCachedTrack(url) {
     try {
         const { data, error } = await supabase
             .from('track_cache')
             .select('file_id, track_name')
-            .eq('url', url) // <<< ИЗМЕНЕНО: Используем 'url'
+            .eq('url', url)
             .single();
 
         if (error && error.code !== 'PGRST116') { 
@@ -158,7 +150,6 @@ export async function findCachedTrack(url) {
     }
 }
 
-// <<< ИЗМЕНЕНО: Используем 'url' вместо 'soundcloud_url' >>>
 export async function findCachedTracksByUrls(urls) {
   if (!urls || urls.length === 0) return new Map();
   const { data, error } = await supabase.from('track_cache').select('url, file_id, track_name').in('url', urls);
@@ -320,30 +311,37 @@ export async function getLastMonths(n = 6) {
 
   return months;
 }
+
 export async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
-} // <<< ИСПРАВЛЕНИЕ: Закрывающая скобка `}` была здесь
+}
 
-// <<< ИСПРАВЛЕНИЕ: Теперь эта функция находится на своем месте
+// <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
 export async function getDashboardStats() {
-    const { rows } = await query(`
+  const { rows } = await query(`
     SELECT 
-      COUNT(*) FILTER (WHERE active = TRUE) AS total_users,
+      COUNT(*) AS total_users,
       SUM(total_downloads) AS total_downloads,
-      COUNT(*) FILTER (WHERE premium_limit = 5) AS free,
+      -- Free: все, у кого лимит 5 или 10 (старый), или NULL
+      COUNT(*) FILTER (WHERE premium_limit <= 10 OR premium_limit IS NULL) AS free,
+      -- Plus: строго 25
       COUNT(*) FILTER (WHERE premium_limit = 25) AS plus,
+      -- Pro: строго 50
       COUNT(*) FILTER (WHERE premium_limit = 50) AS pro,
+      -- Unlimited: 1000 и больше
       COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
     FROM users
+    WHERE active = TRUE
   `);
-    const r = rows[0];
-    return {
-      totalUsers: parseInt(r.total_users, 10),
-      totalDownloads: parseInt(r.total_downloads || 0, 10),
-      free: parseInt(r.free || 0, 10),
-      plus: parseInt(r.plus || 0, 10),
-      pro: parseInt(r.pro || 0, 10),
-      unlimited: parseInt(r.unlimited || 0, 10)
-    };
+  const r = rows[0];
+  return {
+    totalUsers: parseInt(r.total_users, 10),
+    totalDownloads: parseInt(r.total_downloads || 0, 10),
+    free: parseInt(r.free || 0, 10),
+    plus: parseInt(r.plus || 0, 10),
+    pro: parseInt(r.pro || 0, 10),
+    unlimited: parseInt(r.unlimited || 0, 10)
+  };
 }
+// <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
