@@ -594,7 +594,6 @@ function setupTelegramBot() {
     };
 
     function formatMenuMessage(user, ctx) {
-        console.log('[DEBUG] user in formatMenuMessage:', user);
         const tariffLabel = getTariffName(user.premium_limit);
         const downloadsToday = user.downloads_today || 0;
         const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
