@@ -323,8 +323,11 @@ export async function getLastMonths(n = 6) {
 export async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
-  export async function getDashboardStats() {
-  const { rows } = await query(`
+} // <<< ИСПРАВЛЕНИЕ: Закрывающая скобка `}` была здесь
+
+// <<< ИСПРАВЛЕНИЕ: Теперь эта функция находится на своем месте
+export async function getDashboardStats() {
+    const { rows } = await query(`
     SELECT 
       COUNT(*) FILTER (WHERE active = TRUE) AS total_users,
       SUM(total_downloads) AS total_downloads,
@@ -334,14 +337,13 @@ export async function exportUsersToCSV() {
       COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
     FROM users
   `);
-  const r = rows[0];
-  return {
-    totalUsers: parseInt(r.total_users, 10),
-    totalDownloads: parseInt(r.total_downloads || 0, 10),
-    free: parseInt(r.free || 0, 10),
-    plus: parseInt(r.plus || 0, 10),
-    pro: parseInt(r.pro || 0, 10),
-    unlimited: parseInt(r.unlimited || 0, 10)
-  };
-}
+    const r = rows[0];
+    return {
+      totalUsers: parseInt(r.total_users, 10),
+      totalDownloads: parseInt(r.total_downloads || 0, 10),
+      free: parseInt(r.free || 0, 10),
+      plus: parseInt(r.plus || 0, 10),
+      pro: parseInt(r.pro || 0, 10),
+      unlimited: parseInt(r.unlimited || 0, 10)
+    };
 }
