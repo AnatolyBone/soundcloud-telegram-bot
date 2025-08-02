@@ -54,8 +54,16 @@ async function processUrl(url) {
       return 'skipped';
     }
 
-    const trackName = (info.title || 'track').slice(0, 100);
-    const uploader = info.uploader || 'SoundCloud';
+    // --- Корректная обработка метаданных ---
+    let rawTitle = (info.title || '').trim();
+    let rawUploader = (info.uploader || '').trim();
+
+    if (!rawTitle || rawTitle.toLowerCase().includes('unknown')) rawTitle = 'Без названия';
+    if (!rawUploader || rawUploader.toLowerCase().includes('unknown')) rawUploader = 'Без исполнителя';
+
+    const titleHasUploader = rawTitle.toLowerCase().includes(rawUploader.toLowerCase());
+    const trackName = rawTitle.slice(0, 100);
+    const uploader = titleHasUploader ? '' : rawUploader.slice(0, 100);
 
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
     tempFilePath = path.join(cacheDir, `${info.id || Date.now()}.mp3`);
@@ -75,7 +83,7 @@ async function processUrl(url) {
       { source: fs.createReadStream(tempFilePath) },
       {
         title: trackName,
-        performer: uploader
+        ...(uploader ? { performer: uploader } : {})
       }
     );
 
