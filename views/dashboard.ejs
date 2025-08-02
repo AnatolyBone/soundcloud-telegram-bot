@@ -1,7 +1,7 @@
 <%# views/dashboard.ejs %>
 <% title = 'Админка'; page = 'dashboard'; %>
 
-<!-- ... (весь HTML до блока <script> остается без изменений) ... -->
+<!-- ... (весь HTML до блока <script> остается почти без изменений) ... -->
 <section class="content-header">
   <div class="container-fluid d-flex justify-content-between align-items-center mb-3">
     <h1>📊 Админка</h1>
@@ -9,9 +9,9 @@
   </div>
 </section>
 
-<form id="filtersForm" class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+<form id="filtersForm" class="mb-3 d-flex gap-2 align-items-center flex-wrap" method="GET" action="/dashboard">
   <label for="periodSelectMain" class="form-label mb-0">Период:</label>
-  <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;">
+  <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
     <option value="7" <%= period === '7' ? 'selected' : '' %>>Последние 7 дней</option>
     <option value="30" <%= period === '30' ? 'selected' : '' %>>Последние 30 дней</option>
     <% lastMonths.forEach(m => { %>
@@ -21,7 +21,7 @@
   </select>
   
   <div class="form-check ms-3">
-    <input class="form-check-input" type="checkbox" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %>>
+    <input class="form-check-input" type="checkbox" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %> onchange="this.form.submit()">
     <label class="form-check-label" for="showInactive">Показать неактивных</label>
   </div>
 
@@ -31,30 +31,18 @@
 <section class="content">
   <div class="container-fluid">
     <ul class="nav nav-tabs" id="dashboardTabs" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#statsTab" type="button" role="tab">Статистика</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersTab" type="button" role="tab">Пользователи</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="broadcast-tab" data-bs-toggle="tab" data-bs-target="#broadcastTab" type="button" role="tab">Рассылка</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab">Аналитика</button>
-      </li>
+      <li class="nav-item" role="presentation"><button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#statsTab" type="button" role="tab">Статистика</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersTab" type="button" role="tab">Пользователи</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="broadcast-tab" data-bs-toggle="tab" data-bs-target="#broadcastTab" type="button" role="tab">Рассылка</button></li>
+      <li class="nav-item" role="presentation"><button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab">Аналитика</button></li>
     </ul>
 
     <div class="tab-content mt-3" id="dashboardTabsContent">
       <div class="tab-pane fade show active" id="statsTab" role="tabpanel">
         <div class="row mb-3">
-            <div class="col-md-6"><div class="info-box bg-primary shadow-sm"><span class="info-box-icon"><i class="fas fa-cogs"></i></span><div class="info-box-content"><span class="info-box-text">Задач в работе</span><span class="info-box-number" id="queueActive">...</span></div></div></div>
-            <div class="col-md-6"><div class="info-box bg-secondary shadow-sm"><span class="info-box-icon"><i class="fas fa-hourglass-half"></i></span><div class="info-box-content"><span class="info-box-text">Задач в очереди</span><span class="info-box-number" id="queueSize">...</span></div></div></div>
-        </div>
-        <div class="row mb-3">
-          <div class="col-md-4"><div class="info-box bg-info"><span class="info-box-icon"><i class="fas fa-users"></i></span><div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number" data-stat="totalUsers"><%= stats.totalUsers %></span></div></div></div>
-          <div class="col-md-4"><div class="info-box bg-success"><span class="info-box-icon"><i class="fas fa-download"></i></span><div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number" data-stat="totalDownloads"><%= stats.totalDownloads %></span></div></div></div>
-          <div class="col-md-4"><div class="info-box bg-warning"><span class="info-box-icon"><i class="fas fa-star"></i></span><div class="info-box-content"><span class="info-box-text">Тарифы (F/P/P/U)</span><span class="info-box-number" data-stat="tariffs"><%= stats.free %>/<%= stats.plus %>/<%= stats.pro %>/<%= stats.unlimited %></span></div></div></div>
+          <div class="col-md-4"><div class="info-box bg-info"><span class="info-box-icon"><i class="fas fa-users"></i></span><div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number"><%= stats.totalUsers %></span></div></div></div>
+          <div class="col-md-4"><div class="info-box bg-success"><span class="info-box-icon"><i class="fas fa-download"></i></span><div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number"><%= stats.totalDownloads %></span></div></div></div>
+          <div class="col-md-4"><div class="info-box bg-warning"><span class="info-box-icon"><i class="fas fa-star"></i></span><div class="info-box-content"><span class="info-box-text">Тарифы (F/P/P/U)</span><span class="info-box-number"><%= stats.free %>/<%= stats.plus %>/<%= stats.pro %>/<%= stats.unlimited %></span></div></div></div>
         </div>
         <div class="card card-primary card-outline"><div class="card-header"><h3 class="card-title">Регистрации, Загрузки, Активные</h3></div><div class="card-body"><canvas id="combinedChart" style="height: 250px;"></canvas></div></div>
         <div class="row mt-3">
@@ -63,7 +51,39 @@
         </div>
       </div>
       <div class="tab-pane fade" id="usersTab" role="tabpanel">
-        <div class="table-responsive"><table id="usersTable" class="table table-bordered table-hover w-100 text-nowrap"><thead><tr><th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th><th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th><th>1+1</th><th>Сброс</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-responsive"><table id="usersTable" class="table table-bordered table-hover w-100 text-nowrap">
+          <thead><tr><th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th><th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th><th>1+1</th><th>Сброс</th></tr></thead>
+          <tbody>
+            <% users.forEach(user => { %>
+              <tr>
+                <td><a href="/user/<%= user.id %>"><%= user.id %></a></td>
+                <td><%= user.username ? '@' + user.username : '' %></td>
+                <td><%= user.first_name || '' %></td>
+                <td><%= user.total_downloads || 0 %></td>
+                <td><%= user.premium_limit %></td>
+                <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
+                <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
+                <td><%= user.active ? (user.last_active && new Date(user.last_active) > Date.now() - 86400000 ? '🟢' : '🟡') : '🔴' %></td>
+                <td><%= user.referral_source || '—' %></td>
+                <td>
+                    <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
+                        <input type="hidden" name="userId" value="<%= user.id %>">
+                        <select name="limit" class="form-select form-select-sm" style="min-width: 80px;" onchange="this.form.submit()">
+                            <option value="5" <%= user.premium_limit <= 5 ? 'selected' : '' %>>Free</option>
+                            <option value="30" <%= user.premium_limit === 30 ? 'selected' : '' %>>Plus</option>
+                            <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                            <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
+                        </select>
+                        <input type="number" name="days" value="30" class="form-control form-control-sm" style="width: 60px;">
+                        <button type="submit" class="btn btn-primary btn-sm">✔️</button>
+                    </form>
+                </td>
+                <td><%= user.promo_1plus1_used ? '✅' : '❌' %></td>
+                <td><form action="/admin/reset-promo/<%= user.id %>" method="POST" onsubmit="return confirm('Сбросить?')"><button class="btn btn-sm btn-warning">🔄</button></form></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table></div>
       </div>
       <div class="tab-pane fade" id="broadcastTab" role="tabpanel"><%- include('partials/_broadcast-form') %></div>
       <div class="tab-pane fade" id="analyticsTab" role="tabpanel">
@@ -82,89 +102,32 @@
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
-    let charts = {};
-    const usersTable = new DataTable('#usersTable', {
+    // Инициализируем DataTable
+    new DataTable('#usersTable', {
         paging: true, searching: true, ordering: true, order: [[5, 'desc']], scrollX: true,
         language: { url: 'https://cdn.datatables.net/plug-ins/1.10.25/i18n/Russian.json' }
     });
 
-    function initializeOrUpdateChart(id, type, data, options) {
+    // Функция для отрисовки графика
+    function initializeChart(id, type, data, options) {
         const ctx = document.getElementById(id)?.getContext('2d');
-        if (!ctx) return;
-        if (charts[id]) charts[id].destroy();
-        charts[id] = new Chart(ctx, { type, data, options });
+        if (ctx) new Chart(ctx, { type, data, options });
     }
     
-    // <<< ИСПРАВЛЕНИЕ ЗДЕСЬ >>>
-    function renderUserRow(user) {
-        const registrationDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : '-';
-        const lastActiveDate = user.last_active ? new Date(user.last_active).toLocaleDateString() : '-';
-        const isNew = user.created_at && (new Date(user.created_at).getTime() > Date.now() - 86400000);
-        let statusIcon = user.active ? (user.last_active && new Date(user.last_active) > Date.now() - 86400000 ? '🟢' : '🟡') : '🔴';
-        
-        // HTML-код формы обернут в обратные кавычки (`), чтобы избежать синтаксических ошибок
-        const tariffForm = `
-            <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
-                <input type="hidden" name="userId" value="${user.id}">
-                <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
-                    <option value="5" ${user.premium_limit <= 5 ? 'selected' : ''}>Free</option>
-                    <option value="30" ${user.premium_limit === 30 ? 'selected' : ''}>Plus</option>
-                    <option value="100" ${user.premium_limit === 100 ? 'selected' : ''}>Pro</option>
-                    <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
-                </select>
-                <input type="number" name="days" value="30" class="form-control form-control-sm" style="width: 60px;">
-                <button type="submit" class="btn btn-primary btn-sm">✔️</button>
-            </form>`;
-        
-        return [
-            `<a href="/user/${user.id}">${user.id}</a>`,
-            user.username ? `@${user.username}` : '',
-            `${user.first_name || ''} ${isNew ? '<span class="badge bg-info text-dark">🆕</span>' : ''}`,
-            user.total_downloads || 0,
-            user.premium_limit,
-            registrationDate,
-            lastActiveDate,
-            statusIcon,
-            user.referral_source ? String(user.referral_source).replace(/</g, "&lt;") : '—',
-            tariffForm,
-            user.promo_1plus1_used ? '✅' : '❌',
-            `<form action="/admin/reset-promo/${user.id}" method="POST" onsubmit="return confirm('Сбросить?')"><button class="btn btn-sm btn-warning">🔄</button></form>`
-        ];
-    }
-    // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
-
-    const filtersForm = document.getElementById('filtersForm');
-
-    async function updateDashboardData() { /* ... без изменений ... */ }
-    async function updateUsersTable() { /* ... без изменений ... */ }
-
-    // Первоначальная загрузка и обработчики
-    updateDashboardData();
-    updateUsersTable();
-    filtersForm.addEventListener('change', () => {
-        updateDashboardData();
-        updateUsersTable();
-    });
-
-    // Мониторинг очереди
-    const queueActiveEl = document.getElementById('queueActive');
-    const queueSizeEl = document.getElementById('queueSize');
-    async function updateQueueStatus() { /* ... без изменений ... */ }
-    updateQueueStatus();
-    setInterval(updateQueueStatus, 5000);
+    // Отрисовка графиков с данными, переданными с сервера
+    initializeChart('combinedChart', 'line', <%- JSON.stringify(chartDataCombined) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
+    initializeChart('hourActivityChart', 'bar', <%- JSON.stringify(chartDataHourActivity) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
+    initializeChart('weekdayActivityChart', 'bar', <%- JSON.stringify(chartDataWeekdayActivity) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
     
-    // Инициализация воронки
-    const funnelCtx = document.getElementById('funnelChart')?.getContext('2d');
-    if (funnelCtx) {
-        const funnelData = <%- JSON.stringify(funnelData) %>;
-        initializeOrUpdateChart('funnelChart', 'bar', {
-            labels: ['Регистрации', 'Первая загрузка', 'Подписка'],
-            datasets: [{
-                label: 'Воронка',
-                data: [funnelData.registrationCount, funnelData.firstDownloadCount, funnelData.subscriptionCount],
-                backgroundColor: ['#36A2EB', '#FFCE56', '#FF6384']
-            }]
-        }, { indexAxis: 'y', responsive: true });
-    }
+    // Отрисовка воронки
+    const funnelData = <%- JSON.stringify(funnelData) %>;
+    initializeChart('funnelChart', 'bar', {
+        labels: ['Регистрации', 'Первая загрузка', 'Подписка'],
+        datasets: [{
+            label: 'Воронка',
+            data: [funnelData.registrationCount, funnelData.firstDownloadCount, funnelData.subscriptionCount],
+            backgroundColor: ['#36A2EB', '#FFCE56', '#FF6384']
+        }]
+    }, { indexAxis: 'y', responsive: true });
   });
 </script>
