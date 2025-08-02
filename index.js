@@ -362,7 +362,6 @@ function setupExpress() {
         }
     });
 
-    // <<< НАЧАЛО ИЗМЕНЕНИЙ В API >>>
     // API роуты для дашборда
     app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
         try {
@@ -415,25 +414,41 @@ function setupExpress() {
         res.json({ active: downloadQueue.active, size: downloadQueue.size });
     });
 
-    // <<< ИСПРАВЛЕНО: Упрощаем /dashboard, он отдает только каркас >>>
+    // <<< ИСПРАВЛЕННЫЙ /DASHBOARD >>>
+    // Он просто отдает каркас, а данные грузятся через API
     app.get('/dashboard', requireAuth, async (req, res, next) => {
         try {
             const { period = '30', showInactive = 'false' } = req.query;
-            const lastMonths = await getLastMonths(6);
+            
+            // Запрашиваем только самые необходимые данные, которые не меняются динамически
+            const [lastMonths, funnelCounts, expiringCount, expiringSoon, referralStats] = await Promise.all([
+                getLastMonths(6),
+                getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
+                getExpiringUsersCount(),
+                getExpiringUsersPaginated(10, 0), // Получаем первую страницу
+                getReferralSourcesStats()
+            ]);
             
             res.render('dashboard', {
                 title: 'Панель управления',
                 page: 'dashboard',
+                user: req.user,
                 period,
+                showInactive: showInactive === 'true',
                 lastMonths,
-                showInactive: showInactive === 'true'
-                // Больше ничего не передаем, все загрузится через API
+                funnelData: funnelCounts,
+                expiringCount,
+                expiringSoon,
+                referralStats,
+                // Пустые заглушки для того, что будет загружено через JS
+                stats: { totalUsers: '...', totalDownloads: '...', free: '...', plus: '...', pro: '...', unlimited: '...' },
+                expiringLimit: 10,
+                expiringOffset: 0
             });
         } catch (e) {
             next(e);
         }
     });
-    // <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
     // ... (остальные маршруты: /user/:id, /logout, и т.д. без изменений) ...
     app.get('/user/:id', requireAuth, async (req, res, next) => {
@@ -568,7 +583,6 @@ function setupExpress() {
         });
     });
 }
-
 // ... (setupTelegramBot и остальное без изменений) ...
 
 function setupTelegramBot() {
