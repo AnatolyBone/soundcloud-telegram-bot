@@ -166,16 +166,31 @@ async function getUrlsToIndex() {
     }
 }
 
+// index.js
+
 async function processUrlForIndexing(url) {
     let tempFilePath = null;
     try {
         const isCached = await findCachedTrack(url);
-        if (isCached) return;
+        if (isCached) {
+            console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
+            return; // Возвращаемся, если уже закэшировано
+        }
+
+        console.log(`[Indexer] Индексирую: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true });
-        if (!info || Array.isArray(info.entries)) return;
+
+        // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Улучшенная проверка на плейлист >>>
+        if (!info || info._type === 'playlist') {
+            console.log(`[Indexer] Пропуск: ${url} является плейлистом.`);
+            return; // Явно пропускаем плейлисты
+        }
+        // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
+
         const trackName = (info.title || 'track').slice(0, 100);
         const uploader = info.uploader || 'SoundCloud';
         tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
+        
         await ytdl(url, {
             output: tempFilePath,
             extractAudio: true,
@@ -183,12 +198,15 @@ async function processUrlForIndexing(url) {
             embedMetadata: true,
             postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
         });
+
         if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
+        
         const message = await bot.telegram.sendAudio(
             STORAGE_CHANNEL_ID,
             { source: fs.createReadStream(tempFilePath) },
             { title: trackName, performer: uploader }
         );
+
         if (message?.audio?.file_id) {
             await cacheTrack(url, message.audio.file_id, trackName);
             console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
@@ -201,7 +219,6 @@ async function processUrlForIndexing(url) {
         }
     }
 }
-
 async function startIndexer() {
     console.log('🚀 Запуск фонового индексатора...');
     await new Promise(resolve => setTimeout(resolve, 60 * 1000));
