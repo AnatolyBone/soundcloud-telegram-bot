@@ -610,12 +610,24 @@ function setupTelegramBot() {
         return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
     };
 
+    const isSubscribed = async (userId, channelUsername) => {
+        try {
+            const chatMember = await bot.telegram.getChatMember(channelUsername, userId);
+            return ['creator', 'administrator', 'member'].includes(chatMember.status);
+        } catch (e) {
+            console.error(`Ошибка проверки подписки для user ${userId} на канал ${channelUsername}:`, e.message);
+            return false;
+        }
+    };
+
     function formatMenuMessage(user, ctx) {
+        console.log('[DEBUG] user in formatMenuMessage:', user);
         const tariffLabel = getTariffName(user.premium_limit);
         const downloadsToday = user.downloads_today || 0;
         const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
         const daysLeft = getDaysLeft(user.premium_until);
-        return `
+        
+        let message = `
 👋 Привет, ${user.first_name}!
 
 📥 Бот качает треки и плейлисты с SoundCloud в MP3. Просто пришли ссылку.
@@ -630,7 +642,53 @@ function setupTelegramBot() {
 🔗 Твоя реферальная ссылка (пока в разработке):
 ${refLink}
         `.trim();
+        
+        // Добавляем блок с бонусом, только если пользователь его еще не получал
+        if (!user.subscribed_bonus_used) {
+            message += `\n\n🎁 **Бонус!**\nПодпишись на наш канал @SCM_BLOG и получи **7 дней тарифа Plus** бесплатно!`;
+        }
+        
+        return message;
     }
+
+    // Обработчик нажатия на кнопку "Я подписался"
+    bot.action('check_subscription', async (ctx) => {
+        try {
+            // Сначала отвечаем на callback, чтобы кнопка перестала "грузиться"
+            await ctx.answerCbQuery();
+            
+            const user = ctx.state.user;
+            if (user.subscribed_bonus_used) {
+                return await ctx.reply('Вы уже получали этот бонус. Спасибо за вашу поддержку!');
+            }
+
+            const channel = '@SCM_BLOG'; // Ваш канал
+            if (await isSubscribed(ctx.from.id, channel)) {
+                // Начисляем бонус
+                await setPremium(ctx.from.id, 30, 7); // 30 треков/день, на 7 дней
+                await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+                
+                await ctx.editMessageText(
+                    '🎉 Поздравляем! Ваша подписка на канал подтверждена.\n\n' +
+                    'Вам начислено **7 дней тарифа Plus** (30 треков/день).\n\n' +
+                    'Спасибо, что остаетесь с нами!',
+                    { parse_mode: 'Markdown' }
+                );
+            } else {
+                await ctx.reply(`Кажется, вы еще не подписаны на канал ${channel}. Пожалуйста, подпишитесь и нажмите кнопку еще раз.`, {
+                    // Добавляем кнопку "Перейти в канал" для удобства
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '➡️ Перейти в канал', url: 'https://t.me/SCM_BLOG' }]
+                        ]
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Ошибка в обработчике check_subscription:', e);
+            await handleSendMessageError(e, ctx.from.id);
+        }
+    });
 
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
