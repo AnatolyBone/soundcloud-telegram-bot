@@ -702,22 +702,47 @@ ${refLink}
     });
 
     bot.start(async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-            await ctx.reply(formatMenuMessage(user, ctx), kb());
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
+        const messageText = formatMenuMessage(user, ctx);
+        
+        // Собираем клавиатуру
+        const keyboard = [];
+        if (!user.subscribed_bonus_used) {
+            keyboard.push([{ text: '✅ Я подписался, получить бонус!', callback_data: 'check_subscription' }]);
         }
-    });
+        
+        await ctx.reply(messageText, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: keyboard
+            }
+        });
+    } catch (e) {
+        await handleSendMessageError(e, ctx.from.id);
+    }
+});
 
     bot.hears(texts.menu, async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            await ctx.reply(formatMenuMessage(user, ctx), kb());
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id);
+        const messageText = formatMenuMessage(user, ctx);
+        
+        const keyboard = [];
+        if (!user.subscribed_bonus_used) {
+            keyboard.push([{ text: '✅ Я подписался, получить бонус!', callback_data: 'check_subscription' }]);
         }
-    });
+        
+        await ctx.reply(messageText, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: keyboard
+            }
+        });
+    } catch (e) {
+        await handleSendMessageError(e, ctx.from.id);
+    }
+});
 
     bot.hears(texts.mytracks, async (ctx) => {
     try {
