@@ -105,12 +105,13 @@
         const tariffForm = `
             <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
                 <input type="hidden" name="userId" value="${user.id}">
-                <select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
-                    <option value="5" ${user.premium_limit <= 5 ? 'selected' : ''}>Free</option>
-                    <option value="25" ${user.premium_limit === 25 ? 'selected' : ''}>Plus</option>
-                    <option value="50" ${user.premium_limit === 50 ? 'selected' : ''}>Pro</option>
-                    <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
-                </select>
+                // views/dashboard.ejs
+<select name="limit" class="form-select form-select-sm" style="min-width: 80px;">
+    <option value="5" ${user.premium_limit <= 5 ? 'selected' : ''}>Free</option>
+    <option value="30" ${user.premium_limit === 30 ? 'selected' : ''}>Plus</option>
+    <option value="100" ${user.premium_limit === 100 ? 'selected' : ''}>Pro</option>
+    <option value="1000" ${user.premium_limit >= 1000 ? 'selected' : ''}>Unlim</option>
+</select>
                 <input type="number" name="days" value="30" class="form-control form-control-sm" style="width: 60px;">
                 <button type="submit" class="btn btn-primary btn-sm">✔️</button>
             </form>`;
