@@ -149,7 +149,6 @@ function getDaysLeft(premiumUntil) {
     return Math.max(Math.ceil(diff / 86400000), 0);
 }
 
-// ... (код "паука" остается без изменений) ...
 async function getUrlsToIndex() {
     try {
         const { rows } = await pool.query(`
@@ -224,7 +223,6 @@ async function startIndexer() {
         }
     }
 }
-// ... (startApp и остальная часть без изменений до setupExpress) ...
 
 async function startApp() {
     try {
@@ -311,7 +309,7 @@ function setupExpress() {
     }
 
     function computeActivityByWeekday(activityByDayHour) {
-        const weekdays = Array(7).fill(0); // 0=Воскресенье
+        const weekdays = Array(7).fill(0);
         for (const dayStr in activityByDayHour) {
             const dayTotal = Object.values(activityByDayHour[dayStr] || {}).reduce((a, b) => a + b, 0);
             weekdays[new Date(dayStr).getDay()] += dayTotal;
@@ -373,57 +371,12 @@ function setupExpress() {
         }
     });
 
-    // API роуты для дашборда
-    app.get('/api/dashboard-data', requireAuth, async (req, res, next) => {
-        try {
-            const { period = '30' } = req.query;
-            const [
-                stats, downloadsByDateRaw, registrationsByDateRaw, activeByDateRaw, activityByDayHour
-            ] = await Promise.all([
-                getDashboardStats(), getDownloadsByDate(), getRegistrationsByDate(), 
-                getActiveUsersByDate(), getUserActivityByDayHour()
-            ]);
-            const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-            const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
-            const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
-    
-            res.json({
-                stats,
-                chartDataCombined: prepareChartData(filteredRegistrations, filteredDownloads, filteredActive),
-                chartDataHourActivity: {
-                    labels: [...Array(24).keys()].map(h => `${h}:00`),
-                    datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
-                },
-                chartDataWeekdayActivity: {
-                    labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
-                    datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
-                },
-            });
-        } catch (e) {
-            next(e);
-        }
-    });
-
-    app.get('/api/users', requireAuth, async (req, res, next) => {
-        try {
-            const { showInactive = 'false' } = req.query;
-            const users = await getAllUsers(showInactive === 'true');
-            res.json(users);
-        } catch (e) {
-            next(e);
-        }
-    });
-    
-    app.get('/api/queue-status', requireAuth, (req, res) => {
-        res.json({ active: downloadQueue.active, size: downloadQueue.size });
-    });
-
-    // Маршрут для рендеринга страницы дашборда
+    // <<< ФИНАЛЬНАЯ ВЕРСИЯ МАРШРУТА /dashboard >>>
     app.get('/dashboard', requireAuth, async (req, res, next) => {
         try {
             const { period = '30', showInactive = 'false', expiringLimit = '10', expiringOffset = '0' } = req.query;
 
-            // --- ШАГ 1: Собираем ВСЕ данные для страницы параллельно ---
+            // ШАГ 1: Собираем ВСЕ данные для страницы параллельно
             const [
                 stats,
                 downloadsByDateRaw, 
@@ -435,7 +388,7 @@ function setupExpress() {
                 referralStats,
                 funnelCounts,
                 lastMonths,
-                users // Загружаем список пользователей сразу
+                users
             ] = await Promise.all([
                 getDashboardStats(),
                 getDownloadsByDate(), 
@@ -450,7 +403,7 @@ function setupExpress() {
                 getAllUsers(showInactive === 'true')
             ]);
 
-            // --- ШАГ 2: Готовим данные для графиков ---
+            // ШАГ 2: Готовим данные для графиков
             const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
             const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
             const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
@@ -465,29 +418,22 @@ function setupExpress() {
                 datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
             };
 
-            // --- ШАГ 3: Отправляем ВСЕ в шаблон ---
+            // ШАГ 3: Отправляем ВСЕ в шаблон
             res.render('dashboard', {
                 title: 'Панель управления',
                 page: 'dashboard',
                 user: req.user,
                 period,
                 showInactive: showInactive === 'true',
-                
-                // Данные для карточек
                 stats,
-                
-                // Данные для таблиц и блоков
                 users,
                 expiringSoon,
                 expiringCount,
                 referralStats,
                 funnelData: funnelCounts,
-                // Данные для фильтров
                 lastMonths,
                 expiringLimit: parseInt(expiringLimit),
                 expiringOffset: parseInt(expiringOffset),
-                
-                // Готовые данные для графиков
                 chartDataCombined,
                 chartDataHourActivity,
                 chartDataWeekdayActivity
@@ -582,33 +528,32 @@ function setupExpress() {
         }
     });
     
-    // <<< ИСПРАВЛЕННЫЙ БЛОК /set-tariff >>>
     app.post('/set-tariff', requireAuth, async (req, res, next) => {
-    try {
-        const { userId, limit, days } = req.body;
-        const parsedLimit = parseInt(limit);
-        const parsedDays = parseInt(days) || 30;
-        
-        await setPremium(userId, parsedLimit, parsedDays);
-        
-        const tariffName = getTariffName(parsedLimit);
-        const message = `🎉 Ваш тариф был изменен!\n\n` +
-            `✨ Новый тариф: **${tariffName}**\n` +
-            `⏳ Срок действия: **${parsedDays} дней**\n\n` +
-            `Спасибо, что пользуетесь нашим ботом!`;
-        
         try {
-            await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
-            console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
-        } catch (telegramError) {
-            console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
+            const { userId, limit, days } = req.body;
+            const parsedLimit = parseInt(limit);
+            const parsedDays = parseInt(days) || 30;
+            
+            await setPremium(userId, parsedLimit, parsedDays);
+            
+            const tariffName = getTariffName(parsedLimit);
+            const message = `🎉 Ваш тариф был изменен!\n\n` +
+                `✨ Новый тариф: **${tariffName}**\n` +
+                `⏳ Срок действия: **${parsedDays} дней**\n\n` +
+                `Спасибо, что пользуетесь нашим ботом!`;
+            
+            try {
+                await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
+                console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
+            } catch (telegramError) {
+                console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
+            }
+            
+            res.redirect(req.get('referer') || '/dashboard');
+        } catch (e) {
+            next(e);
         }
-        
-        res.redirect(req.get('referer') || '/dashboard');
-    } catch (e) {
-        next(e);
-    }
-});
+    });
 
     // Глобальный обработчик ошибок
     app.use((err, req, res, next) => {
@@ -622,8 +567,8 @@ function setupExpress() {
         // Указываем правильное имя файла 'errors.ejs'
         res.render('errors', {
             title: `Ошибка ${statusCode}`,
-            message: message,
-            statusCode: statusCode,
+            message,
+            statusCode,
             error: err,
             page: 'error',
             layout: 'layout' 
