@@ -343,5 +343,50 @@ export async function getDashboardStats() {
     pro: parseInt(r.pro || 0, 10),
     unlimited: parseInt(r.unlimited || 0, 10)
   };
+  
 }
+// db.js
+
+// ... ваш существующий код до самого конца ...
+
+// <<< НАЧАЛО НОВОГО КОДА >>>
+/**
+ * Находит пользователей для уведомления об истечении подписки.
+ * @param {number} days - За сколько дней до истечения искать.
+ * @returns {Promise<Array>} - Массив пользователей.
+ */
+export async function findUsersToNotify(days) {
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() + days);
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, first_name, premium_until')
+    .lte('premium_until', targetDate.toISOString())
+    .gt('premium_until', new Date().toISOString())
+    .is('expiration_notified_at', null)
+    .eq('active', true);
+
+  if (error) {
+    console.error('❌ Ошибка при поиске пользователей для уведомления:', error);
+    return [];
+  }
+  return data;
+}
+
+/**
+ * Помечает, что пользователю отправлено уведомление.
+ * @param {string|number} userId - ID пользователя.
+ */
+export async function markAsNotified(userId) {
+  const { error } = await supabase
+    .from('users')
+    .update({ expiration_notified_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  if (error) {
+    console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
+  }
+}
+// <<< КОНЕЦ НОВОГО КОДА >>>
 // <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
