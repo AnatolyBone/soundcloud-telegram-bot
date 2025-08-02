@@ -318,22 +318,20 @@ export async function exportUsersToCSV() {
 }
 
 // <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
+// db.js
 export async function getDashboardStats() {
   const { rows } = await query(`
     SELECT 
       COUNT(*) AS total_users,
       SUM(total_downloads) AS total_downloads,
-      -- Free: все, у кого лимит 5 или 10 (старый), или NULL
       COUNT(*) FILTER (WHERE premium_limit <= 10 OR premium_limit IS NULL) AS free,
-      -- Plus: строго 25
       COUNT(*) FILTER (WHERE premium_limit = 25) AS plus,
-      -- Pro: строго 50
       COUNT(*) FILTER (WHERE premium_limit = 50) AS pro,
-      -- Unlimited: 1000 и больше
       COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
     FROM users
     WHERE active = TRUE
   `);
+
   const r = rows[0];
   return {
     totalUsers: parseInt(r.total_users, 10),
