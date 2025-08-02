@@ -323,4 +323,15 @@ export async function getLastMonths(n = 6) {
 export async function exportUsersToCSV() {
   const users = await getAllUsers(true);
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
+  export async function getDashboardStats() {
+  const { rows } = await query(`
+    SELECT COUNT(*) AS total_users, SUM(total_downloads) AS total_downloads
+    FROM users
+    WHERE active = TRUE
+  `);
+  return {
+    totalUsers: parseInt(rows[0].total_users, 10),
+    totalDownloads: parseInt(rows[0].total_downloads || 0, 10)
+  };
+}
 }
