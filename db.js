@@ -325,13 +325,23 @@ export async function exportUsersToCSV() {
   return json2csvAsync(users, { keys: ['id', 'username', 'first_name', 'total_downloads', 'premium_limit', 'premium_until', 'created_at', 'last_active', 'active', 'referral_source', 'referrer_id'] });
   export async function getDashboardStats() {
   const { rows } = await query(`
-    SELECT COUNT(*) AS total_users, SUM(total_downloads) AS total_downloads
+    SELECT 
+      COUNT(*) FILTER (WHERE active = TRUE) AS total_users,
+      SUM(total_downloads) AS total_downloads,
+      COUNT(*) FILTER (WHERE premium_limit = 5) AS free,
+      COUNT(*) FILTER (WHERE premium_limit = 25) AS plus,
+      COUNT(*) FILTER (WHERE premium_limit = 50) AS pro,
+      COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
     FROM users
-    WHERE active = TRUE
   `);
+  const r = rows[0];
   return {
-    totalUsers: parseInt(rows[0].total_users, 10),
-    totalDownloads: parseInt(rows[0].total_downloads || 0, 10)
+    totalUsers: parseInt(r.total_users, 10),
+    totalDownloads: parseInt(r.total_downloads || 0, 10),
+    free: parseInt(r.free || 0, 10),
+    plus: parseInt(r.plus || 0, 10),
+    pro: parseInt(r.pro || 0, 10),
+    unlimited: parseInt(r.unlimited || 0, 10)
   };
 }
 }
