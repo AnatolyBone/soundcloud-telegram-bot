@@ -22,7 +22,7 @@ const CONFIG = {
     TELEGRAM_FILE_LIMIT_MB: 49,
     MAX_PLAYLIST_TRACKS_FREE: 10,
     TRACK_TITLE_LIMIT: 100,
-    MAX_CONCURRENT_DOWNLOADS: 3,
+    MAX_CONCURRENT_DOWNLOADS: 1, // Рекомендуемое значение для стабильности
     METADATA_FETCH_TIMEOUT_MS: 45000,
     YTDL_RETRIES: 3,
     SOCKET_TIMEOUT: 120,
@@ -263,27 +263,52 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
 
 export async function enqueue(ctx, userId, url) {
     const processingMessage = await safeSendMessage(userId, '🔍 Анализирую ссылку...');
-
+    
     try {
         await resetDailyLimitIfNeeded(userId);
         const user = await getUser(userId);
-
+        
         if ((user.premium_limit - user.downloads_today) <= 0) {
-            return safeSendMessage(userId, texts.limitReached);
+            let messageText = texts.limitReached;
+            const extra = { parse_mode: 'Markdown' };
+            
+            if (!user.subscribed_bonus_used) {
+                messageText += `\n\n🎁 **Бонус!**\nПодпишись на наш канал @SCM_BLOG и получи **7 дней тарифа Plus** бесплатно!`;
+                extra.reply_markup = {
+                    inline_keyboard: [
+                        [{ text: '✅ Я подписался, забрать бонус!', callback_data: 'check_subscription' }]
+                    ]
+                };
+            }
+            
+            // Удаляем сообщение "Анализирую ссылку..." перед отправкой нового
+            if (processingMessage) {
+                await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
+            }
+            
+            return await safeSendMessage(userId, messageText, extra);
         }
-
+        
+        // Если лимит не достигнут, продолжаем работу
         const { tracks, isPlaylist } = await getTracksInfo(url);
         const limitedTracks = applyUserLimits(tracks, user, isPlaylist);
         const tasksToDownload = await sendCachedTracks(limitedTracks, userId);
         await queueRemainingTracks(tasksToDownload, userId, isPlaylist, url);
-
+        
+        // Если все успешно, удаляем "Анализирую ссылку..."
+        if (processingMessage) {
+            await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
+        }
+        
     } catch (err) {
         console.error(`❌ Глобальная ошибка в enqueue для userId ${userId}:`, err.message);
         const userFriendlyError = getYtdlErrorMessage(err);
         await safeSendMessage(userId, `❌ Ошибка: ${userFriendlyError}`);
-    } finally {
+        
+        // Если произошла ошибка, тоже удаляем "Анализирую ссылку..."
         if (processingMessage) {
             await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
         }
     }
+    // Блок finally больше не нужен
 }
