@@ -11,7 +11,7 @@ import { cacheTrack, findCachedTrack, pool } from './db.js';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID;
-const PARALLEL_LIMIT = 3; // Макс. одновременных обработок (как в вашей версии)
+const PARALLEL_LIMIT = 4; // Увеличено для ускорения, но не слишком (rate limits)
 const RETRY_COUNT = 3; // Кол-во ретраев
 const CYCLE_PAUSE_MS = 60 * 60 * 1000; // 1 час
 
@@ -26,14 +26,14 @@ if (!BOT_TOKEN || !STORAGE_CHANNEL_ID) {
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Утилита для таймаута промисов (из вашей версии)
+// Утилита для таймаута промисов
 const withTimeout = (promise, ms, errorMsg) =>
   Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms)),
   ]);
 
-// Проверка прав бота в канале (для надежной пересылки)
+// Проверка прав бота в канале
 async function checkBotPermissions() {
   try {
     await bot.telegram.getChat(STORAGE_CHANNEL_ID);
@@ -45,7 +45,7 @@ async function checkBotPermissions() {
   }
 }
 
-// Получение списка URL (с обработкой ошибок, как в вашей)
+// Получение списка URL
 async function getUrlsToIndex() {
   console.log('[Indexer] Получаю список популярных треков из логов...');
   try {
@@ -67,9 +67,9 @@ async function getUrlsToIndex() {
 
 // Улучшенный парсинг метаданных
 function parseMetadata(info) {
-  let rawTitle = (info.title || '').trim().replace(/```math
+  let rawTitle = (info.title || info.track?.title || '').trim().replace(/```math
 Official Video```/gi, '').replace(/KATEX_INLINE_OPENAudioKATEX_INLINE_CLOSE/gi, '').slice(0, 100) || 'Без названия';
-  let rawUploader = (info.uploader || info.channel || '').trim().slice(0, 100) || 'Без исполнителя';
+  let rawUploader = (info.uploader || info.channel || info.track?.user?.username || '').trim().slice(0, 100) || 'Без исполнителя';
 
   const titleHasUploader = rawTitle.toLowerCase().includes(rawUploader.toLowerCase());
   const trackName = rawTitle;
@@ -78,7 +78,7 @@ Official Video```/gi, '').replace(/KATEX_INLINE_OPENAudioKATEX_INLINE_CLOSE/gi, 
   return { trackName, uploader };
 }
 
-// Обработка одного URL с ретраями, таймаутами и улучшениями
+// Обработка одного URL
 async function processUrl(url) {
   let tempFilePath = null;
 
@@ -97,17 +97,25 @@ async function processUrl(url) {
         `Таймаут получения информации для ${url}`
       );
 
-      if (!info || info._type === 'playlist' || Array.isArray(info.entries)) {
-        console.log(`[Indexer] Пропуск: ${url} — это плейлист`);
+      console.log(`[Indexer] Тип info для ${url}: _type=${info._type}, entries=${Array.isArray(info.entries) ? info.entries.length : 'none'}`);
+
+      // Улучшенная проверка: если плейлист с 1 треком, используем его
+      let trackInfo = info;
+      if (info._type === 'playlist' && Array.isArray(info.entries) && info.entries.length === 1) {
+        trackInfo = info.entries[0];
+        console.log(`[Indexer] Обработка плейлиста с 1 треком как одиночного: ${url}`);
+      } else if (info._type === 'playlist' || Array.isArray(info.entries)) {
+        console.log(`[Indexer] Пропуск: ${url} — это плейлист с >1 треком`);
         return 'skipped';
       }
 
-      const { trackName, uploader } = parseMetadata(info);
+      if (!trackInfo) throw new Error('Нет валидной информации о треке');
+
+      const { trackName, uploader } = parseMetadata(trackInfo);
 
       await fs.mkdir(cacheDir, { recursive: true });
-      tempFilePath = path.join(cacheDir, `${info.id || Date.now()}.mp3`);
+      tempFilePath = path.join(cacheDir, `${trackInfo.id || Date.now()}.mp3`);
 
-      // Локальный кэш: если файл существует, не скачиваем заново
       let fileExists = await fs.access(tempFilePath).then(() => true).catch(() => false);
       if (!fileExists) {
         await withTimeout(
@@ -128,30 +136,31 @@ async function processUrl(url) {
 
       if (!fileExists) throw new Error('Файл не создан');
 
-      // Проверка размера (оптимизация для Telegram)
       const stats = await fs.stat(tempFilePath);
       if (stats.size === 0) throw new Error('Файл пустой');
       if (stats.size > 50 * 1024 * 1024) throw new Error('Файл слишком большой (>50MB)');
 
-      // Отправка с таймаутом и stream (как в вашей)
-      const message = await withTimeout(
-        bot.telegram.sendAudio(
-          STORAGE_CHANNEL_ID,
-          { source: await fs.open(tempFilePath, 'r') },
-          { title: trackName, ...(uploader ? { performer: uploader } : {}) }
-        ),
-        30000,
-        `Таймаут отправки для ${url}`
-      );
+      // Ретрай для sendAudio
+      const message = await retry(async () => {
+        return withTimeout(
+          bot.telegram.sendAudio(
+            STORAGE_CHANNEL_ID,
+            { source: await fs.open(tempFilePath, 'r') },
+            { title: trackName, ...(uploader ? { performer: uploader } : {}) }
+          ),
+          30000,
+          `Таймаут отправки для ${url}`
+        );
+      }, { retries: RETRY_COUNT, minTimeout: 2000, factor: 2 });
 
       if (!message?.audio?.file_id) throw new Error('Telegram не вернул file_id');
 
       await cacheTrack(url, message.audio.file_id, trackName);
-      console.log(`✅ [Indexer] Успешно закэширован и отправлен: ${trackName}`);
+      console.log(`✅ [Indexer] Успешно закэширован и отправлен в чат: ${trackName}`);
       return 'success';
     } catch (err) {
       console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.message || err);
-      if (err.message.includes('permanent')) bail(err); // Не ретраим фатальные
+      if (err.message.includes('permanent')) bail(err);
       throw err;
     }
   }, { retries: RETRY_COUNT, minTimeout: 2000, factor: 2 }).finally(async () => {
@@ -161,18 +170,21 @@ async function processUrl(url) {
   });
 }
 
-// Главный цикл с параллелизмом
+// Главный цикл
 async function main() {
   console.log('🚀 Запуск Бота-Индексатора...');
   await checkBotPermissions();
   await fs.mkdir(cacheDir, { recursive: true });
 
-  // Graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('[Indexer] Очистка и выход...');
+  // Graceful shutdown для SIGTERM и SIGINT
+  const shutdown = async () => {
+    console.log('[Indexer] Получен сигнал завершения. Очистка...');
     await fs.rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+    // Здесь можно закрыть Redis, pool и т.д., если нужно
     process.exit(0);
-  });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   while (true) {
     try {
