@@ -627,34 +627,37 @@ function setupTelegramBot() {
         }
     };
 
-    function formatMenuMessage(user, ctx) {
-        const tariffLabel = getTariffName(user.premium_limit);
-        const downloadsToday = user.downloads_today || 0;
-        const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
-        const daysLeft = getDaysLeft(user.premium_until);
-        
-        let message = `
+   // index.js, внутри setupTelegramBot
+
+function formatMenuMessage(user, ctx) {
+    const tariffLabel = getTariffName(user.premium_limit);
+    const downloadsToday = user.downloads_today || 0;
+    const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
+    const daysLeft = getDaysLeft(user.premium_until);
+    
+    // <<< УБИРАЕМ ВСЕ ФОРМАТИРОВАНИЕ. ПРОСТО ТЕКСТ. >>>
+    let message = `
 👋 Привет, ${user.first_name}!
 
 📥 Бот качает треки и плейлисты с SoundCloud в MP3. Просто пришли ссылку.
 
 📣 Новости, фишки и бонусы в нашем канале 👉 @SCM_BLOG
 
-💼 Тариф: *${tariffLabel}*
-⏳ Осталось дней: *${daysLeft > 999 ? '∞' : daysLeft}*
+💼 Тариф: ${tariffLabel}
+⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
 
-🎧 Сегодня скачано: *${downloadsToday}* из *${user.premium_limit}*
+🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
 
 🔗 Твоя реферальная ссылка (пока в разработке):
-\`${refLink}\`
-        `.trim();
-        
-        if (!user.subscribed_bonus_used) {
-            message += `\n\n🎁 *Бонус!*\nПодпишись на наш новостной канал @SCM_BLOG и получи *7 дней тарифа Plus* бесплатно!`;
-        }
-        
-        return message;
+${refLink}
+    `.trim();
+    
+    if (!user.subscribed_bonus_used) {
+        message += `\n\n🎁 Бонус!\nПодпишись на наш новостной канал @SCM_BLOG и получи 7 дней тарифа Plus бесплатно!`;
     }
+    
+    return message;
+}
 
     bot.use(async (ctx, next) => {
         const userId = ctx.from?.id;
@@ -676,59 +679,59 @@ function setupTelegramBot() {
     };
 
     bot.action('check_subscription', async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            if (user.subscribed_bonus_used) {
-                return await ctx.answerCbQuery('Вы уже получали этот бонус. Спасибо!', { show_alert: true });
-            }
-            const channel = '@SCM_BLOG';
-            if (await isSubscribed(ctx.from.id, channel)) {
-                await setPremium(ctx.from.id, 30, 7);
-                await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-                
-                await ctx.editMessageText(
-                    '🎉 *Поздравляем!*\n\nВаша подписка на канал подтверждена. ' +
-                    'Вам начислен бонус: *7 дней тарифа Plus*.\n\n' +
-                    'Чтобы увидеть обновленный статус, нажмите /menu.',
-                    { parse_mode: 'Markdown' }
-                );
-            } else {
-                await ctx.answerCbQuery('Кажется, вы еще не подписаны на канал.', { show_alert: true });
-                await ctx.reply(`Пожалуйста, сначала подпишитесь на канал ${channel}, а затем нажмите кнопку еще раз.`, {
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: '➡️ Перейти в канал', url: 'https://t.me/SCM_BLOG' }],
-                            [{ text: '✅ Я подписался!', callback_data: 'check_subscription' }]
-                        ]
-                    }
-                });
-            }
-        } catch (e) {
-            console.error('Ошибка в обработчике check_subscription:', e);
-            await ctx.answerCbQuery('Произошла ошибка, попробуйте позже.', { show_alert: true });
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id);
+        if (user.subscribed_bonus_used) {
+            return await ctx.answerCbQuery('Вы уже получали этот бонус. Спасибо!', { show_alert: true });
         }
-    });
+        const channel = '@SCM_BLOG';
+        if (await isSubscribed(ctx.from.id, channel)) {
+            await setPremium(ctx.from.id, 30, 7);
+            await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
+            
+            await ctx.editMessageText(
+                '🎉 Поздравляем!\n\nВаша подписка на канал подтверждена. ' +
+                'Вам начислен бонус: 7 дней тарифа Plus.\n\n' +
+                'Чтобы увидеть обновленный статус, нажмите /menu.'
+                // parse_mode убран
+            );
+        } else {
+            await ctx.answerCbQuery('Кажется, вы еще не подписаны на канал.', { show_alert: true });
+            await ctx.reply(`Пожалуйста, сначала подпишитесь на канал ${channel}, а затем нажмите кнопку еще раз.`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '➡️ Перейти в канал', url: 'https://t.me/SCM_BLOG' }],
+                        [{ text: '✅ Я подписался!', callback_data: 'check_subscription' }]
+                    ]
+                }
+            });
+        }
+    } catch (e) {
+        console.error('Ошибка в обработчике check_subscription:', e);
+        await ctx.answerCbQuery('Произошла ошибка, попробуйте позже.', { show_alert: true });
+    }
+});
     
     bot.start(async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-            const messageText = formatMenuMessage(user, ctx);
-            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user) });
-            await ctx.reply('Выберите действие:', kb());
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
+        const messageText = formatMenuMessage(user, ctx);
+        await ctx.reply(messageText, { reply_markup: getBonusKeyboard(user) }); // parse_mode убран
+        await ctx.reply('Выберите действие:', kb());
+    } catch (e) {
+        await handleSendMessageError(e, ctx.from.id);
+    }
+});
     
     bot.hears(texts.menu, async (ctx) => {
-        try {
-            const user = ctx.state.user || await getUser(ctx.from.id);
-            const messageText = formatMenuMessage(user, ctx);
-            await ctx.reply(messageText, { parse_mode: 'Markdown', reply_markup: getBonusKeyboard(user) });
-        } catch (e) {
-            await handleSendMessageError(e, ctx.from.id);
-        }
-    });
+    try {
+        const user = ctx.state.user || await getUser(ctx.from.id);
+        const messageText = formatMenuMessage(user, ctx);
+        await ctx.reply(messageText, { reply_markup: getBonusKeyboard(user) }); // parse_mode убран
+    } catch (e) {
+        await handleSendMessageError(e, ctx.from.id);
+    }
+});
 
     bot.hears(texts.mytracks, async (ctx) => {
         try {
