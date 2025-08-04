@@ -3,7 +3,7 @@
 import { Telegraf } from 'telegraf';
 import ytdl from 'youtube-dl-exec';
 import path from 'path';
-import fs from 'fs';
+import fs from 'fs/promises'; // Используем промисы для асинхронности
 import { fileURLToPath } from 'url';
 import { cacheTrack, findCachedTrack, pool } from './db.js';
 
@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 
+// Проверка переменных окружения
 if (!BOT_TOKEN || !STORAGE_CHANNEL_ID) {
   console.error('❌ Отсутствуют BOT_TOKEN или STORAGE_CHANNEL_ID');
   process.exit(1);
@@ -21,137 +22,153 @@ if (!BOT_TOKEN || !STORAGE_CHANNEL_ID) {
 
 const bot = new Telegraf(BOT_TOKEN);
 
-// Получает список URL'ов для индексации
+// Утилита для таймаута промисов
+const withTimeout = (promise, ms, errorMsg) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms)),
+  ]);
+
+// Получение списка URL для индексации
 async function getUrlsToIndex() {
   console.log('[Indexer] Получаю список популярных треков из логов...');
-  const { rows } = await pool.query(`
-    SELECT url, COUNT(url) as download_count
-    FROM downloads_log
-    WHERE url NOT IN (SELECT url FROM track_cache)
-    GROUP BY url
-    ORDER BY download_count DESC
-    LIMIT 20;
-  `);
-  return rows.map(row => row.url);
+  try {
+    const { rows } = await pool.query(`
+      SELECT url, COUNT(url) as download_count
+      FROM downloads_log
+      WHERE url NOT IN (SELECT url FROM track_cache)
+      GROUP BY url
+      ORDER BY download_count DESC
+      LIMIT 20;
+    `);
+    return rows.map(row => row.url);
+  } catch (err) {
+    console.error('[Indexer] Ошибка при запросе URL:', err);
+    return [];
+  }
 }
 
-// Обрабатывает один URL
+// Обработка одного URL
 async function processUrl(url) {
   let tempFilePath = null;
-
   try {
-    const isCached = await findCachedTrack(url);
-    if (isCached) {
-      console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
+    // Проверка кэша
+    const cached = await findCachedTrack(url);
+    if (cached) {
+      console.log(`[Indexer] Пропуск: ${url} уже в кэше с file_id: ${cached.file_id}`);
       return 'cached';
     }
 
     console.log(`[Indexer] Индексирую: ${url}`);
-    const info = await ytdl(url, { dumpSingleJson: true });
+    const info = await withTimeout(
+      ytdl(url, { dumpSingleJson: true }),
+      30000, // Таймаут 30 секунд
+      `Таймаут получения информации для ${url}`
+    );
 
     if (!info || info._type === 'playlist' || Array.isArray(info.entries)) {
-      console.log(`[Indexer] Пропуск: ${url} — это плейлист.`);
+      console.log(`[Indexer] Пропуск: ${url} — это плейлист`);
       return 'skipped';
     }
 
-    // --- Корректная обработка метаданных ---
-    let rawTitle = (info.title || '').trim();
-    let rawUploader = (info.uploader || '').trim();
-
-    if (!rawTitle || rawTitle.toLowerCase().includes('unknown')) rawTitle = 'Без названия';
-    if (!rawUploader || rawUploader.toLowerCase().includes('unknown')) rawUploader = 'Без исполнителя';
-
+    // Обработка метаданных
+    const rawTitle = (info.title || '').trim() || 'Без названия';
+    const rawUploader = (info.uploader || '').trim() || 'Без исполнителя';
     const titleHasUploader = rawTitle.toLowerCase().includes(rawUploader.toLowerCase());
     const trackName = rawTitle.slice(0, 100);
     const uploader = titleHasUploader ? '' : rawUploader.slice(0, 100);
 
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+    // Создание временного файла
+    await fs.mkdir(cacheDir, { recursive: true });
     tempFilePath = path.join(cacheDir, `${info.id || Date.now()}.mp3`);
 
-    await ytdl(url, {
-      output: tempFilePath,
-      extractAudio: true,
-      audioFormat: 'mp3',
-      embedMetadata: true,
-      postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
-    });
-
-    if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
-
-    const message = await bot.telegram.sendAudio(
-      STORAGE_CHANNEL_ID,
-      { source: fs.createReadStream(tempFilePath) },
-      {
-        title: trackName,
-        ...(uploader ? { performer: uploader } : {})
-      }
+    await withTimeout(
+      ytdl(url, {
+        output: tempFilePath,
+        extractAudio: true,
+        audioFormat: 'mp3',
+        embedMetadata: true,
+        postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`,
+      }),
+      60000, // Таймаут 60 секунд
+      `Таймаут загрузки для ${url}`
     );
 
-    if (message?.audio?.file_id) {
-      await cacheTrack(url, message.audio.file_id, trackName);
-      console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
-      return 'success';
-    } else {
-      console.warn(`⚠️ [Indexer] Telegram не вернул file_id для ${url}`);
-      return 'error';
-    }
+    const fileExists = await fs.access(tempFilePath).then(() => true).catch(() => false);
+    if (!fileExists) throw new Error('Файл не создан');
+
+    // Отправка в Telegram
+    const message = await withTimeout(
+      bot.telegram.sendAudio(
+        STORAGE_CHANNEL_ID,
+        { source: await fs.open(tempFilePath, 'r') },
+        { title: trackName, ...(uploader ? { performer: uploader } : {}) }
+      ),
+      30000,
+      `Таймаут отправки для ${url}`
+    );
+
+    if (!message?.audio?.file_id) throw new Error('Telegram не вернул file_id');
+
+    // Кэширование
+    await cacheTrack(url, message.audio.file_id, trackName);
+    console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
+    return 'success';
   } catch (err) {
-    console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err?.stderr || err?.stack || err);
+    console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.message || err);
     return 'error';
   } finally {
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      await fs.promises.unlink(tempFilePath).catch(() => {});
+    if (tempFilePath) {
+      await fs.unlink(tempFilePath).catch(err =>
+        console.warn(`⚠️ Не удалось удалить ${tempFilePath}:`, err)
+      );
     }
   }
 }
 
-// Главный цикл индексатора
+// Ограничение параллельных задач
+async function processBatch(urls, concurrency = 3) {
+  const results = { cached: 0, success: 0, failed: 0 };
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(url => processUrl(url)));
+    batchResults.forEach(result => {
+      if (result === 'cached') results.cached++;
+      else if (result === 'success') results.success++;
+      else results.failed++;
+    });
+  }
+  return results;
+}
+
+// Главный цикл
 async function main() {
   console.log('🚀 Запуск Бота-Индексатора...');
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+  await fs.mkdir(cacheDir, { recursive: true });
 
   while (true) {
     try {
       const urls = await getUrlsToIndex();
-
-      const stats = {
-        total: urls.length,
-        cached: 0,
-        success: 0,
-        failed: 0
-      };
-
-      if (urls.length > 0) {
-        console.log(`[Indexer] Найдено ${urls.length} новых треков для индексации.`);
-
-        for (const url of urls) {
-          const result = await processUrl(url);
-
-          if (result === 'cached') stats.cached++;
-          else if (result === 'success') stats.success++;
-          else stats.failed++;
-
-          await new Promise(resolve => setTimeout(resolve, 5000)); // пауза 5 сек
-        }
-
+      if (urls.length === 0) {
+        console.log('[Indexer] Новых треков для индексации нет.');
+      } else {
+        console.log(`[Indexer] Найдено ${urls.length} треков для индексации.`);
+        const stats = await processBatch(urls, 3); // Обрабатываем по 3 URL параллельно
         console.log(`📊 [Цикл завершён]
-Всего URL:     ${stats.total}
+Всего URL:     ${urls.length}
 В кэше:        ${stats.cached}
 Успешно:       ${stats.success}
 Ошибок:        ${stats.failed}`);
-      } else {
-        console.log('[Indexer] Новых популярных треков для индексации нет.');
       }
-    } catch (e) {
-      console.error('[Indexer] Ошибка в основном цикле:', e);
+    } catch (err) {
+      console.error('[Indexer] Ошибка в основном цикле:', err);
     }
-
-    console.log('[Indexer] Пауза на 1 час перед следующим проходом.');
-    await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000)); // 1 час
+    console.log('[Indexer] Пауза на 1 час...');
+    await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
   }
 }
 
 main().catch(err => {
-  console.error('🔴 Критическая ошибка в главном цикле индексатора:', err?.stack || err);
+  console.error('🔴 Критическая ошибка:', err);
   process.exit(1);
 });
