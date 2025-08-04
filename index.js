@@ -761,12 +761,15 @@ ${refLink}
         catch (e) { await handleSendMessageError(e, ctx.from.id); }
     });
 
-    bot.hears(texts.upgrade, async (ctx) => {
-        try { 
-            await ctx.replyWithMarkdown(texts.upgradeInfo, { disable_web_page_preview: true });
-        } 
-        catch (e) { await handleSendMessageError(e, ctx.from.id); }
-    });
+    // index.js, внутри setupTelegramBot
+
+bot.hears(texts.upgrade, async (ctx) => {
+  try {
+    // УБИРАЕМ ВООБЩЕ ВСЕ ФОРМАТИРОВАНИЕ
+    await ctx.reply(texts.upgradeInfo.replace(/\*/g, ''));
+  }
+  catch (e) { await handleSendMessageError(e, ctx.from.id); }
+});
 
     bot.command('admin', async (ctx) => {
         if (ctx.from.id !== ADMIN_ID) return;
