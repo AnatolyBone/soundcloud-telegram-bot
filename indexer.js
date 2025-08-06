@@ -39,13 +39,23 @@ const withTimeout = (promise, ms, errorMsg) =>
   ]);
 
 async function checkBotPermissions() {
-  try {
-    await bot.telegram.getChat(STORAGE_CHANNEL_ID);
-    console.log(`✅ Бот имеет доступ к каналу ${STORAGE_CHANNEL_ID}`);
-  } catch (err) {
-    console.error(`❌ Ошибка доступа к каналу:`, err.message);
-    process.exit(1);
-  }
+try {
+const chat = await bot.telegram.getChat(STORAGE_CHANNEL_ID);
+const member = await bot.telegram.getChatMember(chat.id, bot.botInfo.id);
+
+console.log(`✅ Бот имеет доступ к каналу ${STORAGE_CHANNEL_ID}`);
+console.log("Права бота:", {
+can_send_messages: member.can_send_messages,
+can_send_media_messages: member.can_send_media_messages,
+});
+
+if (!member.can_send_messages || !member.can_send_media_messages) {
+throw new Error("Бот не имеет прав на отправку сообщений/медиа");
+}
+} catch (err) {
+console.error(`❌ Ошибка доступа: ${err.message}`);
+process.exit(1);
+}
 }
 
 async function getUrlsToIndex() {
