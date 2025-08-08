@@ -2,427 +2,267 @@
 import path from 'path';
 import express from 'express';
 import session from 'express-session';
-import compression from 'compression';
-import expressLayouts from 'express-ejs-layouts';
-import multer from 'multer';
-import pgSessionFactory from 'connect-pg-simple';
-import fs from 'fs';
+import crypto from 'crypto';
 
-import {
-  pool,
-  supabase,
-  getDashboardStats,
-  getDownloadsByDate,
-  getRegistrationsByDate,
-  getActiveUsersByDate,
-  getUserActivityByDayHour,
-  getExpiringUsersPaginated,
-  getExpiringUsersCount,
-  getReferralSourcesStats,
-  getFunnelData,
-  getLastMonths,
-  getAllUsers,
-  getUserById,
-  updateUserField,
-} from '../db.js';
+import { getAllUsers } from '../db.js';
+import { loadTexts, allTextsSync, setText } from '../config/texts.js';
 
-// ==== helpers для графиков ====
-function convertObjToArray(dataObj) {
-  if (!dataObj) return [];
-  return Object.entries(dataObj).map(([date, count]) => ({
-    date,
-    count: Number(count) || 0,
-  }));
-}
+export default function setupAdmin(opts = {}) {
+  const {
+    app,
+    ADMIN_LOGIN,
+    ADMIN_PASSWORD,
+    SESSION_SECRET = 'dev-secret',
+  } = opts;
 
-function filterStatsByPeriod(data, period) {
-  if (!Array.isArray(data)) return [];
-  const now = new Date();
+  if (!app) throw new Error('setupAdmin: app is required');
 
-  // Число = последние N дней
-  if (!isNaN(period)) {
-    const days = parseInt(period);
-    const cutoff = new Date(now.getTime() - days * 86400000);
-    return data.filter(item => !isNaN(new Date(item.date)) && new Date(item.date) >= cutoff);
-  }
-
-  // Формат YYYY-MM — фильтр по месяцу
-  if (/^\d{4}-\d{2}$/.test(period)) {
-    return data.filter(item => item.date && item.date.startsWith(period));
-  }
-
-  return data;
-}
-
-function prepareChartData(registrations, downloads, active) {
-  const dateSet = new Set([
-    ...registrations.map(r => r.date),
-    ...downloads.map(d => d.date),
-    ...active.map(a => a.date),
-  ]);
-  const dates = Array.from(dateSet).sort();
-
-  const regMap = new Map(registrations.map(r => [r.date, Number(r.count) || 0]));
-  const dlMap  = new Map(downloads.map(d => [d.date, Number(d.count) || 0]));
-  const actMap = new Map(active.map(a => [a.date, Number(a.count) || 0]));
-
-  return {
-    labels: dates,
-    datasets: [
-      { label: 'Регистрации',           data: dates.map(d => regMap.get(d) || 0), fill: false },
-      { label: 'Загрузки',              data: dates.map(d => dlMap.get(d)  || 0), fill: false },
-      { label: 'Активные пользователи', data: dates.map(d => actMap.get(d) || 0), fill: false },
-    ],
-  };
-}
-
-function computeActivityByHour(activityByDayHour) {
-  const hours = Array(24).fill(0);
-  if (!activityByDayHour) return hours;
-
-  for (const day in activityByDayHour) {
-    const hoursData = activityByDayHour[day];
-    if (Array.isArray(hoursData)) {
-      for (let h = 0; h < 24; h++) {
-        hours[h] += Number(hoursData[h]) || 0;
-      }
-    }
-  }
-  return hours;
-}
-
-function computeActivityByWeekday(activityByDayHour) {
-  const weekdays = Array(7).fill(0); // 0=Вс ... 6=Сб
-  if (!activityByDayHour) return weekdays;
-
-  for (const dayStr in activityByDayHour) {
-    const arr = activityByDayHour[dayStr];
-    const dayTotal = (Array.isArray(arr) ? arr : Object.values(arr || {}))
-      .reduce((a, b) => a + (Number(b) || 0), 0);
-    const dow = new Date(dayStr);
-    if (!isNaN(dow)) {
-      weekdays[dow.getDay()] += dayTotal;
-    }
-  }
-  return weekdays;
-}
-
-export default function setupAdmin({
-  app,
-  bot,
-  __dirname,
-  ADMIN_ID,
-  ADMIN_LOGIN,
-  ADMIN_PASSWORD,
-  SESSION_SECRET,
-  STORAGE_CHANNEL_ID,
-}) {
-  // важное для Render и rate-limit / реального IP
-  app.set('trust proxy', true);
-
-  // базовые middlewares
-  app.use(compression());
+  // --- Body parsing for forms
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.json());
 
-  // шаблоны
-  app.use(expressLayouts);
-  app.set('view engine', 'ejs');
-  app.set('views', path.join(__dirname, 'views'));
-  app.set('layout', 'layout');
+  // --- Sessions (MemoryStore ок для одного инстанса Render)
+  app.use(
+    session({
+      name: 'scm_admin',
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production', // Render — https
+        maxAge: 7 * 24 * 3600 * 1000,
+      },
+    })
+  );
 
-  // статика
-  app.use('/static', express.static(path.join(__dirname, 'public')));
-
-  // сессии (pg)
-  const PgSession = pgSessionFactory(session);
-  app.use(session({
-    store: new PgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 },
-  }));
-
-  // подсовываем user/query в шаблоны
-  app.use(async (req, res, next) => {
-    res.locals.user = null;
-    res.locals.page = '';
-    res.locals.query = req.query || {};
+  // --- Helpers
+  const formatDate = (val) => {
+    if (!val) return '—';
     try {
-      if (req.session.authenticated && req.session.userId === ADMIN_ID) {
-        req.user = await getUserById(req.session.userId);
-        res.locals.user = req.user;
-      }
-    } catch (e) {
-      console.error(e);
+      // если приходит строка без зоны — добавим Z, чтобы не было Invalid Date
+      const s = typeof val === 'string' && !/[zZ]$/.test(val) ? val + 'Z' : val;
+      const d = new Date(s);
+      if (isNaN(d)) return '—';
+      return d.toLocaleString('ru-RU');
+    } catch {
+      return '—';
     }
-    next();
-  });
-
-  const requireAuth = (req, res, next) => {
-    if (req.session.authenticated && req.session.userId === ADMIN_ID) return next();
-    res.redirect('/admin');
   };
 
-  // health
-  app.get('/health', (req, res) => res.send('OK'));
+  const requireAdmin = (req, res, next) => {
+    if (req.session?.isAdmin) return next();
+    res.redirect('/admin/login');
+  };
 
-  // login
-  app.get('/admin', (req, res) => {
-    if (req.session.authenticated && req.session.userId === ADMIN_ID) {
+  // --- Pages
+
+  // Login page
+  app.get('/admin/login', (req, res) => {
+    if (req.session?.isAdmin) return res.redirect('/dashboard');
+    res.send(`
+      <!doctype html><html lang="ru"><head>
+        <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <title>Админ — вход</title>
+        <style>
+          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji";margin:40px;background:#0b0c10;color:#eaf0f1}
+          .card{max-width:420px;margin:0 auto;background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+          h1{font-size:20px;margin:0 0 12px}
+          label{display:block;margin:12px 0 4px}
+          input{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2f36;background:#0f1115;color:#eaf0f1}
+          button{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer}
+          .muted{color:#9aa4b2;font-size:13px;margin-top:8px}
+        </style>
+      </head><body>
+        <div class="card">
+          <h1>Вход в админку</h1>
+          <form method="post" action="/admin/login">
+            <label>Логин</label>
+            <input name="login" autocomplete="username" required>
+            <label>Пароль</label>
+            <input name="password" type="password" autocomplete="current-password" required>
+            <button type="submit">Войти</button>
+          </form>
+          <div class="muted">Доступ есть только у владельца.</div>
+        </div>
+      </body></html>
+    `);
+  });
+
+  // Login action
+  app.post('/admin/login', (req, res) => {
+    const { login, password } = req.body || {};
+    if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
+      req.session.isAdmin = true;
       return res.redirect('/dashboard');
     }
-    res.render('login', { title: 'Вход в админку', error: null, layout: false });
+    res.status(401).send(`
+      <!doctype html><meta charset="utf-8"/>
+      <script>alert('Неверные данные');location.href='/admin/login'</script>
+    `);
   });
 
-  app.post('/admin', (req, res) => {
-    const { username, password } = req.body;
-    if (username === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
-      req.session.authenticated = true;
-      req.session.userId = ADMIN_ID;
-      return res.redirect('/dashboard');
-    }
-    res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль', layout: false });
+  // Logout
+  app.post('/admin/logout', requireAdmin, (req, res) => {
+    req.session.destroy(() => res.redirect('/admin/login'));
   });
 
-  // Дашборд
-  app.get('/dashboard', requireAuth, async (req, res, next) => {
+  // Dashboard
+  app.get('/dashboard', requireAdmin, async (req, res) => {
     try {
-      const { period = '30', showInactive = 'false', expiringLimit = '10', expiringOffset = '0' } = req.query;
+      const users = await getAllUsers(true);
+      const totalUsers = users.length;
+      const activeUsers = users.filter(u => u.active).length;
+      const now = new Date();
+      const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
+      const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
-      const [
-        stats,
-        downloadsByDateRaw,
-        registrationsByDateRaw,
-        activeByDateRaw,
-        activityByDayHour,
-        expiringSoon,
-        expiringCount,
-        referralStats,
-        funnelCounts,
-        lastMonths,
-        users,
-      ] = await Promise.all([
-        getDashboardStats(),
-        getDownloadsByDate(90), // запас по дате, дальше фильтруем
-        getRegistrationsByDate(),
-        getActiveUsersByDate(),
-        getUserActivityByDayHour(),
-        getExpiringUsersPaginated(parseInt(expiringLimit), parseInt(expiringOffset)),
-        getExpiringUsersCount(),
-        getReferralSourcesStats(),
-        getFunnelData(new Date('2000-01-01').toISOString(), new Date().toISOString()),
-        getLastMonths(6),
-        getAllUsers(showInactive === 'true'),
-      ]);
+      const lastUsers = users
+        .slice()
+        .sort((a, b) => new Date(b.created_at || b.id) - new Date(a.created_at || a.id))
+        .slice(0, 20);
 
-      // графики
-      const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-      const filteredDownloads     = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw),     period);
-      const filteredActive        = filterStatsByPeriod(convertObjToArray(activeByDateRaw),        period);
+      res.send(`
+        <!doctype html><html lang="ru"><head>
+          <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+          <title>Админ — дашборд</title>
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans";margin:24px;background:#0b0c10;color:#eaf0f1}
+            .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+            .card{background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:16px}
+            .k{color:#9aa4b2;font-size:13px}
+            h1{margin:0 0 16px}
+            table{width:100%;border-collapse:collapse}
+            th,td{padding:10px;border-bottom:1px solid #232a32;font-size:14px}
+            th{text-align:left;color:#9aa4b2}
+            .topbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
+            .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#2a2f36;color:#eaf0f1;text-decoration:none}
+            .btn-primary{background:#4f46e5}
+            form{display:inline}
+          </style>
+        </head><body>
+          <div class="topbar">
+            <a class="btn" href="/dashboard">Дашборд</a>
+            <a class="btn" href="/admin/texts">Тексты бота</a>
+            <form method="post" action="/admin/logout"><button class="btn btn-primary">Выйти</button></form>
+          </div>
 
-      const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
-      const chartDataHourActivity = {
-        labels: [...Array(24).keys()].map(h => `${h}:00`),
-        datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour) }],
-      };
-      const chartDataWeekdayActivity = {
-        labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
-        datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour) }],
-      };
+          <h1>Сводка</h1>
+          <div class="row">
+            <div class="card"><div class="k">Пользователей всего</div><div style="font-size:28px;font-weight:700">${totalUsers}</div></div>
+            <div class="card"><div class="k">Активных всего</div><div style="font-size:28px;font-weight:700">${activeUsers}</div></div>
+            <div class="card"><div class="k">Активных сегодня</div><div style="font-size:28px;font-weight:700">${activeToday}</div></div>
+            <div class="card"><div class="k">Загрузок за всё время</div><div style="font-size:28px;font-weight:700">${totalDownloads}</div></div>
+          </div>
 
-      res.render('dashboard', {
-        title: 'Панель управления',
-        page: 'dashboard',
-        user: req.user,
-        period,
-        showInactive: showInactive === 'true',
-        stats, // { total_users, total_downloads, active_today, ... }
-        users,
-        expiringSoon,
-        expiringCount,
-        referralStats,
-        funnelData: funnelCounts,
-        lastMonths,
-        expiringLimit: parseInt(expiringLimit),
-        expiringOffset: parseInt(expiringOffset),
-        chartDataCombined,
-        chartDataHourActivity,
-        chartDataWeekdayActivity,
-        query: req.query, // для баннера ping
-      });
+          <div class="card">
+            <div class="k">Последние 20 пользователей</div>
+            <table>
+              <thead><tr><th>ID</th><th>Имя</th><th>Юзернейм</th><th>Создан</th><th>Последняя активность</th><th>Премиум до</th><th>Лимит/день</th><th>Всего загрузок</th></tr></thead>
+              <tbody>
+                ${lastUsers.map(u => `
+                  <tr>
+                    <td>${u.id}</td>
+                    <td>${u.first_name ?? ''}</td>
+                    <td>${u.username ? '@'+u.username : '—'}</td>
+                    <td>${formatDate(u.created_at)}</td>
+                    <td>${formatDate(u.last_active)}</td>
+                    <td>${formatDate(u.premium_until)}</td>
+                    <td>${u.premium_limit ?? 0}</td>
+                    <td>${u.total_downloads ?? 0}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </body></html>
+      `);
     } catch (e) {
-      next(e);
+      console.error('[admin] /dashboard error:', e);
+      res.status(500).send('Ошибка загрузки дашборда');
     }
   });
 
-  // Проверка связи со сторедж-каналом
-  app.get('/admin/test-storage-send', requireAuth, async (req, res) => {
+  // Texts editor
+  app.get('/admin/texts', requireAdmin, async (req, res) => {
     try {
-      await bot.telegram.sendMessage(STORAGE_CHANNEL_ID, 'Проверка связи админки со сторедж-каналом ✅');
-      res.redirect('/dashboard?ping=ok');
+      await loadTexts(); // чтобы было свежее
+      const texts = allTextsSync();
+
+      const rows = Object.entries(texts).map(([key, val]) => `
+        <tr>
+          <td style="vertical-align:top"><code>${key}</code></td>
+          <td><textarea name="${key}" rows="4" style="width:100%;padding:8px;border-radius:10px;border:1px solid #2a2f36;background:#0f1115;color:#eaf0f1">${escapeHtml(val)}</textarea></td>
+        </tr>
+      `).join('');
+
+      res.send(`
+        <!doctype html><html lang="ru"><head>
+          <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+          <title>Админ — тексты бота</title>
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans";margin:24px;background:#0b0c10;color:#eaf0f1}
+            .topbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
+            .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#2a2f36;color:#eaf0f1;text-decoration:none}
+            .btn-primary{background:#4f46e5}
+            table{width:100%;border-collapse:collapse}
+            th,td{padding:10px;border-bottom:1px solid #232a32;vertical-align:top}
+            th{text-align:left;color:#9aa4b2}
+            .card{background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:16px}
+          </style>
+        </head><body>
+          <div class="topbar">
+            <a class="btn" href="/dashboard">Дашборд</a>
+            <a class="btn btn-primary" href="/admin/texts">Тексты бота</a>
+            <form method="post" action="/admin/logout"><button class="btn">Выйти</button></form>
+          </div>
+
+          <div class="card">
+            <h2 style="margin-top:0">Редактор текстов</h2>
+            <form method="post" action="/admin/texts">
+              <table>
+                <thead><tr><th>Ключ</th><th>Значение</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+              <div style="margin-top:12px">
+                <button class="btn btn-primary" type="submit">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </body></html>
+      `);
     } catch (e) {
-      console.error('Storage test failed:', e.message);
-      res.redirect('/dashboard?ping=fail');
+      console.error('[admin] /admin/texts GET error:', e);
+      res.status(500).send('Ошибка загрузки текстов');
     }
   });
 
-  // Список пользователей с поиском
-  app.get('/users', requireAuth, async (req, res, next) => {
+  app.post('/admin/texts', requireAdmin, async (req, res) => {
     try {
-      const q = (req.query.q || '').trim();
-      let sql = 'SELECT * FROM users';
-      const params = [];
-      if (q) {
-        sql += ' WHERE CAST(id AS TEXT) ILIKE $1 OR username ILIKE $1 OR first_name ILIKE $1';
-        params.push(`%${q}%`);
-      }
-      sql += ' ORDER BY last_active DESC LIMIT 200';
-      const { rows } = await pool.query(sql, params);
-      res.render('users', { title: 'Пользователи', page: 'users', users: rows, q });
-    } catch (e) {
-      next(e);
-    }
-  });
+      const body = req.body || {};
+      const entries = Object.entries(body);
 
-  // Профиль пользователя
-  app.get('/user/:id', requireAuth, async (req, res, next) => {
-    try {
-      const userId = parseInt(req.params.id);
-      if (isNaN(userId)) return res.status(400).send('Неверный ID');
-      const user = await getUserById(userId);
-      if (!user) return res.status(404).send('Пользователь не найден');
-
-      const [downloadsResult, referralsResult] = await Promise.all([
-        supabase
-          .from('events')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('event_type', 'download_start')
-          .order('created_at', { ascending: false })
-          .limit(100),
-        pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId]),
-      ]);
-
-      res.render('user-profile', {
-        title: `Профиль: ${user.first_name || user.username || user.id}`,
-        user,
-        downloads: downloadsResult.data || [],
-        referrals: referralsResult.rows,
-        page: 'user-profile',
-      });
-    } catch (e) {
-      next(e);
-    }
-  });
-
-  // смена тарифа с профиля
-  app.post('/user/:id/set-tariff', requireAuth, async (req, res, next) => {
-    try {
-      const userId = parseInt(req.params.id);
-      const limit = parseInt(req.body.premium_limit);
-      if (!limit || isNaN(limit)) return res.status(400).send('Некорректный лимит');
-      await updateUserField(userId, 'premium_limit', limit);
-      res.redirect(`/user/${userId}`);
-    } catch (e) {
-      next(e);
-    }
-  });
-
-  // Рассылка
-  const upload = multer({ dest: path.join(__dirname, 'uploads') });
-  app.get('/broadcast', requireAuth, (req, res) => {
-    res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast' });
-  });
-
-  app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res, next) => {
-    try {
-      const { message } = req.body;
-      const audio = req.file;
-      if (!message && !audio) {
-        return res.status(400).render('broadcast-form', {
-          title: 'Рассылка',
-          error: 'Текст или аудиофайл обязательны',
-          success: null,
-          page: 'broadcast',
-        });
+      // сохраняем только строковые ключи
+      for (const [key, value] of entries) {
+        if (!key) continue;
+        await setText(key, String(value ?? ''));
       }
 
-      const users = await getAllUsers(false);
-      let successCount = 0, errorCount = 0;
-
-      for (const u of users) {
-        try {
-          if (audio) {
-            await bot.telegram.sendAudio(u.id, { source: fs.createReadStream(audio.path) }, { caption: message });
-          } else {
-            await bot.telegram.sendMessage(u.id, message);
-          }
-          successCount++;
-        } catch (e) {
-          errorCount++;
-          if (e.response?.error_code === 403) await updateUserField(u.id, 'active', false);
-        }
-        await new Promise(r => setTimeout(r, 100));
-      }
-
-      if (audio) fs.unlinkSync(audio.path);
-      try {
-        await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена:\n✅ Успешно: ${successCount}\n❌ Ошибок: ${errorCount}`);
-      } catch (adminError) {
-        console.error('Не удалось отправить отчет админу:', adminError.message);
-      }
-
-      res.render('broadcast-form', {
-        title: 'Рассылка',
-        success: `Отправлено ${successCount} сообщений.`,
-        error: `Ошибок: ${errorCount}.`,
-        page: 'broadcast',
-      });
+      // перезагружаем кэш текстов
+      await loadTexts(true);
+      res.redirect('/admin/texts');
     } catch (e) {
-      next(e);
+      console.error('[admin] /admin/texts POST error:', e);
+      res.status(500).send('Ошибка сохранения текстов');
     }
   });
 
-  // Истекающие подписки
-  app.get('/expiring-users', requireAuth, async (req, res, next) => {
-    try {
-      const pageNum = parseInt(req.query.page) || 1;
-      const perPage = 10;
-      const total = await getExpiringUsersCount();
-      const users = await getExpiringUsersPaginated(perPage, (pageNum - 1) * perPage);
-      res.render('expiring-users', {
-        users,
-        page: 'expiring-users',
-        title: 'Истекающие подписки',
-        totalPages: Math.ceil(total / perPage),
-        currentPage: pageNum,
-      });
-    } catch (e) { next(e); }
-  });
-
-  // выход
-  app.get('/logout', (req, res) => {
-    req.session.destroy(() => res.redirect('/admin'));
-  });
-
-  // Глобальный обработчик ошибок
-  app.use((err, req, res, next) => {
-    console.error('🔴 Необработанная ошибка:', err);
-    const statusCode = err.status || 500;
-    const message = err.message || 'Внутренняя ошибка сервера';
-    res.status(statusCode);
-    if (req.originalUrl.startsWith('/api/')) {
-      return res.json({ error: message });
-    }
-    res.render('errors', {
-      title: `Ошибка ${statusCode}`,
-      message,
-      statusCode,
-      error: err,
-      page: 'error',
-      layout: 'layout',
-    });
-  });
+  // helper to escape HTML in textarea
+  function escapeHtml(str = '') {
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+  }
 }
