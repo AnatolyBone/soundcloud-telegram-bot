@@ -34,11 +34,10 @@
   </div>
 </form>
 
-<% /* Отдельная POST-форма для проверки канала (НЕ вложенная) */ %>
-<form method="post" action="/admin/test-storage-send" class="mb-3">
-  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-  <button class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Проверить канал</button>
-</form>
+<% /* Отдельная кнопка-переход (GET) для проверки канала */ %>
+<a class="btn btn-sm btn-outline-primary mb-3" href="/admin/test-storage-send">
+  <i class="bi bi-broadcast"></i> Проверить канал
+</a>
 
 <% /* Метрики */ %>
 <div class="d-flex flex-wrap gap-3 mb-4">
