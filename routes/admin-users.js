@@ -119,8 +119,8 @@ export default function setupAdminUsers(app) {
 
         <div class="pagination">
           ${Array.from({length: pages},(_,i)=>i+1).map(n=>{
-            const url=\`/admin/users?q=\${encodeURIComponent(q)}&sort=${'${sort}'}&order=${'${order}'}&per_page=\${per}&page=\${n}\`;
-            return \`<a class="page \${n===page?'active':''}" href="\${url}">\${n}</a>\`;
+            const url = `/admin/users?q=${encodeURIComponent(q)}&sort=${sort}&order=${order}&per_page=${per}&page=${n}`;
+            return `<a class="page ${n===page?'active':''}" href="${url}">${n}</a>`;
           }).join('')}
         </div>
       </body></html>`);
@@ -148,14 +148,14 @@ export default function setupAdminUsers(app) {
       `SELECT id, first_name, username, created_at, last_active, premium_until, premium_limit, total_downloads
        FROM users ${where} ORDER BY ${sort} ${order} LIMIT 10000`, params);
 
-    const header = 'id,first_name,username,created_at,last_active,premium_until,premium_limit,total_downloads\\n';
+    const header = 'id,first_name,username,created_at,last_active,premium_until,premium_limit,total_downloads\n';
     const csv = header + rows.map(r => [
       r.id,
       JSON.stringify(r.first_name||''),
       JSON.stringify(r.username||''),
       r.created_at, r.last_active, r.premium_until,
       r.premium_limit ?? 0, r.total_downloads ?? 0
-    ].join(',')).join('\\n');
+    ].join(',')).join('\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
