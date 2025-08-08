@@ -1,0 +1,46 @@
+<form class="row g-2 mb-3" method="get" action="/users">
+  <div class="col-auto">
+    <input class="form-control form-control-sm" type="text" name="q" placeholder="ID, @username, имя" value="<%= q || '' %>">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary">Поиск</button>
+  </div>
+</form>
+
+<div class="card shadow-sm">
+  <div class="card-header">Пользователи</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>ID</th>
+            <th>Имя</th>
+            <th>Username</th>
+            <th>Лимит</th>
+            <th>Скачано всего</th>
+            <th>Активность</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!users || users.length === 0) { %>
+            <tr><td colspan="7" class="text-center text-muted py-4">Ничего не найдено</td></tr>
+          <% } else { %>
+            <% users.forEach(u => { %>
+              <tr>
+                <td><%= u.id %></td>
+                <td><%= u.first_name || '' %></td>
+                <td><%= u.username ? '@'+u.username : '' %></td>
+                <td><%= u.premium_limit %></td>
+                <td><%= u.total_downloads || 0 %></td>
+                <td><%= u.last_active ? new Date(String(u.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU') : '-' %></td>
+                <td><a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a></td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
