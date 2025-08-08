@@ -177,18 +177,16 @@ async function processUrlForIndexing(url) {
         const isCached = await findCachedTrack(url);
         if (isCached) {
             console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
-            return; // Возвращаемся, если уже закэшировано
+            return;
         }
 
         console.log(`[Indexer] Индексирую: ${url}`);
         const info = await ytdl(url, { dumpSingleJson: true });
 
-        // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Улучшенная проверка на плейлист >>>
-        if (!info || info._type === 'playlist') {
+        if (!info || info._type === 'playlist' || Array.isArray(info.entries)) {
             console.log(`[Indexer] Пропуск: ${url} является плейлистом.`);
-            return; // Явно пропускаем плейлисты
+            return;
         }
-        // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
 
         const trackName = (info.title || 'track').slice(0, 100);
         const uploader = info.uploader || 'SoundCloud';
@@ -199,11 +197,15 @@ async function processUrlForIndexing(url) {
             extractAudio: true,
             audioFormat: 'mp3',
             embedMetadata: true,
-            postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
+            postprocessorArgs: [
+                '-metadata', `artist=${uploader}`,
+                '-metadata', `title=${trackName}`
+            ],
         });
 
-        if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
-        
+        const fileExists = await fs.promises.access(tempFilePath).then(() => true).catch(() => false);
+        if (!fileExists) throw new Error('Файл не создан');
+
         const message = await bot.telegram.sendAudio(
             STORAGE_CHANNEL_ID,
             { source: fs.createReadStream(tempFilePath) },
@@ -215,13 +217,16 @@ async function processUrlForIndexing(url) {
             console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
         }
     } catch (err) {
-        console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
+        console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message || err);
     } finally {
-        if (tempFilePath && fs.existsSync(tempFilePath)) {
-            await fs.promises.unlink(tempFilePath).catch(() => {});
+        if (tempFilePath) {
+            await fs.promises.unlink(tempFilePath).catch(() => {
+                console.warn(`[Indexer] Не удалось удалить временный файл: ${tempFilePath}`);
+            });
         }
     }
 }
+
 async function startIndexer() {
     console.log('🚀 Запуск фонового индексатора...');
     await new Promise(resolve => setTimeout(resolve, 60 * 1000));
@@ -595,11 +600,6 @@ function setupExpress() {
         });
     });
 }
-
-// --- Настройка Telegraf ---
-// index.js
-
-// index.js
 
 function setupTelegramBot() {
     const handleSendMessageError = async (error, userId) => {
