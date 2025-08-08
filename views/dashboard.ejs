@@ -1,55 +1,213 @@
+<% /* Alert про проверку канала */ %>
 <% if (typeof query !== 'undefined' && query.ping) { %>
   <div class="alert <%= query.ping==='ok'?'alert-success':'alert-danger' %>" data-autohide>
-    <%= query.ping==='ok'?'Канал доступен':'Ошибка отправки в канал' %>
+    <%= query.ping==='ok' ? 'Канал доступен' : 'Ошибка отправки в канал' %>
   </div>
 <% } %>
 
+<% /* Панель фильтров и быстрых действий */ %>
+<form id="filterForm" class="row g-2 align-items-end mb-3" method="get" action="/dashboard">
+  <input type="hidden" id="periodInput" name="period" value="<%= period || '30' %>">
+
+  <div class="col-auto">
+    <label class="form-label mb-0">Период:</label>
+  </div>
+
+  <div class="col-auto">
+    <select id="rangeSelect" class="form-select form-select-sm">
+      <option value="">— выбрать —</option>
+      <option value="7">Последние 7 дней</option>
+      <option value="30">Последние 30 дней</option>
+      <option value="90">Последние 90 дней</option>
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <select id="monthSelect" class="form-select form-select-sm">
+      <option value="">По месяцу…</option>
+      <!-- опции за последние 12 месяцев добавятся скриптом ниже -->
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <a class="btn btn-sm btn-outline-success" href="/export">Экспорт пользователей</a>
+  </div>
+
+  <div class="col-auto ms-auto">
+    <form method="post" action="/admin/test-storage-send" class="d-inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Проверить канал</button>
+    </form>
+  </div>
+</form>
+
+<% /* Метрики */ %>
 <div class="d-flex flex-wrap gap-3 mb-4">
-  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
-    <div class="text-muted">Пользователи</div>
-    <div class="h4 mb-0"><%= stats.total_users %></div>
-  </div></div>
-  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
-    <div class="text-muted">Активные сегодня</div>
-    <div class="h4 mb-0"><%= stats.active_today %></div>
-  </div></div>
-  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
-    <div class="text-muted">Загрузки (всего)</div>
-    <div class="h4 mb-0"><%= stats.total_downloads %></div>
-  </div></div>
-  <form method="post" action="/admin/test-storage-send" class="align-self-start">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button class="btn btn-outline-primary mt-2"><i class="bi bi-broadcast"></i> Проверить канал</button>
-  </form>
+  <div class="card card-metric shadow-sm flex-fill">
+    <div class="card-body">
+      <div class="text-muted">Пользователи</div>
+      <div class="h4 mb-0"><%= stats.total_users %></div>
+    </div>
+  </div>
+  <div class="card card-metric shadow-sm flex-fill">
+    <div class="card-body">
+      <div class="text-muted">Активные сегодня</div>
+      <div class="h4 mb-0"><%= stats.active_today %></div>
+    </div>
+  </div>
+  <div class="card card-metric shadow-sm flex-fill">
+    <div class="card-body">
+      <div class="text-muted">Загрузки (всего)</div>
+      <div class="h4 mb-0"><%= stats.total_downloads %></div>
+    </div>
+  </div>
 </div>
 
+<% /* Графики */ %>
 <div class="row g-4">
   <div class="col-12 col-xl-8">
     <div class="card shadow-sm">
       <div class="card-header">Регистрации / Загрузки / Активные</div>
-      <div class="card-body chart-wrap"><canvas id="chartCombined"></canvas></div>
+      <div class="card-body chart-wrap" style="min-height:320px">
+        <div id="combinedEmpty" class="text-center text-muted py-5 d-none">Нет данных за выбранный период</div>
+        <canvas id="chartCombined"></canvas>
+      </div>
     </div>
   </div>
   <div class="col-12 col-xl-4">
     <div class="card shadow-sm mb-4">
       <div class="card-header">Активность по часам</div>
-      <div class="card-body chart-wrap" style="height:280px"><canvas id="chartHours"></canvas></div>
+      <div class="card-body chart-wrap" style="height:280px">
+        <div id="hoursEmpty" class="text-center text-muted py-4 d-none">Нет данных</div>
+        <canvas id="chartHours"></canvas>
+      </div>
     </div>
     <div class="card shadow-sm">
       <div class="card-header">Активность по дням недели</div>
-      <div class="card-body chart-wrap" style="height:280px"><canvas id="chartWeek"></canvas></div>
+      <div class="card-body chart-wrap" style="height:280px">
+        <div id="weekEmpty" class="text-center text-muted py-4 d-none">Нет данных</div>
+        <canvas id="chartWeek"></canvas>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-  const combined = <%- JSON.stringify(chartDataCombined) %>;
-  const byHour = <%- JSON.stringify(chartDataHourActivity) %>;
-  const byWeek = <%- JSON.stringify(chartDataWeekdayActivity) %>;
-  const ctx1 = document.getElementById('chartCombined');
-  if (ctx1) new Chart(ctx1, { type:'line', data: combined, options:{ responsive:true, maintainAspectRatio:false } });
-  const ctx2 = document.getElementById('chartHours');
-  if (ctx2) new Chart(ctx2, { type:'bar', data: byHour, options:{ responsive:true, maintainAspectRatio:false } });
-  const ctx3 = document.getElementById('chartWeek');
-  if (ctx3) new Chart(ctx3, { type:'bar', data: byWeek, options:{ responsive:true, maintainAspectRatio:false } });
+  // ======== Инициализация селекторов периода ========
+  (function initPeriodControls() {
+    const current = String(<%- JSON.stringify(period || '30') %>);
+    const rangeSelect = document.getElementById('rangeSelect');
+    const monthSelect = document.getElementById('monthSelect');
+    const periodInput = document.getElementById('periodInput');
+    const form = document.getElementById('filterForm');
+
+    // Создаём опции месяцев за последние 12 мес в формате YYYY-MM (значение) и "МММ YYYY" (лейбл)
+    const ruMonths = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const opt = document.createElement('option');
+      opt.value = `${y}-${m}`; // то, что ждёт бэкенд
+      opt.textContent = `${ruMonths[d.getMonth()]} ${y}`;
+      monthSelect.appendChild(opt);
+    }
+
+    // Выставляем выбранное состояние из текущего period
+    if (/^\d{4}-\d{2}$/.test(current)) {
+      monthSelect.value = current;
+      rangeSelect.value = '';
+    } else {
+      rangeSelect.value = current; // 7/30/90 или пусто
+      monthSelect.value = '';
+    }
+
+    rangeSelect.addEventListener('change', () => {
+      if (rangeSelect.value) {
+        periodInput.value = rangeSelect.value;
+        monthSelect.value = ''; // сбрасываем месячный выбор
+        form.submit();
+      }
+    });
+
+    monthSelect.addEventListener('change', () => {
+      if (monthSelect.value) {
+        periodInput.value = monthSelect.value;
+        rangeSelect.value = ''; // сбрасываем дневной выбор
+        form.submit();
+      }
+    });
+  })();
+
+  // ======== Данные с бэка ========
+  const combined = <%- JSON.stringify(chartDataCombined || {}) %>;
+  const byHour   = <%- JSON.stringify(chartDataHourActivity || {}) %>;
+  const byWeek   = <%- JSON.stringify(chartDataWeekdayActivity || {}) %>;
+
+  // ======== Хелперы и общие опции ========
+  function isAllZeros(arr) {
+    if (!Array.isArray(arr)) return true;
+    return arr.every(v => (typeof v === 'number' ? v : 0) === 0);
+  }
+
+  const commonOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, position: 'top' },
+      tooltip: { enabled: true }
+    },
+    scales: {
+      x: { ticks: { autoSkip: true, maxTicksLimit: 10 } },
+      y: { beginAtZero: true }
+    }
+  };
+
+  // ======== Комбинированный график ========
+  const elCombined = document.getElementById('chartCombined');
+  const emptyCombined = document.getElementById('combinedEmpty');
+  if (elCombined && combined && Array.isArray(combined.labels)) {
+    const allZero =
+      isAllZeros(combined.datasets?.[0]?.data || []) &&
+      isAllZeros(combined.datasets?.[1]?.data || []) &&
+      isAllZeros(combined.datasets?.[2]?.data || []);
+    if (combined.labels.length === 0 || allZero) {
+      emptyCombined.classList.remove('d-none');
+      elCombined.classList.add('d-none');
+    } else {
+      (combined.datasets || []).forEach(ds => {
+        ds.tension = 0.25;
+        ds.fill = false;
+        ds.pointRadius = 2;
+        ds.borderWidth = 2;
+      });
+      new Chart(elCombined, { type:'line', data: combined, options: commonOpts });
+    }
+  }
+
+  // ======== Активность по часам ========
+  const elHours = document.getElementById('chartHours');
+  const emptyHours = document.getElementById('hoursEmpty');
+  if (elHours && byHour && Array.isArray(byHour.datasets?.[0]?.data)) {
+    if (isAllZeros(byHour.datasets[0].data)) {
+      emptyHours.classList.remove('d-none');
+      elHours.classList.add('d-none');
+    } else {
+      new Chart(elHours, { type:'bar', data: byHour, options: commonOpts });
+    }
+  }
+
+  // ======== Активность по дням недели ========
+  const elWeek = document.getElementById('chartWeek');
+  const emptyWeek = document.getElementById('weekEmpty');
+  if (elWeek && byWeek && Array.isArray(byWeek.datasets?.[0]?.data)) {
+    if (isAllZeros(byWeek.datasets[0].data)) {
+      emptyWeek.classList.remove('d-none');
+      elWeek.classList.add('d-none');
+    } else {
+      new Chart(elWeek, { type:'bar', data: byWeek, options: commonOpts });
+    }
+  }
 </script>
