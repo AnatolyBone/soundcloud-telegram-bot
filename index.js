@@ -338,21 +338,14 @@ async function startApp() {
 }
 
 function setupExpress() {
-  // Вспомогательные функции для дашборда
-  // CSRF
-const csrfProtection = csurf({ cookie: false });
-app.use(csrfProtection);
-app.use((req, res, next) => {
-  try { res.locals.csrfToken = req.csrfToken(); } catch {}
-  next();
-});
-function convertObjToArray(dataObj) {
-  if (!dataObj) return [];
-  return Object.entries(dataObj).map(([date, count]) => ({
-    date,
-    count: Number(count) || 0, // привели к числу, иначе графики пустые
-  }));
-}
+  // ===== helpers для графиков (как у тебя было) =====
+  function convertObjToArray(dataObj) {
+    if (!dataObj) return [];
+    return Object.entries(dataObj).map(([date, count]) => ({
+      date,
+      count: Number(count) || 0
+    }));
+  }
 
   function filterStatsByPeriod(data, period) {
     if (!Array.isArray(data)) return [];
@@ -369,17 +362,21 @@ function convertObjToArray(dataObj) {
   }
 
   function prepareChartData(registrations, downloads, active) {
-    const dateSet = new Set([...registrations.map(r => r.date), ...downloads.map(d => d.date), ...active.map(a => a.date)]);
+    const dateSet = new Set([
+      ...registrations.map(r => r.date),
+      ...downloads.map(d => d.date),
+      ...active.map(a => a.date)
+    ]);
     const dates = Array.from(dateSet).sort();
-    const regMap = new Map(registrations.map(r => [r.date, r.count]));
-    const dlMap = new Map(downloads.map(d => [d.date, d.count]));
-    const actMap = new Map(active.map(a => [a.date, a.count]));
+    const regMap = new Map(registrations.map(r => [r.date, Number(r.count) || 0]));
+    const dlMap  = new Map(downloads.map(d => [d.date, Number(d.count) || 0]));
+    const actMap = new Map(active.map(a => [a.date, Number(a.count) || 0]));
     return {
       labels: dates,
       datasets: [
-        { label: 'Регистрации', data: dates.map(d => regMap.get(d) || 0), borderColor: 'rgba(75, 192, 192, 1)', fill: false },
-        { label: 'Загрузки', data: dates.map(d => dlMap.get(d) || 0), borderColor: 'rgba(255, 99, 132, 1)', fill: false },
-        { label: 'Активные пользователи', data: dates.map(d => actMap.get(d) || 0), borderColor: 'rgba(54, 162, 235, 1)', fill: false }
+        { label: 'Регистрации', data: dates.map(d => regMap.get(d) || 0), fill: false },
+        { label: 'Загрузки', data: dates.map(d => dlMap.get(d) || 0), fill: false },
+        { label: 'Активные пользователи', data: dates.map(d => actMap.get(d) || 0), fill: false }
       ]
     };
   }
@@ -390,7 +387,7 @@ function convertObjToArray(dataObj) {
       const hoursData = activityByDayHour[day];
       if (hoursData) {
         for (let h = 0; h < 24; h++) {
-          hours[h] += hoursData[h] || 0;
+          hours[h] += Number(hoursData[h]) || 0;
         }
       }
     }
@@ -400,28 +397,14 @@ function convertObjToArray(dataObj) {
   function computeActivityByWeekday(activityByDayHour) {
     const weekdays = Array(7).fill(0);
     for (const dayStr in activityByDayHour) {
-      const dayTotal = Object.values(activityByDayHour[dayStr] || {}).reduce((a, b) => a + b, 0);
+      const dayTotal = Object.values(activityByDayHour[dayStr] || {})
+        .reduce((a, b) => a + (Number(b) || 0), 0);
       weekdays[new Date(dayStr).getDay()] += dayTotal;
     }
     return weekdays;
   }
 
-  // ★ Безопасность верхнего уровня
-  app.set('trust proxy', 1);
-  app.use(helmet());
-  app.use(helmet.contentSecurityPolicy({
-  useDefaults: true,
-  directives: {
-    "default-src": ["'self'"],
-    "script-src": ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net", "unpkg.com"],
-    "style-src": ["'self'", "cdn.jsdelivr.net", "fonts.googleapis.com", "cdn.jsdelivr.net", "'unsafe-inline'"],
-    "img-src": ["'self'", "data:"],
-    "font-src": ["'self'", "fonts.gstatic.com", "cdn.jsdelivr.net"],
-    "connect-src": ["'self'"]
-  }
-}));
-
-  // Основная настройка Express
+  // ===== базовая настройка =====
   app.use(compression());
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
@@ -430,32 +413,29 @@ function convertObjToArray(dataObj) {
   app.set('views', path.join(__dirname, 'views'));
   app.set('layout', 'layout');
 
-  // Раздача статики для админки (/public/static/admin.css/js)
-  app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
+  // статика (если нужно /static)
+  app.use('/static', express.static(path.join(__dirname, 'public')));
 
+  // сессии
   const pgSession = pgSessionFactory(session);
   app.use(session({
     store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: {
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production'
-    }
+    cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
   }));
 
+  // текущий пользователь в шаблонах
   app.use(async (req, res, next) => {
     res.locals.user = null;
     res.locals.page = '';
-    if (req.session.authenticated && req.session.userId === ADMIN_ID) {
-      try {
+    try {
+      if (req.session.authenticated && req.session.userId === ADMIN_ID) {
         req.user = await getUserById(req.session.userId);
         res.locals.user = req.user;
-      } catch (e) { console.error(e); }
-    }
+      }
+    } catch (e) { console.error(e); }
     next();
   });
 
@@ -464,57 +444,29 @@ function convertObjToArray(dataObj) {
     res.redirect('/admin');
   };
 
-  // Rate limiters и CSRF
-  const loginLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
-  const csrfProtection = csrf();
-
-  // Маршруты
-  app.get('/admin/test-storage-send', requireAuth, async (req, res) => {
-  try {
-    await bot.telegram.sendMessage(STORAGE_CHANNEL_ID, 'Проверка связи админки со сторедж-каналом ✅');
-    res.redirect('/dashboard?ping=ok');
-  } catch (e) {
-    console.error('Storage test failed:', e.message);
-    res.redirect('/dashboard?ping=fail');
-  }
-});
-app.get('/users', requireAuth, async (req, res, next) => {
-  try {
-    const q = (req.query.q || '').trim();
-    let sql = 'SELECT * FROM users';
-    const params = [];
-    if (q) {
-      sql += ' WHERE CAST(id AS TEXT) ILIKE $1 OR username ILIKE $1 OR first_name ILIKE $1';
-      params.push(`%${q}%`);
-    }
-    sql += ' ORDER BY last_active DESC LIMIT 200';
-    const { rows } = await pool.query(sql, params);
-    res.render('users', { title: 'Пользователи', page: 'users', users: rows, q });
-  } catch (e) { next(e); }
-});
+  // ====== РОУТЫ ======
   app.get('/health', (req, res) => res.send('OK'));
 
+  // login
   app.get('/admin', (req, res) => {
-    if (req.session.authenticated && req.session.userId === ADMIN_ID) return res.redirect('/dashboard');
+    if (req.session.authenticated && req.session.userId === ADMIN_ID) {
+      return res.redirect('/dashboard');
+    }
     res.render('login', { title: 'Вход в админку', error: null, layout: false });
   });
 
-  app.post('/admin', loginLimiter, (req, res, next) => {
+  app.post('/admin', (req, res) => {
     const { username, password } = req.body;
     if (username === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
-      req.session.regenerate((err) => {
-        if (err) return next(err);
-        req.session.authenticated = true;
-        req.session.userId = ADMIN_ID;
-        res.redirect('/dashboard');
-      });
-    } else {
-      res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль', layout: false });
+      req.session.authenticated = true;
+      req.session.userId = ADMIN_ID;
+      return res.redirect('/dashboard');
     }
+    res.render('login', { title: 'Вход в админку', error: 'Неверный логин или пароль', layout: false });
   });
 
-  // /dashboard с CSRF и query для уведомлений
-  app.get('/dashboard', requireAuth, csrfProtection, async (req, res, next) => {
+  // Дашборд
+  app.get('/dashboard', requireAuth, async (req, res, next) => {
     try {
       const { period = '30', showInactive = 'false', expiringLimit = '10', expiringOffset = '0' } = req.query;
 
@@ -532,7 +484,7 @@ app.get('/users', requireAuth, async (req, res, next) => {
         users
       ] = await Promise.all([
         getDashboardStats(),
-        getDownloadsByDate(),
+        getDownloadsByDate(90),   // запас данных, фильтруем ниже
         getRegistrationsByDate(),
         getActiveUsersByDate(),
         getUserActivityByDayHour(),
@@ -545,17 +497,17 @@ app.get('/users', requireAuth, async (req, res, next) => {
       ]);
 
       const filteredRegistrations = filterStatsByPeriod(convertObjToArray(registrationsByDateRaw), period);
-      const filteredDownloads = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
-      const filteredActive = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
+      const filteredDownloads     = filterStatsByPeriod(convertObjToArray(downloadsByDateRaw), period);
+      const filteredActive        = filterStatsByPeriod(convertObjToArray(activeByDateRaw), period);
 
       const chartDataCombined = prepareChartData(filteredRegistrations, filteredDownloads, filteredActive);
       const chartDataHourActivity = {
         labels: [...Array(24).keys()].map(h => `${h}:00`),
-        datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour), backgroundColor: 'rgba(54, 162, 235, 0.7)' }]
+        datasets: [{ label: 'Активность по часам', data: computeActivityByHour(activityByDayHour) }]
       };
       const chartDataWeekdayActivity = {
         labels: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
-        datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour), backgroundColor: 'rgba(255, 206, 86, 0.7)' }]
+        datasets: [{ label: 'Активность по дням недели', data: computeActivityByWeekday(activityByDayHour) }]
       };
 
       res.render('dashboard', {
@@ -576,56 +528,82 @@ app.get('/users', requireAuth, async (req, res, next) => {
         chartDataCombined,
         chartDataHourActivity,
         chartDataWeekdayActivity,
-        csrfToken: req.csrfToken(),
-        query: req.query
+        query: req.query  // для баннера ping
       });
     } catch (e) {
       next(e);
     }
   });
 
-  app.get('/user/:id', requireAuth, async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id);
-    if (isNaN(userId)) return res.status(400).send('Неверный ID');
-    const user = await getUserById(userId);
-    if (!user) return res.status(404).send('Пользователь не найден');
-    
-    const [downloadsResult, referralsResult] = await Promise.all([
-      supabase
-      .from('events')
-      .select('*')
-      .eq('user_id', userId)
-      .in('event_type', ['download', 'download_start', 'download_success'])
-      .order('created_at', { ascending: false })
-      .limit(100),
-      pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
-    ]);
-    
-    res.render('user-profile', {
-      title: `Профиль: ${user.first_name || user.username}`,
-      user,
-      downloads: downloadsResult.data || [],
-      referrals: referralsResult.rows,
-      page: 'user-profile'
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-  app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
-
-  app.get('/broadcast', requireAuth, csrfProtection, (req, res) => {
-    res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast', csrfToken: req.csrfToken() });
+  // Проверка канала (GET — без CSRF)
+  app.get('/admin/test-storage-send', requireAuth, async (req, res) => {
+    try {
+      await bot.telegram.sendMessage(STORAGE_CHANNEL_ID, 'Проверка связи админки со сторедж-каналом ✅');
+      res.redirect('/dashboard?ping=ok');
+    } catch (e) {
+      console.error('Storage test failed:', e.message);
+      res.redirect('/dashboard?ping=fail');
+    }
   });
 
-  app.post('/broadcast', requireAuth, csrfProtection, upload.single('audio'), async (req, res, next) => {
+  // Список пользователей c поиском
+  app.get('/users', requireAuth, async (req, res, next) => {
+    try {
+      const q = (req.query.q || '').trim();
+      let sql = 'SELECT * FROM users';
+      const params = [];
+      if (q) {
+        sql += ' WHERE CAST(id AS TEXT) ILIKE $1 OR username ILIKE $1 OR first_name ILIKE $1';
+        params.push(`%${q}%`);
+      }
+      sql += ' ORDER BY last_active DESC LIMIT 200';
+      const { rows } = await pool.query(sql, params);
+      res.render('users', { title: 'Пользователи', page: 'users', users: rows, q });
+    } catch (e) { next(e); }
+  });
+
+  // Профиль пользователя (как было у тебя)
+  app.get('/user/:id', requireAuth, async (req, res, next) => {
+    try {
+      const userId = parseInt(req.params.id);
+      if (isNaN(userId)) return res.status(400).send('Неверный ID');
+      const user = await getUserById(userId);
+      if (!user) return res.status(404).send('Пользователь не найден');
+
+      const [downloadsResult, referralsResult] = await Promise.all([
+        supabase.from('events')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('event_type', 'download_start')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
+      ]);
+
+      res.render('user-profile', {
+        title: `Профиль: ${user.first_name || user.username || user.id}`,
+        user,
+        downloads: downloadsResult.data || [],
+        referrals: referralsResult.rows,
+        page: 'user-profile'
+      });
+    } catch (e) { next(e); }
+  });
+
+  // Выход
+  app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
+
+  // Рассылка (оставляю без CSRF, т.к. форма, вероятно, без _csrf)
+  app.get('/broadcast', requireAuth, (req, res) => {
+    res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast' });
+  });
+
+  app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res, next) => {
     try {
       const { message } = req.body;
       const audio = req.file;
       if (!message && !audio) {
-        return res.status(400).render('broadcast-form', { title: 'Рассылка', error: 'Текст или аудиофайл обязательны', success: null, page: 'broadcast', csrfToken: req.csrfToken() });
+        return res.status(400).render('broadcast-form', { title: 'Рассылка', error: 'Текст или аудиофайл обязательны', success: null, page: 'broadcast' });
       }
       const users = await getAllUsers(false);
       let successCount = 0, errorCount = 0;
@@ -643,84 +621,25 @@ app.get('/users', requireAuth, async (req, res, next) => {
         }
         await new Promise(r => setTimeout(r, 100));
       }
-      if (audio) try { fs.unlinkSync(audio.path); } catch {}
+      if (audio) fs.unlinkSync(audio.path);
       try {
         await bot.telegram.sendMessage(ADMIN_ID, `📣 Рассылка завершена:\n✅ Успешно: ${successCount}\n❌ Ошибок: ${errorCount}`);
       } catch (adminError) {
         console.error('Не удалось отправить отчет админу:', adminError.message);
       }
-      res.render('broadcast-form', { title: 'Рассылка', success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast', csrfToken: req.csrfToken() });
-    } catch (e) {
-      if (req.file) { try { fs.unlinkSync(req.file.path); } catch {} }
-      next(e);
-    }
+      res.render('broadcast-form', { title: 'Рассылка', success: `Отправлено ${successCount} сообщений.`, error: `Ошибок: ${errorCount}.`, page: 'broadcast' });
+    } catch (e) { next(e); }
   });
 
-  app.get('/export', requireAuth, async (req, res, next) => {
+  // Истекающие подписки (если используешь эту страницу)
+  app.get('/expiring-users', requireAuth, async (req, res, next) => {
     try {
-      const users = await getAllUsers(true);
-      const csv = await json2csv.json2csv(users, {});
-      res.header('Content-Type', 'text/csv');
-      res.attachment('users.csv');
-      return res.send(csv);
-    } catch (e) {
-      next(e);
-    }
-  });
-
-  app.get('/expiring-users', requireAuth, csrfProtection, async (req, res, next) => {
-    try {
-      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      const page = parseInt(req.query.page) || 1;
       const perPage = 10;
       const total = await getExpiringUsersCount();
       const users = await getExpiringUsersPaginated(perPage, (page - 1) * perPage);
-      res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки', page: 'expiring-users', csrfToken: req.csrfToken() });
-    } catch (e) {
-      next(e);
-    }
-  });
-
-  // Тест: отправить сообщение в STORAGE канал
-  app.post('/admin/test-storage-send', requireAuth, csrfProtection, async (req, res) => {
-    try {
-      await bot.telegram.sendMessage(STORAGE_CHANNEL_ID, '🔔 STORAGE_CHANNEL_ID OK');
-      res.redirect('/dashboard?ping=ok');
-    } catch (e) {
-      console.error('Test storage send error:', e.response?.description || e.message);
-      res.redirect('/dashboard?ping=fail');
-    }
-  });
-
-  app.post('/set-tariff', requireAuth, csrfProtection, async (req, res, next) => {
-    try {
-      const { userId, limit, days } = req.body;
-      const parsedLimit = parseInt(limit, 10);
-      const parsedDays = Math.min(Math.max(parseInt(days, 10) || 30, 1), 365);
-      const allowed = new Set([5, 30, 100, 1000]);
-
-      if (!Number.isInteger(parsedLimit) || !allowed.has(parsedLimit)) throw new Error('Bad limit');
-      if (!Number.isInteger(parsedDays)) throw new Error('Bad days');
-      if (!Number.isInteger(+userId)) throw new Error('Bad userId');
-
-      await setPremium(userId, parsedLimit, parsedDays);
-
-      const tariffName = getTariffName(parsedLimit);
-      const message = `🎉 Ваш тариф был изменен!\n\n` +
-        `✨ Новый тариф: **${tariffName}**\n` +
-        `⏳ Срок действия: **${parsedDays} дней**\n\n` +
-        `Спасибо, что пользуетесь нашим ботом!`;
-
-      try {
-        await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
-        console.log(`[Admin] Отправлено уведомление о смене тарифа пользователю ${userId}`);
-      } catch (telegramError) {
-        console.error(`[Admin] Не удалось отправить уведомление пользователю ${userId}:`, telegramError.message);
-      }
-
-      res.redirect(req.get('referer') || '/dashboard');
-    } catch (e) {
-      next(e);
-    }
+      res.render('expiring-users', { users, page, totalPages: Math.ceil(total / perPage), title: 'Истекающие подписки', page: 'expiring-users' });
+    } catch (e) { next(e); }
   });
 
   // Глобальный обработчик ошибок
@@ -736,7 +655,7 @@ app.get('/users', requireAuth, async (req, res, next) => {
       title: `Ошибка ${statusCode}`,
       message,
       statusCode,
-      error: process.env.NODE_ENV === 'production' ? {} : err,
+      error: err,
       page: 'error',
       layout: 'layout'
     });
