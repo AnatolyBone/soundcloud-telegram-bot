@@ -11,7 +11,6 @@ function tariffLabel(limit) {
 function formatDate(s) {
   if (!s) return '-';
   try {
-    // приводим к ISO: заменяем пробел на 'T' и добавляем Z (UTC)
     const iso = String(s).replace(' ', 'T').replace(/Z?$/, 'Z');
     const d = new Date(iso);
     if (isNaN(d)) return '-';
@@ -25,7 +24,9 @@ function formatDate(s) {
 <div class="card shadow-sm">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span>Истекающие подписки</span>
-    <small class="text-muted">Всего: <%= totalPages ? (totalPages * 10) : (users?.length || 0) %></small>
+    <% if (typeof totalPages !== 'undefined') { %>
+      <small class="text-muted">Страниц: <%= totalPages %></small>
+    <% } %>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -41,7 +42,7 @@ function formatDate(s) {
           </tr>
         </thead>
         <tbody>
-          <% if ((users || []).length === 0) { %>
+          <% if (!users || users.length === 0) { %>
             <tr>
               <td colspan="6" class="text-center text-muted py-4">Пока пусто</td>
             </tr>
