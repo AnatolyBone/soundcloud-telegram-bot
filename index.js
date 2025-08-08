@@ -26,7 +26,7 @@ import pgSessionFactory from 'connect-pg-simple';
 // Utils
 import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
-
+import csurf from 'csurf';
 // Database logic
 import {
   pool,
@@ -339,6 +339,13 @@ async function startApp() {
 
 function setupExpress() {
   // Вспомогательные функции для дашборда
+  // CSRF
+const csrfProtection = csurf({ cookie: false });
+app.use(csrfProtection);
+app.use((req, res, next) => {
+  try { res.locals.csrfToken = req.csrfToken(); } catch {}
+  next();
+});
 function convertObjToArray(dataObj) {
   if (!dataObj) return [];
   return Object.entries(dataObj).map(([date, count]) => ({
@@ -462,6 +469,29 @@ function convertObjToArray(dataObj) {
   const csrfProtection = csrf();
 
   // Маршруты
+  app.get('/admin/test-storage-send', requireAuth, async (req, res) => {
+  try {
+    await bot.telegram.sendMessage(STORAGE_CHANNEL_ID, 'Проверка связи админки со сторедж-каналом ✅');
+    res.redirect('/dashboard?ping=ok');
+  } catch (e) {
+    console.error('Storage test failed:', e.message);
+    res.redirect('/dashboard?ping=fail');
+  }
+});
+app.get('/users', requireAuth, async (req, res, next) => {
+  try {
+    const q = (req.query.q || '').trim();
+    let sql = 'SELECT * FROM users';
+    const params = [];
+    if (q) {
+      sql += ' WHERE CAST(id AS TEXT) ILIKE $1 OR username ILIKE $1 OR first_name ILIKE $1';
+      params.push(`%${q}%`);
+    }
+    sql += ' ORDER BY last_active DESC LIMIT 200';
+    const { rows } = await pool.query(sql, params);
+    res.render('users', { title: 'Пользователи', page: 'users', users: rows, q });
+  } catch (e) { next(e); }
+});
   app.get('/health', (req, res) => res.send('OK'));
 
   app.get('/admin', (req, res) => {
