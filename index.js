@@ -71,7 +71,7 @@ const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
 // Даем доступ к Redis другим модулям
-export function getRedisClient() {
+function getRedisClient() {
   if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
   return redisClient;
 }
