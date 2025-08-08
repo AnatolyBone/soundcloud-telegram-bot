@@ -1,0 +1,21 @@
+
+*** Begin Patch
+*** Update File: routes/admin.js
+@@
+-import { loadTexts, allTextsSync, setText } from '../config/texts.js';
++import { loadTexts, allTextsSync, setText } from '../config/texts.js';
++import setupAdminUsers from './admin-users.js';
+@@
+ export default function setupAdmin(opts = {}) {
+@@
+-  // --- Routes ---
++  // --- Routes ---
+@@
+   app.get('/admin/logout', (req, res) => {
+     req.session = null;
+     res.redirect('/admin/login');
+   });
++
++  // Mount users pages
++  setupAdminUsers(app);
+*** End Patch

@@ -1,0 +1,60 @@
+
+*** Begin Patch
+*** Update File: db.js
+@@
+ import json2csv from 'json-2-csv';
+ const { json2csvAsync } = json2csv;
++
++// ------- Users list helpers (pagination/sorting/filtering) -------
++// Safe whitelist for sorting
++const USER_SORT_WHITELIST = new Set([
++  'id', 'username', 'first_name', 'created_at', 'last_active',
++  'premium_until', 'premium_limit', 'total_downloads'
++]);
++
++/**
++ * Returns { rows, total } of users for admin list.
++ * @param {Object} opts
++ * @param {string} [opts.q]
++ * @param {string} [opts.sort='created_at']
++ * @param {'asc'|'desc'} [opts.order='desc']
++ * @param {number} [opts.limit=20]
++ * @param {number} [opts.offset=0]
++ */
++export async function getUsersPaginated(opts = {}) {
++  let { q, sort = 'created_at', order = 'desc', limit = 20, offset = 0 } = opts;
++  sort = USER_SORT_WHITELIST.has(sort) ? sort : 'created_at';
++  order = String(order).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
++  limit = Math.max(1, Math.min(100, Number(limit) || 20));
++  offset = Math.max(0, Number(offset) || 0);
++
++  const params = [];
++  let where = 'WHERE TRUE';
++  if (q) {
++    const safe = q.replace(/[%_]/g, '');
++    params.push(`%${safe}%`);
++    where += ` AND (CAST(id AS TEXT) ILIKE $${params.length}
++                 OR COALESCE(username,'') ILIKE $${params.length}
++                 OR COALESCE(first_name,'') ILIKE $${params.length})`;
++  }
++
++  const sql = `SELECT id, first_name, username, created_at, last_active,
++                      premium_until, premium_limit, total_downloads
++               FROM users
++               ${where}
++               ORDER BY ${sort} ${order}
++               LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
++  const countSql = `SELECT COUNT(*)::int AS c FROM users ${where}`;
++
++  const { rows } = await query(sql, [...params, limit, offset]);
++  const { rows: cnt } = await query(countSql, params);
++  const total = cnt[0]?.c ?? 0;
++  return { rows, total };
++}
++
++export async function getUsersCSV(opts = {}) {
++  const { rows } = await getUsersPaginated({ ...opts, limit: 10000, offset: 0 });
++  const csv = await json2csvAsync(rows);
++  return csv;
++}
+*** End Patch

@@ -1,0 +1,39 @@
+
+*** Begin Patch
+*** Update File: index.js
+@@
+-// ===== Telegram =====
+-import { Telegraf, Markup } from 'telegraf';
++// ===== Telegram =====
++import { Telegraf, Markup } from 'telegraf';
+@@
+-// === Bot ===
++// === Bot ===
+@@
+-  const bot = new Telegraf(BOT_TOKEN, { handlerTimeout: 9_000 });
++  const bot = new Telegraf(BOT_TOKEN, { handlerTimeout: 9_000 });
++
++  // ---------- DEFAULT parse_mode=HTML for all replies/edits ----------
++  // So formatting works everywhere without duplicating options.
++  bot.use(async (ctx, next) => {
++    // Patch reply
++    if (ctx.reply) {
++      const origReply = ctx.reply.bind(ctx);
++      ctx.reply = (text, extra = {}) => {
++        // do not override if explicitly provided
++        const opts = { parse_mode: 'HTML', ...extra };
++        return origReply(text, opts);
++      };
++    }
++    // Patch editMessageText (available in callback queries)
++    if (ctx.editMessageText) {
++      const origEdit = ctx.editMessageText.bind(ctx);
++      ctx.editMessageText = (text, extra = {}) => {
++        const opts = { parse_mode: 'HTML', ...extra };
++        return origEdit(text, opts);
++      };
++    }
++    return next();
++  });
++  // -------------------------------------------------------------------
+*** End Patch
