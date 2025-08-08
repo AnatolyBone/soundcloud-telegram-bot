@@ -27,8 +27,31 @@ function formatDate(s) {
         <div class="mb-2"><span class="text-muted">Имя:</span> <strong><%= user.first_name || '-' %></strong></div>
         <div class="mb-2"><span class="text-muted">Username:</span> <strong><%= user.username ? '@'+user.username : '-' %></strong></div>
         <div class="mb-2"><span class="text-muted">Тариф:</span> <strong><%= user.premium_limit %></strong></div>
-        <div class="mb-2"><span class="text-muted">Действует до:</span> <strong><%= user.premium_until ? new Date(String(user.premium_until).replace(' ','T')+'Z').toLocaleDateString('ru-RU') : '-' %></strong></div>
-        <a class="btn btn-sm btn-outline-primary mt-2" href="/dashboard">← Назад</a>
+        <div class="mb-2"><span class="text-muted">Действует до:</span> 
+          <strong><%= user.premium_until ? formatDate(user.premium_until) : '-' %></strong>
+        </div>
+
+        <form class="mt-3" method="POST" action="/set-tariff">
+          <input type="hidden" name="userId" value="<%= user.id %>">
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Лимит</label>
+              <select class="form-select" name="limit" required>
+                <option value="5" <%= user.premium_limit<=10 ? 'selected' : '' %>>Free (5/д)</option>
+                <option value="30" <%= user.premium_limit===30 ? 'selected' : '' %>>Plus (30/д)</option>
+                <option value="100" <%= user.premium_limit===100 ? 'selected' : '' %>>Pro (100/д)</option>
+                <option value="1000" <%= user.premium_limit>=1000 ? 'selected' : '' %>>Unlimited</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Дней</label>
+              <input class="form-control" type="number" name="days" min="1" value="30">
+            </div>
+          </div>
+          <button class="btn btn-outline-primary mt-3" type="submit">Изменить тариф</button>
+        </form>
+
+        <a class="btn btn-sm btn-outline-secondary mt-3" href="/dashboard">← Назад</a>
       </div>
     </div>
   </div>
