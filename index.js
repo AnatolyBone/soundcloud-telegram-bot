@@ -597,7 +597,15 @@ function setupExpress() {
   app.get('/broadcast', requireAuth, (req, res) => {
     res.render('broadcast-form', { title: 'Рассылка', error: null, success: null, page: 'broadcast' });
   });
-
+app.post('/user/:id/set-tariff', requireAuth, async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const limit = parseInt(req.body.premium_limit);
+    if (!limit || isNaN(limit)) return res.status(400).send('Некорректный лимит');
+    await updateUserField(userId, 'premium_limit', limit);
+    res.redirect(`/user/${userId}`);
+  } catch (e) { next(e); }
+});
   app.post('/broadcast', requireAuth, upload.single('audio'), async (req, res, next) => {
     try {
       const { message } = req.body;
