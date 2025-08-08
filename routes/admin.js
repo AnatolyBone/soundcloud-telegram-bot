@@ -91,7 +91,7 @@ export default function setupAdmin(opts = {}) {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
 
-  // Подключаем страницу пользователей
+  // Подключаем список пользователей (пагинация/CSV/тарифы)
   setupAdminUsers(app);
 
   // Dashboard
@@ -240,7 +240,7 @@ export default function setupAdmin(opts = {}) {
     }
   });
 
-  // --- Рассылка (без EJS), простая массовая отправка текста
+  // --- Рассылка (без EJS) ---
   app.get('/admin/broadcast', requireAdmin, (_req, res) => {
     res.send(`<!doctype html><html lang="ru"><head>
       <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -283,31 +283,31 @@ export default function setupAdmin(opts = {}) {
     if (!bot) return res.status(500).send('Бот недоступен для рассылки.');
     const text = String(req.body?.message ?? '').trim();
     const onlyActive = !!req.body?.only_active;
-    if (!text) return res.status(400).send('Пустое сообщение.');
+    if (!text) return res.status(400).send('Пустое сообщение. <a href="/admin/broadcast">Назад</a>');
 
     try {
-      // Берём пользователей через Supabase: так быстрее и без памяти
       let q = supabase.from('users').select('id, active', { count: 'exact' });
-      if (onlyActive) q = q.eq('active', true);
-      const { data: users, error } = await q.limit(50000); // защитный лимит
+      const { data: users, error } = await q.limit(50000);
       if (error) throw error;
 
+      let list = users || [];
+      if (onlyActive) list = list.filter(u => u.active);
+
       let sent = 0, failed = 0;
-      for (const u of users) {
+      for (const u of list) {
         try {
           await bot.telegram.sendMessage(u.id, text, { parse_mode: 'HTML' });
           sent++;
         } catch (e) {
           failed++;
-          // 403 — бот заблокирован; пометим неактивным
           if (e?.response?.error_code === 403) {
             await supabase.from('users').update({ active: false }).eq('id', u.id);
           }
         }
-        // лёгкий троттлинг чтобы не словить лимиты Telegram
-        await new Promise(r => setTimeout(r, 35));
+        await new Promise(r => setTimeout(r, 35)); // троттлинг
       }
-      res.send(`<!doctype html><meta charset="utf-8"><p>Готово: отправлено ${sent}, ошибок ${failed}. <a href="/dashboard">Назад</a></p>`);
+      res.send(`<!doctype html><meta charset="utf-8">
+        Готово: отправлено ${sent}, ошибок ${failed}. <a href="/dashboard">Назад</a>`);
     } catch (e) {
       console.error('[admin/broadcast] error:', e);
       res.status(500).send('Ошибка рассылки: ' + (e.message || e));
