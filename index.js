@@ -555,32 +555,34 @@ function convertObjToArray(dataObj) {
   });
 
   app.get('/user/:id', requireAuth, async (req, res, next) => {
-    try {
-      const userId = parseInt(req.params.id);
-      if (isNaN(userId)) return res.status(400).send('Неверный ID');
-      const user = await getUserById(userId);
-      if (!user) return res.status(404).send('Пользователь не найден');
-      const [downloadsResult, referralsResult] = await Promise.all([
-  supabase
-  .from('events')
-  .select('*')
-  .eq('user_id', userId)
-  .in('event_type', ['download', 'download_start', 'download_success'])
-  .order('created_at', { ascending: false })
-  .limit(100),
-  pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
-]);
-      res.render('user-profile', {
-        title: `Профиль: ${user.first_name || user.username}`,
-        user,
-        downloads: downloadsResult.data || [],
-        referrals: referralsResult.rows,
-        page: 'user-profile'
-      });
-    } catch (e) {
-      next(e);
-    }
-  });
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).send('Неверный ID');
+    const user = await getUserById(userId);
+    if (!user) return res.status(404).send('Пользователь не найден');
+    
+    const [downloadsResult, referralsResult] = await Promise.all([
+      supabase
+      .from('events')
+      .select('*')
+      .eq('user_id', userId)
+      .in('event_type', ['download', 'download_start', 'download_success'])
+      .order('created_at', { ascending: false })
+      .limit(100),
+      pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
+    ]);
+    
+    res.render('user-profile', {
+      title: `Профиль: ${user.first_name || user.username}`,
+      user,
+      downloads: downloadsResult.data || [],
+      referrals: referralsResult.rows,
+      page: 'user-profile'
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 
   app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/admin')); });
 
@@ -854,14 +856,12 @@ ${refLink}
       }
       for (let i = 0; i < validTracks.length; i += 5) {
         const chunk = validTracks.slice(i, i + 5);
-      await ctx.replyWithMediaGroup(
+     await ctx.replyWithMediaGroup(
   chunk.map(track => ({
     type: 'audio',
     media: track.fileId,
-    // Эти поля Telegram может проигнорить для file_id:
     title: track.title || 'Без названия',
     performer: track.performer || 'SoundCloud',
-    // А подпись точно покажет текст пользователю
     caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
   }))
 );
