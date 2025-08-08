@@ -18,12 +18,15 @@ import { createClient } from 'redis';
 // ===== yt-dlp exec wrapper =====
 import ytdl from 'youtube-dl-exec';
 
-// ===== Админка (вынесена в модуль) =====
+// ===== Админка =====
 import setupAdmin from './routes/admin.js';
+
+// ===== Тексты (из БД) =====
+import { loadTexts, T } from './config/texts.js';
 
 // ===== БД/Логика =====
 import {
-  supabase,          // для индексатора (track_cache)
+  supabase,          // нужен для индексатора
   getUser,
   updateUserField,
   setPremium,
@@ -33,17 +36,14 @@ import {
   findCachedTrack,
 } from './db.js';
 
-// ===== Тексты из БД =====
-import { loadTexts, T } from './config/texts.js';
-
-// ===== Очередь/уведомления =====
+// ВАЖНО: импорт ниже оставляем, он использует bot/getRedisClient во время работы, а не при загрузке модуля
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
 
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;       // напр.: https://yourapp.onrender.com
+const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://yourapp.onrender.com
 const WEBHOOK_PATH = '/telegram';                   // путь вебхука (должен совпадать с Render)
 const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
@@ -61,8 +61,7 @@ const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
 const app = express();
-// важно для работы за 1 прокси и чтобы rate-limit не ругался
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); // важное для реального клиента IP за 1-м прокси (Render/Cloudflare и др.)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,7 +69,7 @@ const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
-// Даем доступ к Redis другим модулям
+// Доступно из других модулей
 function getRedisClient() {
   if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
   return redisClient;
@@ -127,9 +126,6 @@ const isSubscribed = async (userId, channelUsername) => {
   }
 };
 
-const kb = () =>
-  Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
-
 function formatMenuMessage(user, ctx) {
   const tariffLabel = getTariffName(user.premium_limit);
   const downloadsToday = user.downloads_today || 0;
@@ -163,9 +159,8 @@ ${refLink}
 // ==========================
 // Индексатор (кооперативный)
 // ==========================
-
 async function getUrlsToIndex() {
-  // Берем URL'ы из track_cache, где ещё нет file_id
+  // Берём URL'ы из track_cache, где ещё нет file_id
   try {
     const { data, error } = await supabase
       .from('track_cache')
@@ -265,7 +260,6 @@ async function startIndexer() {
     if (shuttingDown) return;
 
     try {
-      // Если у пользователей идут загрузки — даём приоритет
       if (downloadQueue?.active > 0) {
         console.log('[Indexer] В работе есть задания пользователей. Пауза 2 мин.');
         return setTimeout(tick, 2 * 60 * 1000);
@@ -297,6 +291,11 @@ async function startIndexer() {
 // ==================
 // Телеграм-бот
 // ==================
+function kb() {
+  // Тексты берём из T(), чтобы можно было править в базе
+  return Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
+}
+
 function setupTelegramBot() {
   const handleSendMessageError = async (error, userId) => {
     if (error.response?.error_code === 403) {
@@ -366,6 +365,7 @@ function setupTelegramBot() {
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
+  // Триггеры берём из T() (значения уже загружены до регистрации хендлеров)
   bot.hears(T('menu'), async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
@@ -411,44 +411,6 @@ function setupTelegramBot() {
     catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    try {
-      const users = await getAllUsers(true);
-      const totalUsers = users.length;
-      const activeUsers = users.filter(u => u.active).length;
-      const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-      const now = new Date();
-      const activeToday = users.filter(u =>
-        u.last_active && new Date(u.last_active).toDateString() === now.toDateString()
-      ).length;
-
-      const dashboardUrl = `${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`;
-
-      const message = `
-📊 <b>Статистика Бота</b>
-
-👤 <b>Пользователи:</b>
-   • Всего: <i>${totalUsers}</i>
-   • Активных всего: <i>${activeUsers}</i>
-   • Активных сегодня: <i>${activeToday}</i>
-
-📥 <b>Загрузки:</b>
-   • Всего: <i>${totalDownloads}</i>
-
-⚙️ <b>Очередь:</b>
-   • В работе: <i>${downloadQueue.active}</i>
-   • В ожидании: <i>${downloadQueue.size}</i>
-
-🔗 <a href="${dashboardUrl}">Открыть админ-панель</a>`.trim();
-
-      await ctx.replyWithHTML(message);
-    } catch (e) {
-      console.error('❌ Ошибка в /admin:', e);
-      try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-    }
-  });
-
   bot.on('text', async (ctx) => {
     try {
       const url = extractUrl(ctx.message.text);
@@ -466,6 +428,9 @@ function setupTelegramBot() {
 // =========== Запуск приложения ===========
 async function startApp() {
   try {
+    // Подгружаем тексты из БД до регистрации хендлеров
+    await loadTexts();
+
     // Redis
     const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
     client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
@@ -474,9 +439,6 @@ async function startApp() {
     console.log('✅ Redis подключён');
 
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-
-    // Загрузим тексты из БД (кэшируются)
-    await loadTexts(true);
 
     // Админка (всё внутри routes/admin.js)
     setupAdmin({
@@ -505,7 +467,8 @@ async function startApp() {
         windowMs: 60 * 1000,
         max: 120,
         standardHeaders: true,
-        legacyHeaders: false
+        legacyHeaders: false,
+        trustProxy: true, // явно разрешаем доверять XFF при app.set('trust proxy', 1)
       });
       app.use(WEBHOOK_PATH, webhookLimiter);
 
@@ -546,5 +509,5 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// экспортируем, чтобы импортировали другие модули
+// Экспорт для других модулей
 export { app, bot, getRedisClient };
