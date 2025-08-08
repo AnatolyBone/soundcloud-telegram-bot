@@ -72,11 +72,17 @@ bot.use(async (ctx, next) => {
   return next();
 });
 // -------------------------------------------------------------------
+// сразу после: const app = express();
 const app = express();
-app.set('trust proxy', 1); // важное для реального клиента IP за 1-м прокси (Render/Cloudflare и др.)
+app.set('trust proxy', 1);
+app.use(express.json()); // ← ДОБАВЬ ЭТО
 
+// после вычисления __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// раздача /static/*
+app.use('/static', express.static(path.join(__dirname, 'public', 'static'))); // ← ДОБАВЬ ЭТО
 
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
