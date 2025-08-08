@@ -871,7 +871,7 @@ ${refLink}
     }
   });
 
- bot.hears(texts.mytracks, async (ctx) => {
+bot.hears(texts.mytracks, async (ctx) => {
   try {
     const user = ctx.state.user || await getUser(ctx.from.id);
     let tracks = [];
@@ -886,16 +886,11 @@ ${refLink}
       return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
     }
     
+    // ВАЖНО: НЕ передаем title/caption, чтобы не было дублирования
     for (let i = 0; i < validTracks.length; i += 5) {
       const chunk = validTracks.slice(i, i + 5);
       await ctx.replyWithMediaGroup(
-        chunk.map(track => ({
-          type: 'audio',
-          media: track.fileId,
-          title: track.title || 'Без названия',
-          performer: track.performer || 'SoundCloud',
-          caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
-        }))
+        chunk.map(track => ({ type: 'audio', media: track.fileId }))
       );
     }
   } catch (err) {
