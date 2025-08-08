@@ -5,7 +5,7 @@
   </div>
 <% } %>
 
-<% /* Панель фильтров и быстрых действий */ %>
+<% /* Панель фильтров (GET) */ %>
 <form id="filterForm" class="row g-2 align-items-end mb-3" method="get" action="/dashboard">
   <input type="hidden" id="periodInput" name="period" value="<%= period || '30' %>">
 
@@ -25,20 +25,19 @@
   <div class="col-auto">
     <select id="monthSelect" class="form-select form-select-sm">
       <option value="">По месяцу…</option>
-      <!-- опции за последние 12 месяцев добавятся скриптом ниже -->
+      <!-- опции за 12 мес добавит скрипт -->
     </select>
   </div>
 
   <div class="col-auto">
     <a class="btn btn-sm btn-outline-success" href="/export">Экспорт пользователей</a>
   </div>
+</form>
 
-  <div class="col-auto ms-auto">
-    <form method="post" action="/admin/test-storage-send" class="d-inline">
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Проверить канал</button>
-    </form>
-  </div>
+<% /* Отдельная POST-форма для проверки канала (НЕ вложенная) */ %>
+<form method="post" action="/admin/test-storage-send" class="mb-3">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+  <button class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Проверить канал</button>
 </form>
 
 <% /* Метрики */ %>
@@ -93,7 +92,7 @@
 </div>
 
 <script>
-  // ======== Инициализация селекторов периода ========
+  // ===== Инициализация селекторов периода =====
   (function initPeriodControls() {
     const current = String(<%- JSON.stringify(period || '30') %>);
     const rangeSelect = document.getElementById('rangeSelect');
@@ -101,7 +100,6 @@
     const periodInput = document.getElementById('periodInput');
     const form = document.getElementById('filterForm');
 
-    // Создаём опции месяцев за последние 12 мес в формате YYYY-MM (значение) и "МММ YYYY" (лейбл)
     const ruMonths = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
     const now = new Date();
     for (let i = 0; i < 12; i++) {
@@ -109,24 +107,23 @@
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const opt = document.createElement('option');
-      opt.value = `${y}-${m}`; // то, что ждёт бэкенд
+      opt.value = `${y}-${m}`;
       opt.textContent = `${ruMonths[d.getMonth()]} ${y}`;
       monthSelect.appendChild(opt);
     }
 
-    // Выставляем выбранное состояние из текущего period
     if (/^\d{4}-\d{2}$/.test(current)) {
       monthSelect.value = current;
       rangeSelect.value = '';
     } else {
-      rangeSelect.value = current; // 7/30/90 или пусто
+      rangeSelect.value = current;
       monthSelect.value = '';
     }
 
     rangeSelect.addEventListener('change', () => {
       if (rangeSelect.value) {
         periodInput.value = rangeSelect.value;
-        monthSelect.value = ''; // сбрасываем месячный выбор
+        monthSelect.value = '';
         form.submit();
       }
     });
@@ -134,18 +131,17 @@
     monthSelect.addEventListener('change', () => {
       if (monthSelect.value) {
         periodInput.value = monthSelect.value;
-        rangeSelect.value = ''; // сбрасываем дневной выбор
+        rangeSelect.value = '';
         form.submit();
       }
     });
   })();
 
-  // ======== Данные с бэка ========
+  // ===== Данные с бэка =====
   const combined = <%- JSON.stringify(chartDataCombined || {}) %>;
   const byHour   = <%- JSON.stringify(chartDataHourActivity || {}) %>;
   const byWeek   = <%- JSON.stringify(chartDataWeekdayActivity || {}) %>;
 
-  // ======== Хелперы и общие опции ========
   function isAllZeros(arr) {
     if (!Array.isArray(arr)) return true;
     return arr.every(v => (typeof v === 'number' ? v : 0) === 0);
@@ -165,7 +161,7 @@
     }
   };
 
-  // ======== Комбинированный график ========
+  // Комбинированный
   const elCombined = document.getElementById('chartCombined');
   const emptyCombined = document.getElementById('combinedEmpty');
   if (elCombined && combined && Array.isArray(combined.labels)) {
@@ -187,7 +183,7 @@
     }
   }
 
-  // ======== Активность по часам ========
+  // По часам
   const elHours = document.getElementById('chartHours');
   const emptyHours = document.getElementById('hoursEmpty');
   if (elHours && byHour && Array.isArray(byHour.datasets?.[0]?.data)) {
@@ -199,7 +195,7 @@
     }
   }
 
-  // ======== Активность по дням недели ========
+  // По дням недели
   const elWeek = document.getElementById('chartWeek');
   const emptyWeek = document.getElementById('weekEmpty');
   if (elWeek && byWeek && Array.isArray(byWeek.datasets?.[0]?.data)) {
