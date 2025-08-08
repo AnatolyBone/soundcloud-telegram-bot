@@ -35,9 +35,7 @@ export default function setupAdminUsers(app) {
 
       if (orFilter) query = query.or(orFilter);
 
-      query = query
-        .order(sort, { ascending: asc, nullsFirst: false })
-        .range(from, to);
+      query = query.order(sort, { ascending: asc, nullsFirst: false }).range(from, to);
 
       const { data: rows, count: total, error } = await query;
       if (error) throw error;
