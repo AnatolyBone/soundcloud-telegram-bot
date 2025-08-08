@@ -7,6 +7,7 @@ import RedisStore from 'connect-redis';
 
 import { getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
+import setupAdminUsers from './admin-users.js'; // ← добавили импорт страницы пользователей
 
 export default function setupAdmin(opts = {}) {
   const {
@@ -19,8 +20,9 @@ export default function setupAdmin(opts = {}) {
 
   if (!app) throw new Error('setupAdmin: app is required');
 
-  // --- Body parsing for forms
+  // --- Body parsing for forms/JSON
   app.use(express.urlencoded({ extended: true }));
+  app.use(express.json());
 
   // --- Sessions: RedisStore если есть redis-клиент, иначе MemoryStore
   const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
@@ -129,6 +131,9 @@ export default function setupAdmin(opts = {}) {
   app.post('/admin/logout', requireAdmin, (req, res) => {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
+
+  // ←←← ПОДКЛЮЧАЕМ СТРАНИЦУ ПОЛЬЗОВАТЕЛЕЙ РОВНО ОДИН РАЗ
+  setupAdminUsers(app);
 
   // Dashboard
   app.get('/dashboard', requireAdmin, async (req, res) => {
