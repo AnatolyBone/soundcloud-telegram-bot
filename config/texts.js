@@ -9,7 +9,8 @@ const defaults = {
   help: 'ℹ️ Помощь',
   error: '❌ Ошибка',
   noTracks: 'Сегодня нет треков.',
-  limitReached: '🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.',
+  limitReached:
+    '🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.',
   upgradeInfo:
     '🚀 Обновленные тарифы!\n\n🆓 Free — 5 треков/день\n🎯 Plus — 30 треков/день — 119₽/мес\n💪 Pro — 100 треков/день, плейлисты — 199₽/мес\n💎 Unlimited — безлимит — 299₽/мес\n\n👉 Покупка: https://boosty.to/anatoly_bone/donate\n✉️ После оплаты: @anatolybone\n📣 Новости: @SCM_BLOG',
   helpInfo:
@@ -18,7 +19,7 @@ const defaults = {
 
 let cache = { ...defaults };
 let lastLoad = 0;
-const TTL_MS = 60 * 1000; // раз в минуту можно обновлять кэш
+const TTL_MS = 60 * 1000; // обновляем кэш не чаще раза в минуту
 
 export async function loadTexts(force = false) {
   const now = Date.now();
@@ -29,17 +30,18 @@ export async function loadTexts(force = false) {
     console.error('[texts] Ошибка загрузки из Supabase:', error.message);
     return cache;
   }
+
   const map = { ...defaults };
   for (const row of data || []) {
     if (row?.key && typeof row.value === 'string') map[row.key] = row.value;
   }
+
   cache = map;
   lastLoad = now;
   return cache;
 }
 
 export function T(key) {
-  // sync доступ к кэшу (если нужно, снаружи вызывай loadTexts() периодически)
   return cache[key] ?? defaults[key] ?? '';
 }
 
@@ -54,6 +56,6 @@ export async function setText(key, value) {
     .upsert({ key, value }, { onConflict: 'key' });
   if (error) throw new Error(error.message);
   cache[key] = value;
-  lastLoad = 0; // чтобы следующая loadTexts обновила из БД при необходимости
+  lastLoad = 0;
   return true;
 }
