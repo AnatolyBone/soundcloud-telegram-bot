@@ -1,19 +1,23 @@
-<h1>Рассылка</h1>
-
-<% if (error) { %>
-  <div class="alert alert-danger"><%= error %></div>
-<% } %>
-
-<form action="/broadcast" method="POST" enctype="multipart/form-data">
-  <div class="mb-3">
-    <label for="message" class="form-label">Сообщение (текст)</label>
-    <textarea name="message" id="message" rows="4" class="form-control"></textarea>
+<div class="card shadow-sm">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span>Рассылка</span>
+    <a href="/dashboard" class="btn btn-sm btn-outline-secondary">Назад</a>
   </div>
-
-  <div class="mb-3">
-    <label for="audio" class="form-label">Аудио (mp3)</label>
-    <input type="file" name="audio" id="audio" accept="audio/*" class="form-control" />
+  <div class="card-body">
+    <% if (error) { %><div class="alert alert-danger" data-autohide><%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success" data-autohide><%= success %></div><% } %>
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="mb-3">
+        <label class="form-label">Текст сообщения</label>
+        <textarea name="message" class="form-control" rows="4" placeholder="Сообщение для пользователей..."></textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Аудио-файл (опционально)</label>
+        <input type="file" name="audio" accept="audio/*" class="form-control" />
+        <div class="form-text">Не более 20 МБ</div>
+      </div>
+      <button class="btn btn-primary"><i class="bi bi-send"></i> Отправить</button>
+    </form>
   </div>
-
-  <button type="submit" class="btn btn-primary">Отправить</button>
-</form>
+</div>
