@@ -244,7 +244,6 @@ export async function getRegistrationsByDate() {
 }
 
 export async function getDownloadsByDate(days = 30) {
-  // Берём события по типу загрузки за последние N дней и считаем по датам
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const { data, error } = await supabase
     .from('events')
@@ -252,21 +251,28 @@ export async function getDownloadsByDate(days = 30) {
     .gte('created_at', since)
     .in('event_type', ['download', 'download_start', 'download_success']);
   
-  if (error) {
-    console.error('❌ Ошибка Supabase в getDownloadsByDate:', error.message);
-    return {};
+  let byDate = {};
+  if (!error && Array.isArray(data) && data.length) {
+    for (const ev of data) {
+      const d = new Date(String(ev.created_at).replace(' ', 'T').replace(/Z?$/, 'Z'));
+      if (isNaN(d)) continue;
+      const key = d.toISOString().slice(0, 10);
+      byDate[key] = (byDate[key] || 0) + 1;
+    }
+    return byDate;
   }
   
-  const byDate = {};
-  for (const ev of data || []) {
-    const d = new Date(String(ev.created_at).replace(' ', 'T').replace(/Z?$/, 'Z'));
-    if (isNaN(d)) continue;
-    const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
-    byDate[key] = (byDate[key] || 0) + 1;
-  }
-  return byDate; // { '2025-08-08': 12, ... }
+  // Фолбэк на Postgres по users.downloads_today
+  const { rows } = await pool.query(`
+    SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
+    FROM users
+    WHERE last_reset_date >= CURRENT_DATE - INTERVAL '${days} days'
+    GROUP BY date ORDER BY date
+  `);
+  byDate = {};
+  for (const r of rows) byDate[r.date] = Number(r.count) || 0;
+  return byDate;
 }
-
 export async function getActiveUsersByDate() {
   const { rows } = await query(`SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(DISTINCT id) as count FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '30 days' GROUP BY date ORDER BY date`);
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
