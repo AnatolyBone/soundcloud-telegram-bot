@@ -5,11 +5,11 @@ import { loadTexts, allTextsSync, setText } from '../config/texts.js';
 export default function setupTextsAdmin({ app, requireAuth }) {
   const router = express.Router();
 
-  // список/форма
+  // форма редактирования
   router.get('/', requireAuth, async (req, res) => {
     await loadTexts(true);
     const data = allTextsSync();
-    // Простой HTML без отдельного шаблона (чтобы не трогать views)
+
     res.send(`<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"/>
