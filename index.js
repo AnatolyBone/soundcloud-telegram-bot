@@ -220,26 +220,23 @@ async function processUrlForIndexing(url) {
     const uploader = info.uploader || 'SoundCloud';
     tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
 
-    await ytdl(url, {
-      output: tempFilePath,
-      extractAudio: true,
-      audioFormat: 'mp3',
-      embedMetadata: true,
-      'no-playlist': true,
-      postprocessorArgs: [
-        '-metadata', `artist=${uploader}`,
-        '-metadata', `title=${trackName}`
-      ],
-    });
+    await ytdl(targetUrl, {
+  output: tempFilePath,
+  extractAudio: true,
+  audioFormat: 'mp3',
+  addMetadata: true,
+  embedMetadata: true,
+  'no-playlist': true,
+});
 
     const fileExists = await fs.promises.access(tempFilePath).then(() => true).catch(() => false);
     if (!fileExists) throw new Error('Файл не создан');
 
     const message = await bot.telegram.sendAudio(
-      STORAGE_CHANNEL_ID,
-      { source: fs.createReadStream(tempFilePath) },
-      { title: trackName, performer: uploader }
-    );
+  STORAGE_CHANNEL_ID,
+  { source: fs.createReadStream(tempFilePath) },
+  { title: trackName, performer: uploader }
+);
 
     if (message?.audio?.file_id) {
       await cacheTrack(url, message.audio.file_id, trackName);
@@ -857,7 +854,17 @@ ${refLink}
       }
       for (let i = 0; i < validTracks.length; i += 5) {
         const chunk = validTracks.slice(i, i + 5);
-        await ctx.replyWithMediaGroup(chunk.map(track => ({ type: 'audio', media: track.fileId, title: track.title })));
+      await ctx.replyWithMediaGroup(
+  chunk.map(track => ({
+    type: 'audio',
+    media: track.fileId,
+    // Эти поля Telegram может проигнорить для file_id:
+    title: track.title || 'Без названия',
+    performer: track.performer || 'SoundCloud',
+    // А подпись точно покажет текст пользователю
+    caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
+  }))
+);
       }
     } catch (err) {
       console.error('Ошибка в /mytracks:', err);
