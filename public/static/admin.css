@@ -1,0 +1,7 @@
+:root { --bs-body-bg:#f7f8fa; --bs-card-border-color:#e5e7eb; }
+[data-theme="dark"] { color-scheme:dark; --bs-body-bg:#0f1115; --bs-body-color:#e5e7eb; --bs-card-bg:#151821; --bs-border-color:#232635; }
+.bg-body{ background-color:var(--bs-body-bg)!important; }
+.card{ border-color:var(--bs-card-border-color); }
+.card-metric{ min-width:220px; }
+.chart-wrap{ position:relative; height:340px; }
+.table thead th{ white-space:nowrap; }
