@@ -8,7 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link href="/static/admin.css" rel="stylesheet">
 
-  <!-- Chart.js теперь загружается в head -->
+  <!-- Chart.js ДОЛЖЕН грузиться в <head>, чтобы inline-инициализация в dashboard.ejs работала -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-body">
@@ -25,6 +25,7 @@
           <li class="nav-item"><a class="nav-link <%= page==='expiring-users'?'active':'' %>" href="/expiring-users">Истекающие</a></li>
         </ul>
         <div class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-success" href="/export">Экспорт пользователей</a>
           <button id="themeToggle" class="btn btn-sm btn-outline-secondary" type="button"><i class="bi bi-moon"></i></button>
           <a class="btn btn-sm btn-outline-danger" href="/logout">Выход</a>
         </div>
