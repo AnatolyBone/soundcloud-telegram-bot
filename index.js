@@ -564,4 +564,4 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 startApp();
 
 // экспортируем, чтобы их мог импортить downloadManager.js
-export { app, bot, texts };
+export { app, bot };
