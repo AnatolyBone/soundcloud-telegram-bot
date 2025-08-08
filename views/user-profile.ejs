@@ -1,98 +1,131 @@
-<%
-function safeTitle(ev) {
-  const m = ev?.metadata || ev?.data || ev?.details || {};
-  return m.title || m.track_title || m.name || m.track?.title || ev?.title || 'Без названия';
-}
-function safeArtist(ev) {
-  const m = ev?.metadata || ev?.data || ev?.details || {};
-  return m.artist || m.uploader || m.track?.uploader || 'SoundCloud';
-}
-function formatDate(s) {
-  if (!s) return '-';
-  try {
-    const iso = String(s).replace(' ', 'T').replace(/Z?$/, 'Z');
-    const d = new Date(iso);
-    if (isNaN(d)) return '-';
-    return d.toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
-  } catch { return '-'; }
-}
-%>
+<div class="mb-3">
+  <a href="/users" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Назад</a>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header">Информация о пользователе</div>
+  <div class="card-body">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">ID</dt>
+      <dd class="col-sm-9"><%= user.id %></dd>
+
+      <dt class="col-sm-3">Имя</dt>
+      <dd class="col-sm-9"><%= user.first_name || '-' %></dd>
+
+      <dt class="col-sm-3">Username</dt>
+      <dd class="col-sm-9"><%= user.username ? '@'+user.username : '-' %></dd>
+
+      <dt class="col-sm-3">Лимит</dt>
+      <dd class="col-sm-9"><%= user.premium_limit %></dd>
+
+      <dt class="col-sm-3">Подписка до</dt>
+      <dd class="col-sm-9">
+        <% if (user.premium_until) { %>
+          <%= new Date(String(user.premium_until).replace(' ','T')+'Z').toLocaleString('ru-RU') %>
+        <% } else { %>
+          -
+        <% } %>
+      </dd>
+
+      <dt class="col-sm-3">Активен</dt>
+      <dd class="col-sm-9">
+        <% if (user.last_active) { %>
+          <%= new Date(String(user.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU') %>
+        <% } else { %>
+          -
+        <% } %>
+      </dd>
+
+      <dt class="col-sm-3">Скачано всего</dt>
+      <dd class="col-sm-9"><%= user.total_downloads || 0 %></dd>
+    </dl>
+  </div>
+</div>
+
+<div class="mb-4">
+  <form class="row g-2" method="post" action="/user/<%= user.id %>/set-tariff">
+    <div class="col-auto">
+      <input type="number" class="form-control form-control-sm" name="premium_limit" placeholder="Новый лимит" required>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-sm btn-outline-primary">Сменить тариф</button>
+    </div>
+  </form>
+</div>
 
 <div class="row g-4">
-  <div class="col-12 col-lg-4">
+  <div class="col-md-6">
     <div class="card shadow-sm">
-      <div class="card-header">Пользователь</div>
-      <div class="card-body">
-        <div class="mb-2"><span class="text-muted">ID:</span> <strong><%= user.id %></strong></div>
-        <div class="mb-2"><span class="text-muted">Имя:</span> <strong><%= user.first_name || '-' %></strong></div>
-        <div class="mb-2"><span class="text-muted">Username:</span> <strong><%= user.username ? '@'+user.username : '-' %></strong></div>
-        <div class="mb-2"><span class="text-muted">Тариф:</span> <strong><%= user.premium_limit %></strong></div>
-        <div class="mb-2"><span class="text-muted">Действует до:</span> 
-          <strong><%= user.premium_until ? formatDate(user.premium_until) : '-' %></strong>
-        </div>
-
-        <form class="mt-3" method="POST" action="/set-tariff">
-          <input type="hidden" name="userId" value="<%= user.id %>">
-          <div class="row g-2">
-            <div class="col-6">
-              <label class="form-label">Лимит</label>
-              <select class="form-select" name="limit" required>
-                <option value="5" <%= user.premium_limit<=10 ? 'selected' : '' %>>Free (5/д)</option>
-                <option value="30" <%= user.premium_limit===30 ? 'selected' : '' %>>Plus (30/д)</option>
-                <option value="100" <%= user.premium_limit===100 ? 'selected' : '' %>>Pro (100/д)</option>
-                <option value="1000" <%= user.premium_limit>=1000 ? 'selected' : '' %>>Unlimited</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <label class="form-label">Дней</label>
-              <input class="form-control" type="number" name="days" min="1" value="30">
-            </div>
-          </div>
-          <button class="btn btn-outline-primary mt-3" type="submit">Изменить тариф</button>
-        </form>
-
-        <a class="btn btn-sm btn-outline-secondary mt-3" href="/dashboard">← Назад</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-12 col-lg-8">
-    <div class="card shadow-sm">
-      <div class="card-header">Последние загрузки</div>
+      <div class="card-header">Скачанные треки</div>
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light">
-              <tr>
-                <th>Когда</th>
-                <th>Название</th>
-                <th>Артист</th>
-                <th>Источник</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (!downloads || !downloads.length) { %>
-                <tr><td colspan="4" class="text-center text-muted py-4">Пока нет загрузок</td></tr>
-              <% } else { %>
+        <% if (!downloads || downloads.length === 0) { %>
+          <div class="text-center text-muted py-4">Нет данных</div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Название</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
                 <% downloads.forEach(d => { %>
                   <tr>
-                    <td><%= formatDate(d.created_at) %></td>
-                    <td><%= safeTitle(d) %></td>
-                    <td><%= safeArtist(d) %></td>
+                    <td><%= d.track_title || '-' %></td>
                     <td>
-                      <% const url = (d.metadata && (d.metadata.url || d.metadata.source || d.metadata.webpage_url)) || d.url || '#'; %>
-                      <% if (url && url !== '#') { %>
-                        <a href="<%= url %>" target="_blank" rel="noopener">ссылка</a>
+                      <% if (d.created_at) { %>
+                        <%= new Date(String(d.created_at).replace(' ','T')+'Z').toLocaleString('ru-RU') %>
                       <% } else { %>
-                        —
+                        -
                       <% } %>
                     </td>
                   </tr>
                 <% }) %>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Приглашённые пользователи</div>
+      <div class="card-body p-0">
+        <% if (!referrals || referrals.length === 0) { %>
+          <div class="text-center text-muted py-4">Нет приглашённых</div>
+        <% } else { %>
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>ID</th>
+                  <th>Имя</th>
+                  <th>Username</th>
+                  <th>Дата регистрации</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% referrals.forEach(r => { %>
+                  <tr>
+                    <td><%= r.id %></td>
+                    <td><%= r.first_name || '-' %></td>
+                    <td><%= r.username ? '@'+r.username : '-' %></td>
+                    <td>
+                      <% if (r.created_at) { %>
+                        <%= new Date(String(r.created_at).replace(' ','T')+'Z').toLocaleString('ru-RU') %>
+                      <% } else { %>
+                        -
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
       </div>
     </div>
   </div>
