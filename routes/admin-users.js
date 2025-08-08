@@ -1,15 +1,19 @@
 // routes/admin-users.js
-import { query } from '../db.js';
-import { setPremium } from '../db.js';
+import { query, setPremium } from '../db.js';
 
 function whitelistSort(s) {
-  const ok = new Set(['id','username','first_name','created_at','last_active','premium_until','premium_limit','total_downloads']);
+  const ok = new Set([
+    'id','username','first_name','created_at','last_active',
+    'premium_until','premium_limit','total_downloads'
+  ]);
   return ok.has(s) ? s : 'created_at';
 }
 
 export default function setupAdminUsers(app) {
+  // Список пользователей: поиск/сортировка/пагинация
   app.get('/admin/users', async (req, res) => {
     if (!req.session?.isAdmin) return res.redirect('/admin/login');
+
     const q = (req.query.q || '').toString();
     const sort = whitelistSort((req.query.sort || 'created_at').toString());
     const order = (req.query.order || 'desc').toString().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -27,9 +31,13 @@ export default function setupAdminUsers(app) {
                OR COALESCE(first_name,'') ILIKE $${params.length})`;
     }
 
-    const sql = `SELECT id, first_name, username, created_at, last_active, premium_until, premium_limit, total_downloads
-                 FROM users ${where} ORDER BY ${sort} ${order} LIMIT $${params.length+1} OFFSET $${params.length+2}`;
+    const sql = `SELECT id, first_name, username, created_at, last_active,
+                        premium_until, premium_limit, total_downloads
+                 FROM users ${where}
+                 ORDER BY ${sort} ${order}
+                 LIMIT $${params.length+1} OFFSET $${params.length+2}`;
     const countSql = `SELECT COUNT(*)::int AS c FROM users ${where}`;
+
     const { rows } = await query(sql, [...params, per, offset]);
     const total = (await query(countSql, params)).rows[0].c;
     const pages = Math.max(1, Math.ceil(total / per));
@@ -59,7 +67,8 @@ export default function setupAdminUsers(app) {
         <form method="get" action="/admin/users" class="toolbar">
           <input type="text" name="q" placeholder="Поиск по ID/имени/@username" value="${String(q).replace(/"/g,'&quot;')}"/>
           <select name="sort">
-            ${['created_at','last_active','username','id','premium_until','total_downloads','premium_limit'].map(s=>`<option value="${s}" ${s===sort?'selected':''}>${s}</option>`).join('')}
+            ${['created_at','last_active','username','id','premium_until','total_downloads','premium_limit']
+              .map(s=>`<option value="${s}" ${s===sort?'selected':''}>${s}</option>`).join('')}
           </select>
           <select name="order">
             <option value="desc" ${order==='DESC'?'selected':''}>desc</option>
@@ -110,8 +119,8 @@ export default function setupAdminUsers(app) {
 
         <div class="pagination">
           ${Array.from({length: pages},(_,i)=>i+1).map(n=>{
-            const url=`/admin/users?q=${encodeURIComponent(q)}&sort=${sort}&order=${order}&per_page=${per}&page=${n}`;
-            return `<a class="page ${n===page?'active':''}" href="${url}">${n}</a>`;
+            const url=\`/admin/users?q=\${encodeURIComponent(q)}&sort=${'${sort}'}&order=${'${order}'}&per_page=\${per}&page=\${n}\`;
+            return \`<a class="page \${n===page?'active':''}" href="\${url}">\${n}</a>\`;
           }).join('')}
         </div>
       </body></html>`);
@@ -120,6 +129,7 @@ export default function setupAdminUsers(app) {
   // CSV экспорт
   app.get('/admin/users.csv', async (req, res) => {
     if (!req.session?.isAdmin) return res.redirect('/admin/login');
+
     const q = (req.query.q || '').toString();
     const sort = whitelistSort((req.query.sort || 'created_at').toString());
     const order = (req.query.order || 'desc').toString().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -137,11 +147,15 @@ export default function setupAdminUsers(app) {
     const { rows } = await query(
       `SELECT id, first_name, username, created_at, last_active, premium_until, premium_limit, total_downloads
        FROM users ${where} ORDER BY ${sort} ${order} LIMIT 10000`, params);
-    const header = 'id,first_name,username,created_at,last_active,premium_until,premium_limit,total_downloads\n';
+
+    const header = 'id,first_name,username,created_at,last_active,premium_until,premium_limit,total_downloads\\n';
     const csv = header + rows.map(r => [
-      r.id, JSON.stringify(r.first_name||''), JSON.stringify(r.username||''),
-      r.created_at, r.last_active, r.premium_until, r.premium_limit??0, r.total_downloads??0
-    ].join(',')).join('\n');
+      r.id,
+      JSON.stringify(r.first_name||''),
+      JSON.stringify(r.username||''),
+      r.created_at, r.last_active, r.premium_until,
+      r.premium_limit ?? 0, r.total_downloads ?? 0
+    ].join(',')).join('\\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
