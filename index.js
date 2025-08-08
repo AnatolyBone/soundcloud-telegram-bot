@@ -24,6 +24,7 @@ import { createClient } from 'redis';
 import pgSessionFactory from 'connect-pg-simple';
 
 // Utils
+import axios from 'axios';
 import json2csv from 'json-2-csv';
 import ytdl from 'youtube-dl-exec';
 
@@ -189,6 +190,22 @@ let shuttingDown = false;
 process.once('SIGINT', () => { shuttingDown = true; });
 process.once('SIGTERM', () => { shuttingDown = true; });
 
+// Разворачиваем короткие on.soundcloud.com ссылки до финального URL
+async function resolveSoundcloudUrl(url) {
+  try {
+    if (!/on\.soundcloud\.com/.test(url)) return url;
+    const resp = await axios.get(url, { maxRedirects: 5, timeout: 15000, validateStatus: () => true });
+    const finalUrl =
+      resp.request?.res?.responseUrl ||
+      resp.request?.responseURL ||
+      resp.headers?.location ||
+      url;
+    return finalUrl;
+  } catch {
+    return url;
+  }
+}
+
 async function processUrlForIndexing(url) {
   let tempFilePath = null;
   try {
@@ -198,11 +215,13 @@ async function processUrlForIndexing(url) {
       return;
     }
 
-    console.log(`[Indexer] Индексирую: ${url}`);
-    let info = await ytdl(url, { dumpSingleJson: true, 'no-playlist': true });
+    const resolvedUrl = await resolveSoundcloudUrl(url);
+
+    console.log(`[Indexer] Индексирую: ${resolvedUrl}`);
+    let info = await ytdl(resolvedUrl, { dumpSingleJson: true, 'no-playlist': true });
 
     if (!info) {
-      console.log(`[Indexer] Пропуск: ${url} — нет информации.`);
+      console.log(`[Indexer] Пропуск: ${resolvedUrl} — нет информации.`);
       return;
     }
 
@@ -211,7 +230,7 @@ async function processUrlForIndexing(url) {
       if (Array.isArray(info.entries) && info.entries.length >= 1) {
         info = info.entries[0];
       } else {
-        console.log(`[Indexer] Пропуск: ${url} является плейлистом без элементов.`);
+        console.log(`[Indexer] Пропуск: ${resolvedUrl} является плейлистом без элементов.`);
         return;
       }
     }
@@ -220,20 +239,21 @@ async function processUrlForIndexing(url) {
     const uploader = info.uploader || 'SoundCloud';
     tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
 
-    await ytdl(url, {
+    await ytdl(resolvedUrl, {
       output: tempFilePath,
       extractAudio: true,
       audioFormat: 'mp3',
+      addMetadata: true,
       embedMetadata: true,
-      'no-playlist': true,
-      postprocessorArgs: [
-        '-metadata', `artist=${uploader}`,
-        '-metadata', `title=${trackName}`
-      ],
+      'no-playlist': true
     });
 
-    const fileExists = await fs.promises.access(tempFilePath).then(() => true).catch(() => false);
-    if (!fileExists) throw new Error('Файл не создан');
+    // Проверяем факт создания файла
+    try {
+      await fs.promises.access(tempFilePath);
+    } catch {
+      throw new Error('Файл не создан');
+    }
 
     const message = await bot.telegram.sendAudio(
       STORAGE_CHANNEL_ID,
@@ -249,9 +269,14 @@ async function processUrlForIndexing(url) {
     console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.response?.description || err.stderr || err.message || err);
   } finally {
     if (tempFilePath) {
-      await fs.promises.unlink(tempFilePath).catch(() => {
-        console.warn(`[Indexer] Не удалось удалить временный файл: ${tempFilePath}`);
-      });
+      try {
+        await fs.promises.access(tempFilePath);
+        await fs.promises.unlink(tempFilePath);
+      } catch (e) {
+        if (e?.code !== 'ENOENT') {
+          console.warn(`[Indexer] Не удалось удалить временный файл: ${tempFilePath} (${e.message})`);
+        }
+      }
     }
   }
 }
