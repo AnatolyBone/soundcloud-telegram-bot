@@ -3,6 +3,7 @@ import path from 'path';
 import express from 'express';
 import session from 'express-session';
 import crypto from 'crypto';
+import RedisStore from 'connect-redis';
 
 import { getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
@@ -13,6 +14,7 @@ export default function setupAdmin(opts = {}) {
     ADMIN_LOGIN,
     ADMIN_PASSWORD,
     SESSION_SECRET = 'dev-secret',
+    redis, // <- опционально: клиент Redis из index.js
   } = opts;
 
   if (!app) throw new Error('setupAdmin: app is required');
@@ -20,13 +22,15 @@ export default function setupAdmin(opts = {}) {
   // --- Body parsing for forms
   app.use(express.urlencoded({ extended: true }));
 
-  // --- Sessions (MemoryStore ок для одного инстанса Render)
+  // --- Sessions: RedisStore если есть redis-клиент, иначе MemoryStore
+  const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
   app.use(
     session({
       name: 'scm_admin',
       secret: SESSION_SECRET,
       resave: false,
       saveUninitialized: false,
+      store,
       cookie: {
         httpOnly: true,
         sameSite: 'lax',
@@ -36,15 +40,34 @@ export default function setupAdmin(opts = {}) {
     })
   );
 
+  // --- No-cache для админских страниц
+  app.use(['/admin', '/dashboard'], (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
   // --- Helpers
   const formatDate = (val) => {
     if (!val) return '—';
     try {
-      // если приходит строка без зоны — добавим Z, чтобы не было Invalid Date
-      const s = typeof val === 'string' && !/[zZ]$/.test(val) ? val + 'Z' : val;
-      const d = new Date(s);
+      // поддержим и timestamp (число), и строку
+      let d;
+      if (typeof val === 'number') d = new Date(val);
+      else if (typeof val === 'string') {
+        const s = /[zZ]$/.test(val) || /[+\-]\d{2}:\d{2}$/.test(val) ? val : val + 'Z';
+        d = new Date(s);
+      } else d = new Date(val);
+
       if (isNaN(d)) return '—';
-      return d.toLocaleString('ru-RU');
+      return d.toLocaleString('ru-RU', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
     } catch {
       return '—';
     }
@@ -123,7 +146,7 @@ export default function setupAdmin(opts = {}) {
         .slice(0, 20);
 
       res.send(`
-        <!doctype html><html lang="ru"><head>
+        <!doctype html><html lang="ру"><head>
           <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
           <title>Админ — дашборд</title>
           <style>
@@ -242,14 +265,12 @@ export default function setupAdmin(opts = {}) {
       const body = req.body || {};
       const entries = Object.entries(body);
 
-      // сохраняем только строковые ключи
       for (const [key, value] of entries) {
         if (!key) continue;
         await setText(key, String(value ?? ''));
       }
 
-      // перезагружаем кэш текстов
-      await loadTexts(true);
+      await loadTexts(true); // перезагружаем кэш
       res.redirect('/admin/texts');
     } catch (e) {
       console.error('[admin] /admin/texts POST error:', e);
