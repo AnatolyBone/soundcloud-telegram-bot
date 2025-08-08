@@ -60,7 +60,7 @@ if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL |
 const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
-// ---------- DEFAULT parse_mode=HTML for all replies/edits ----------
+// parse_mode=HTML по умолчанию
 bot.use(async (ctx, next) => {
   if (ctx.reply) {
     const origReply = ctx.reply.bind(ctx);
@@ -72,16 +72,19 @@ bot.use(async (ctx, next) => {
   }
   return next();
 });
-// -------------------------------------------------------------------
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json()); // парсим JSON для POST (админка/рассылка и др.)
+app.use(express.json()); // JSON POST для админки/рассылки
+
+// health-check для Render
+app.get('/health', (_req, res) => res.type('text').send('OK'));
+app.get('/', (_req, res) => res.type('text').send('OK'));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// раздача /static/* (css/js для админки)
+// статика для админки
 app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 
 const cacheDir = path.join(__dirname, 'cache');
@@ -178,7 +181,6 @@ ${refLink}
 // Индексатор (кооперативный)
 // ==========================
 async function getUrlsToIndex() {
-  // Берём URL'ы из track_cache, где ещё нет file_id
   try {
     const { data, error } = await supabase
       .from('track_cache')
@@ -223,7 +225,6 @@ async function processUrlForIndexing(url) {
       return;
     }
 
-    // Если плейлист — берём первую запись
     if (info._type === 'playlist' || Array.isArray(info.entries)) {
       if (Array.isArray(info.entries) && info.entries.length >= 1) {
         info = info.entries[0];
@@ -310,7 +311,6 @@ async function startIndexer() {
 // Телеграм-бот
 // ==================
 function kb() {
-  // Тексты берём из T(), чтобы можно было править в базе
   return Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
 }
 
@@ -353,7 +353,6 @@ function setupTelegramBot() {
       if (await isSubscribed(ctx.from.id, channel)) {
         await setPremium(ctx.from.id, 30, 7);
         await updateUserField(ctx.from.id, 'subscribed_bonus_used', true);
-
         await ctx.editMessageText(
           '🎉 Поздравляем!\n\nПодписка на канал подтверждена. Начислен бонус: 7 дней тарифа Plus.\n\nНажмите /menu, чтобы увидеть статус.'
         );
@@ -383,7 +382,6 @@ function setupTelegramBot() {
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  // Триггеры берём из T() (значения уже загружены до регистрации хендлеров)
   bot.hears(T('menu'), async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
@@ -392,7 +390,6 @@ function setupTelegramBot() {
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  // Мои треки — БЕЗ дубля названий (не передаём title/caption в media group)
   bot.hears(T('mytracks'), async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
@@ -468,7 +465,7 @@ async function startApp() {
       ADMIN_PASSWORD,
       SESSION_SECRET,
       STORAGE_CHANNEL_ID,
-      redis: client, // ← ВАЖНО: сессии через RedisStore
+      redis: client, // сессии через RedisStore
     });
 
     // Телеграм-бот
@@ -487,7 +484,7 @@ async function startApp() {
         max: 120,
         standardHeaders: true,
         legacyHeaders: false,
-        trustProxy: true, // явно разрешаем доверять XFF при app.set('trust proxy', 1)
+        trustProxy: true,
       });
       app.use(WEBHOOK_PATH, webhookLimiter);
 
