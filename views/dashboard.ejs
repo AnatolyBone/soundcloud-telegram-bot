@@ -1,133 +1,55 @@
-<%# views/dashboard.ejs %>
-<% title = 'Админка'; page = 'dashboard'; %>
-
-<!-- ... (весь HTML до блока <script> остается почти без изменений) ... -->
-<section class="content-header">
-  <div class="container-fluid d-flex justify-content-between align-items-center mb-3">
-    <h1>📊 Админка</h1>
-    <small>Пользователь: <%= user ? (user.username || user.first_name) : 'Гость' %></small>
+<% if (typeof query !== 'undefined' && query.ping) { %>
+  <div class="alert <%= query.ping==='ok'?'alert-success':'alert-danger' %>" data-autohide>
+    <%= query.ping==='ok'?'Канал доступен':'Ошибка отправки в канал' %>
   </div>
-</section>
+<% } %>
 
-<form id="filtersForm" class="mb-3 d-flex gap-2 align-items-center flex-wrap" method="GET" action="/dashboard">
-  <label for="periodSelectMain" class="form-label mb-0">Период:</label>
-  <select id="periodSelectMain" name="period" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
-    <option value="7" <%= period === '7' ? 'selected' : '' %>>Последние 7 дней</option>
-    <option value="30" <%= period === '30' ? 'selected' : '' %>>Последние 30 дней</option>
-    <% lastMonths.forEach(m => { %>
-      <option value="<%= m.value %>" <%= period === m.value ? 'selected' : '' %>><%= m.label %></option>
-    <% }) %>
-    <option value="all" <%= period === 'all' ? 'selected' : '' %>>Весь период</option>
-  </select>
-  
-  <div class="form-check ms-3">
-    <input class="form-check-input" type="checkbox" id="showInactive" name="showInactive" value="true" <%= showInactive ? 'checked' : '' %> onchange="this.form.submit()">
-    <label class="form-check-label" for="showInactive">Показать неактивных</label>
-  </div>
+<div class="d-flex flex-wrap gap-3 mb-4">
+  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
+    <div class="text-muted">Пользователи</div>
+    <div class="h4 mb-0"><%= stats.total_users %></div>
+  </div></div>
+  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
+    <div class="text-muted">Активные сегодня</div>
+    <div class="h4 mb-0"><%= stats.active_today %></div>
+  </div></div>
+  <div class="card card-metric shadow-sm flex-fill"><div class="card-body">
+    <div class="text-muted">Загрузки (всего)</div>
+    <div class="h4 mb-0"><%= stats.total_downloads %></div>
+  </div></div>
+  <form method="post" action="/admin/test-storage-send" class="align-self-start">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="btn btn-outline-primary mt-2"><i class="bi bi-broadcast"></i> Проверить канал</button>
+  </form>
+</div>
 
-  <a href="/export" id="exportLink" class="btn btn-outline-secondary ms-2">Выгрузить CSV</a>
-</form>
-
-<section class="content">
-  <div class="container-fluid">
-    <ul class="nav nav-tabs" id="dashboardTabs" role="tablist">
-      <li class="nav-item" role="presentation"><button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#statsTab" type="button" role="tab">Статистика</button></li>
-      <li class="nav-item" role="presentation"><button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersTab" type="button" role="tab">Пользователи</button></li>
-      <li class="nav-item" role="presentation"><button class="nav-link" id="broadcast-tab" data-bs-toggle="tab" data-bs-target="#broadcastTab" type="button" role="tab">Рассылка</button></li>
-      <li class="nav-item" role="presentation"><button class="nav-link" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analyticsTab" type="button" role="tab">Аналитика</button></li>
-    </ul>
-
-    <div class="tab-content mt-3" id="dashboardTabsContent">
-      <div class="tab-pane fade show active" id="statsTab" role="tabpanel">
-        <div class="row mb-3">
-          <div class="col-md-4"><div class="info-box bg-info"><span class="info-box-icon"><i class="fas fa-users"></i></span><div class="info-box-content"><span class="info-box-text">Всего пользователей</span><span class="info-box-number"><%= stats.totalUsers %></span></div></div></div>
-          <div class="col-md-4"><div class="info-box bg-success"><span class="info-box-icon"><i class="fas fa-download"></i></span><div class="info-box-content"><span class="info-box-text">Всего загрузок</span><span class="info-box-number"><%= stats.totalDownloads %></span></div></div></div>
-          <div class="col-md-4"><div class="info-box bg-warning"><span class="info-box-icon"><i class="fas fa-star"></i></span><div class="info-box-content"><span class="info-box-text">Тарифы (F/P/P/U)</span><span class="info-box-number"><%= stats.free %>/<%= stats.plus %>/<%= stats.pro %>/<%= stats.unlimited %></span></div></div></div>
-        </div>
-        <div class="card card-primary card-outline"><div class="card-header"><h3 class="card-title">Регистрации, Загрузки, Активные</h3></div><div class="card-body"><canvas id="combinedChart" style="height: 250px;"></canvas></div></div>
-        <div class="row mt-3">
-          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по часам</h3></div><div class="card-body"><canvas id="hourActivityChart" style="height: 250px;"></canvas></div></div></div>
-          <div class="col-md-6"><div class="card card-info card-outline"><div class="card-header"><h3 class="card-title">Активность по дням недели</h3></div><div class="card-body"><canvas id="weekdayActivityChart" style="height: 250px;"></canvas></div></div></div>
-        </div>
-      </div>
-      <div class="tab-pane fade" id="usersTab" role="tabpanel">
-        <div class="table-responsive"><table id="usersTable" class="table table-bordered table-hover w-100 text-nowrap">
-          <thead><tr><th>ID</th><th>Username</th><th>Имя</th><th>Скачано</th><th>Лимит</th><th>Регистрация</th><th>Активность</th><th>Статус</th><th>Источник</th><th>Тариф</th><th>1+1</th><th>Сброс</th></tr></thead>
-          <tbody>
-            <% users.forEach(user => { %>
-              <tr>
-                <td><a href="/user/<%= user.id %>"><%= user.id %></a></td>
-                <td><%= user.username ? '@' + user.username : '' %></td>
-                <td><%= user.first_name || '' %></td>
-                <td><%= user.total_downloads || 0 %></td>
-                <td><%= user.premium_limit %></td>
-                <td><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '-' %></td>
-                <td><%= user.last_active ? new Date(user.last_active).toLocaleDateString() : '-' %></td>
-                <td><%= user.active ? (user.last_active && new Date(user.last_active) > Date.now() - 86400000 ? '🟢' : '🟡') : '🔴' %></td>
-                <td><%= user.referral_source || '—' %></td>
-                <td>
-                    <form method="POST" action="/set-tariff" class="d-flex align-items-center gap-1 m-0">
-                        <input type="hidden" name="userId" value="<%= user.id %>">
-                        <select name="limit" class="form-select form-select-sm" style="min-width: 80px;" onchange="this.form.submit()">
-                            <option value="5" <%= user.premium_limit <= 5 ? 'selected' : '' %>>Free</option>
-                            <option value="30" <%= user.premium_limit === 30 ? 'selected' : '' %>>Plus</option>
-                            <option value="100" <%= user.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
-                            <option value="1000" <%= user.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
-                        </select>
-                        <input type="number" name="days" value="30" class="form-control form-control-sm" style="width: 60px;">
-                        <button type="submit" class="btn btn-primary btn-sm">✔️</button>
-                    </form>
-                </td>
-                <td><%= user.promo_1plus1_used ? '✅' : '❌' %></td>
-                <td><form action="/admin/reset-promo/<%= user.id %>" method="POST" onsubmit="return confirm('Сбросить?')"><button class="btn btn-sm btn-warning">🔄</button></form></td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table></div>
-      </div>
-      <div class="tab-pane fade" id="broadcastTab" role="tabpanel"><%- include('partials/_broadcast-form') %></div>
-      <div class="tab-pane fade" id="analyticsTab" role="tabpanel">
-        <div class="card"><div class="card-header"><h3 class="card-title">Воронка пользователей</h3></div><div class="card-body"><canvas id="funnelChart" style="height: 200px;"></canvas></div></div>
-        <div class="card card-danger card-outline mt-3"><div class="card-header"><h3 class="card-title">Истекающие подписки (<%= expiringCount %>)</h3></div><div class="card-body p-0"><%- include('partials/_expiring-users', { expiringSoon, expiringLimit, expiringOffset, expiringCount }) %></div></div>
-        <div class="card card-light card-outline mt-3"><div class="card-header"><h3 class="card-title">Источники трафика</h3></div><div class="card-body p-0"><%- include('partials/_referral-stats', { referralStats }) %></div></div>
-      </div>
+<div class="row g-4">
+  <div class="col-12 col-xl-8">
+    <div class="card shadow-sm">
+      <div class="card-header">Регистрации / Загрузки / Активные</div>
+      <div class="card-body chart-wrap"><canvas id="chartCombined"></canvas></div>
     </div>
   </div>
-</section>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+  <div class="col-12 col-xl-4">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header">Активность по часам</div>
+      <div class="card-body chart-wrap" style="height:280px"><canvas id="chartHours"></canvas></div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-header">Активность по дням недели</div>
+      <div class="card-body chart-wrap" style="height:280px"><canvas id="chartWeek"></canvas></div>
+    </div>
+  </div>
+</div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    // Инициализируем DataTable
-    new DataTable('#usersTable', {
-        paging: true, searching: true, ordering: true, order: [[5, 'desc']], scrollX: true,
-        language: { url: 'https://cdn.datatables.net/plug-ins/1.10.25/i18n/Russian.json' }
-    });
-
-    // Функция для отрисовки графика
-    function initializeChart(id, type, data, options) {
-        const ctx = document.getElementById(id)?.getContext('2d');
-        if (ctx) new Chart(ctx, { type, data, options });
-    }
-    
-    // Отрисовка графиков с данными, переданными с сервера
-    initializeChart('combinedChart', 'line', <%- JSON.stringify(chartDataCombined) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    initializeChart('hourActivityChart', 'bar', <%- JSON.stringify(chartDataHourActivity) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    initializeChart('weekdayActivityChart', 'bar', <%- JSON.stringify(chartDataWeekdayActivity) %>, { responsive: true, scales: { y: { beginAtZero: true } } });
-    
-    // Отрисовка воронки
-    const funnelData = <%- JSON.stringify(funnelData) %>;
-    initializeChart('funnelChart', 'bar', {
-        labels: ['Регистрации', 'Первая загрузка', 'Подписка'],
-        datasets: [{
-            label: 'Воронка',
-            data: [funnelData.registrationCount, funnelData.firstDownloadCount, funnelData.subscriptionCount],
-            backgroundColor: ['#36A2EB', '#FFCE56', '#FF6384']
-        }]
-    }, { indexAxis: 'y', responsive: true });
-  });
+  const combined = <%- JSON.stringify(chartDataCombined) %>;
+  const byHour = <%- JSON.stringify(chartDataHourActivity) %>;
+  const byWeek = <%- JSON.stringify(chartDataWeekdayActivity) %>;
+  const ctx1 = document.getElementById('chartCombined');
+  if (ctx1) new Chart(ctx1, { type:'line', data: combined, options:{ responsive:true, maintainAspectRatio:false } });
+  const ctx2 = document.getElementById('chartHours');
+  if (ctx2) new Chart(ctx2, { type:'bar', data: byHour, options:{ responsive:true, maintainAspectRatio:false } });
+  const ctx3 = document.getElementById('chartWeek');
+  if (ctx3) new Chart(ctx3, { type:'bar', data: byWeek, options:{ responsive:true, maintainAspectRatio:false } });
 </script>
