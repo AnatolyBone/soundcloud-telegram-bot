@@ -21,6 +21,9 @@ import ytdl from 'youtube-dl-exec';
 // ===== Админка (вынесена в модуль) =====
 import setupAdmin from './routes/admin.js';
 
+// ===== Тексты (вынесены в конфиг) =====
+import { texts } from './config/texts.js';
+
 // ===== БД/Логика =====
 import {
   supabase,          // нужен для индексатора
@@ -40,7 +43,7 @@ import { initNotifier, startNotifier } from './services/notifier.js';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://yourapp.onrender.com
-const WEBHOOK_PATH = '/telegram';                  // путь вебхука (должен совпадать с Render)
+const WEBHOOK_PATH = '/telegram';                   // путь вебхука (должен совпадать с Render)
 const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
@@ -58,8 +61,7 @@ initNotifier(bot);
 
 const app = express();
 
-// ВАЖНО: выставляем доверие только ПЕРВОМУ прокси (безопасно для Render/Cloudflare)
-// Это устраняет обе ошибки express-rate-limit (про X-Forwarded-For и «permissive»).
+// В Render/за прокси — ставим конкретное число хопов, а внутри rate-limit отключим проверку
 app.set('trust proxy', 1);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,31 +76,27 @@ export function getRedisClient() {
   return redisClient;
 }
 
-// ===== Тексты =====
-export const texts = {
-  start: '👋 Пришли ссылку на трек или плейлист с SoundCloud.',
-  menu: '📋 Меню',
-  upgrade: '🔓 Расширить лимит',
-  mytracks: '🎵 Мои треки',
-  help: 'ℹ️ Помощь',
-  error: '❌ Ошибка',
-  noTracks: 'Сегодня нет треков.',
-  limitReached: `🚫 Лимит достигнут ❌\n\n💡 Чтобы качать больше треков, переходи на тариф Plus или выше и качай без ограничений.`,
-  upgradeInfo: `🚀 Обновленные тарифы!
-
-🆓 Free — 5 треков/день
-🎯 Plus — 30 треков/день — 119₽/мес
-💪 Pro — 100 треков/день, плейлисты — 199₽/мес
-💎 Unlimited — безлимит — 299₽/мес
-
-👉 Покупка: https://boosty.to/anatoly_bone/donate
-✉️ После оплаты: @anatolybone
-📣 Новости: @SCM_BLOG`,
-  helpInfo: `ℹ️ Пришли ссылку — получишь mp3.
-🔓 «Расширить» — оплата тарифа.
-🎵 «Мои треки» — список за сегодня.
-📣 Канал: @SCM_BLOG`,
-};
+// ===== Утилиты =====
+async function cleanupCache(directory, maxAgeMinutes = 60) {
+  try {
+    const now = Date.now();
+    const files = await fs.promises.readdir(directory);
+    let cleaned = 0;
+    for (const file of files) {
+      try {
+        const filePath = path.join(directory, file);
+        const stat = await fs.promises.stat(filePath);
+        if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
+          await fs.promises.unlink(filePath);
+          cleaned++;
+        }
+      } catch {}
+    }
+    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
+  }
+}
 
 const kb = () => Markup.keyboard([[texts.menu, texts.upgrade], [texts.mytracks, texts.help]]).resize();
 
@@ -145,7 +143,7 @@ function formatMenuMessage(user, ctx) {
 📣 Новости, фишки и бонусы: @SCM_BLOG
 
 💼 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft > 999 ? '∞' : ${daysLeft}}
+⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
 🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
 
 🔗 Твоя реферальная ссылка:
@@ -161,34 +159,12 @@ ${refLink}
   return message;
 }
 
-// ===== Утилиты =====
-async function cleanupCache(directory, maxAgeMinutes = 60) {
-  try {
-    const now = Date.now();
-    const files = await fs.promises.readdir(directory);
-    let cleaned = 0;
-    for (const file of files) {
-      try {
-        const filePath = path.join(directory, file);
-        const stat = await fs.promises.stat(filePath);
-        if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
-          await fs.promises.unlink(filePath);
-          cleaned++;
-        }
-      } catch {}
-    }
-    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
-  }
-}
-
 // ==========================
 // Индексатор (кооперативный)
 // ==========================
 
 async function getUrlsToIndex() {
-  // Кандидаты: URL'ы из track_cache, у которых НЕТ file_id (значит, нужно докачать/закешировать)
+  // Берём URL’ы из track_cache, где file_id ещё нет
   try {
     const { data, error } = await supabase
       .from('track_cache')
@@ -221,7 +197,7 @@ async function processUrlForIndexing(url) {
   let tempFilePath = null;
   try {
     const isCached = await findCachedTrack(url);
-    if (isCached && isCached.file_id) {
+    if (isCached && (isCached.file_id || isCached.fileId)) {
       console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
       return;
     }
@@ -520,15 +496,16 @@ async function startApp() {
     cleanupCache(cacheDir, 60);
 
     if (process.env.NODE_ENV === 'production') {
-      // Rate limit только на вебхук. keyGenerator = req.ip (корректно за прокси при trust proxy = 1)
+      // Rate limit только на вебхук; отключаем строгую проверку trust proxy внутри лимитера,
+      // чтобы не падало на Render (ERR_ERL_PERMISSIVE_TRUST_PROXY)
       const webhookLimiter = rateLimit({
         windowMs: 60 * 1000,
         max: 120,
         standardHeaders: true,
         legacyHeaders: false,
-        keyGenerator: (req, _res) => req.ip,
+        validate: { trustProxy: false, xForwardedForHeader: false },
+        keyGenerator: (req) => req.ip || req.headers['x-real-ip'] || 'unknown'
       });
-
       app.use(WEBHOOK_PATH, webhookLimiter);
 
       app.use(await bot.createWebhook({
@@ -568,5 +545,7 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// экспортируем, чтобы их мог импортить downloadManager.js
+// экспортируем для других модулей
 export { app, bot };
+// ре-экспорт текстов, чтобы старые импорты не ломались (например, services/downloadManager.js)
+export { texts } from './config/texts.js';
