@@ -220,12 +220,12 @@ async function processUrlForIndexing(url) {
     const uploader = info.uploader || 'SoundCloud';
     tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
 
-    await ytdl(targetUrl, {
+    await ytdl(url, {
   output: tempFilePath,
   extractAudio: true,
   audioFormat: 'mp3',
-  addMetadata: true,
-  embedMetadata: true,
+  addMetadata: true, // опционально
+  embedMetadata: true, // опционально
   'no-playlist': true,
 });
 
@@ -841,37 +841,38 @@ ${refLink}
     }
   });
 
-  bot.hears(texts.mytracks, async (ctx) => {
-    try {
-      const user = ctx.state.user || await getUser(ctx.from.id);
-      let tracks = [];
-      if (Array.isArray(user.tracks_today)) {
-        tracks = user.tracks_today;
-      } else if (typeof user.tracks_today === 'string') {
-        try { tracks = JSON.parse(user.tracks_today); } catch (e) { tracks = []; }
-      }
-      const validTracks = tracks.filter(t => t && t.fileId);
-      if (!validTracks.length) {
-        return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
-      }
-      for (let i = 0; i < validTracks.length; i += 5) {
-  const chunk = validTracks.slice(i, i + 5);
-  await ctx.replyWithMediaGroup(
-    chunk.map(track => ({
-      type: 'audio',
-      media: track.fileId,
-      title: track.title || 'Без названия',
-      performer: track.performer || 'SoundCloud',
-      caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
-    }))
-  );
-}
-      }
-    } catch (err) {
-      console.error('Ошибка в /mytracks:', err);
-      await ctx.reply('Произошла ошибка при получении треков.');
+ bot.hears(texts.mytracks, async (ctx) => {
+  try {
+    const user = ctx.state.user || await getUser(ctx.from.id);
+    let tracks = [];
+    if (Array.isArray(user.tracks_today)) {
+      tracks = user.tracks_today;
+    } else if (typeof user.tracks_today === 'string') {
+      try { tracks = JSON.parse(user.tracks_today); } catch { tracks = []; }
     }
-  });
+    
+    const validTracks = tracks.filter(t => t && t.fileId);
+    if (!validTracks.length) {
+      return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
+    }
+    
+    for (let i = 0; i < validTracks.length; i += 5) {
+      const chunk = validTracks.slice(i, i + 5);
+      await ctx.replyWithMediaGroup(
+        chunk.map(track => ({
+          type: 'audio',
+          media: track.fileId,
+          title: track.title || 'Без названия',
+          performer: track.performer || 'SoundCloud',
+          caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
+        }))
+      );
+    }
+  } catch (err) {
+    console.error('Ошибка в /mytracks:', err);
+    await ctx.reply('Произошла ошибка при получении треков.');
+  }
+});
 
   bot.hears(texts.help, async (ctx) => {
     try { await ctx.reply(texts.helpInfo, kb()); }
