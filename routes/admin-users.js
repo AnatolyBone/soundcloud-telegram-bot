@@ -34,7 +34,6 @@ export default function setupAdminUsers(app) {
         .select('id, first_name, username, created_at, last_active, premium_until, premium_limit, total_downloads', { count: 'exact' });
 
       if (orFilter) query = query.or(orFilter);
-
       query = query.order(sort, { ascending: asc, nullsFirst: false }).range(from, to);
 
       const { data: rows, count: total, error } = await query;
@@ -126,7 +125,13 @@ export default function setupAdminUsers(app) {
         </body></html>`);
     } catch (e) {
       console.error('[admin/users] GET error:', e);
-      res.status(500).send('Ошибка загрузки списка пользователей');
+      res
+        .status(500)
+        .send(`<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:20px">
+<h1>Ошибка загрузки списка пользователей</h1>
+<p style="color:#b91c1c">${(e?.message || e)?.toString()}</p>
+<p><a href="/dashboard">← Назад</a></p>
+</body>`);
     }
   });
 
@@ -149,7 +154,6 @@ export default function setupAdminUsers(app) {
         .select('id, first_name, username, created_at, last_active, premium_until, premium_limit, total_downloads');
 
       if (orFilter) query = query.or(orFilter);
-
       query = query.order(sort, { ascending: asc, nullsFirst: false }).limit(10000);
 
       const { data: rows, error } = await query;
