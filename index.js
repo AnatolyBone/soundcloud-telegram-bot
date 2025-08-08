@@ -29,7 +29,6 @@ import {
   setPremium,
   getAllUsers,
   resetDailyStats,
-  getUserById,
   cacheTrack,
   findCachedTrack,
 } from './db.js';
@@ -41,7 +40,7 @@ import { initNotifier, startNotifier } from './services/notifier.js';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://yourapp.onrender.com
-const WEBHOOK_PATH = '/telegram';                   // путь вебхука (должен совпадать с Render)
+const WEBHOOK_PATH = '/telegram';                  // путь вебхука (должен совпадать с Render)
 const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
@@ -58,7 +57,10 @@ const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
 const app = express();
-app.set('trust proxy', 1); // важно для rate-limit за прокси (Render/Cloudflare и др.)
+
+// ВАЖНО: выставляем доверие только ПЕРВОМУ прокси (безопасно для Render/Cloudflare)
+// Это устраняет обе ошибки express-rate-limit (про X-Forwarded-For и «permissive»).
+app.set('trust proxy', 1);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,28 +74,7 @@ export function getRedisClient() {
   return redisClient;
 }
 
-// ===== Утилиты =====
-async function cleanupCache(directory, maxAgeMinutes = 60) {
-  try {
-    const now = Date.now();
-    const files = await fs.promises.readdir(directory);
-    let cleaned = 0;
-    for (const file of files) {
-      try {
-        const filePath = path.join(directory, file);
-        const stat = await fs.promises.stat(filePath);
-        if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
-          await fs.promises.unlink(filePath);
-          cleaned++;
-        }
-      } catch {}
-    }
-    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
-  }
-}
-
+// ===== Тексты =====
 export const texts = {
   start: '👋 Пришли ссылку на трек или плейлист с SoundCloud.',
   menu: '📋 Меню',
@@ -164,7 +145,7 @@ function formatMenuMessage(user, ctx) {
 📣 Новости, фишки и бонусы: @SCM_BLOG
 
 💼 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
+⏳ Осталось дней: ${daysLeft > 999 ? '∞' : ${daysLeft}}
 🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
 
 🔗 Твоя реферальная ссылка:
@@ -178,6 +159,28 @@ ${refLink}
   }
 
   return message;
+}
+
+// ===== Утилиты =====
+async function cleanupCache(directory, maxAgeMinutes = 60) {
+  try {
+    const now = Date.now();
+    const files = await fs.promises.readdir(directory);
+    let cleaned = 0;
+    for (const file of files) {
+      try {
+        const filePath = path.join(directory, file);
+        const stat = await fs.promises.stat(filePath);
+        if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
+          await fs.promises.unlink(filePath);
+          cleaned++;
+        }
+      } catch {}
+    }
+    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
+  }
 }
 
 // ==========================
@@ -517,13 +520,15 @@ async function startApp() {
     cleanupCache(cacheDir, 60);
 
     if (process.env.NODE_ENV === 'production') {
-      // Rate limit только на вебхук
+      // Rate limit только на вебхук. keyGenerator = req.ip (корректно за прокси при trust proxy = 1)
       const webhookLimiter = rateLimit({
         windowMs: 60 * 1000,
         max: 120,
         standardHeaders: true,
-        legacyHeaders: false
+        legacyHeaders: false,
+        keyGenerator: (req, _res) => req.ip,
       });
+
       app.use(WEBHOOK_PATH, webhookLimiter);
 
       app.use(await bot.createWebhook({
