@@ -23,7 +23,6 @@ export default function setupAdminUsers(app) {
     const from = offset;
     const to = offset + per - 1;
 
-    // Фильтр по поиску
     const safe = q.replace(/[%_,]/g, '').trim();
     const orFilter = safe
       ? `id::text.ilike.%${safe}%,username.ilike.%${safe}%,first_name.ilike.%${safe}%`
@@ -122,8 +121,8 @@ export default function setupAdminUsers(app) {
 
           <div class="pagination">
             ${Array.from({length: pages},(_,i)=>i+1).map(n=>{
-              const url = \`/admin/users?q=\${encodeURIComponent(q)}&sort=${'${sort}'}&order=${'${asc ? 'asc' : 'desc'}'}&per_page=\${per}&page=\${n}\`;
-              return \`<a class="page \${n===page?'active':''}" href="\${url}">\${n}</a>\`;
+              const url = `/admin/users?q=${encodeURIComponent(q)}&sort=${sort}&order=${asc ? 'asc' : 'desc'}&per_page=${per}&page=${n}`;
+              return `<a class="page ${n===page?'active':''}" href="${url}">${n}</a>`;
             }).join('')}
           </div>
         </body></html>`);
@@ -179,7 +178,7 @@ export default function setupAdminUsers(app) {
     }
   });
 
-  // Смена тарифа (используем существующую db.setPremium)
+  // Смена тарифа
   app.post('/admin/users/:id/tariff', async (req, res) => {
     if (!req.session?.isAdmin) return res.redirect('/admin/login');
     const id = Number(req.params.id);
