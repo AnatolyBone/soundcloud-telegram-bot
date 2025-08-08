@@ -7,7 +7,7 @@ import RedisStore from 'connect-redis';
 
 import { getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
-import setupAdminUsers from './admin-users.js'; // ← добавили импорт страницы пользователей
+import setupAdminUsers from './admin-users.js'; // ← ДОБАВЛЕНО
 
 export default function setupAdmin(opts = {}) {
   const {
@@ -20,9 +20,8 @@ export default function setupAdmin(opts = {}) {
 
   if (!app) throw new Error('setupAdmin: app is required');
 
-  // --- Body parsing for forms/JSON
+  // --- Body parsing for forms
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.json());
 
   // --- Sessions: RedisStore если есть redis-клиент, иначе MemoryStore
   const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
@@ -132,8 +131,8 @@ export default function setupAdmin(opts = {}) {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
 
-  // ←←← ПОДКЛЮЧАЕМ СТРАНИЦУ ПОЛЬЗОВАТЕЛЕЙ РОВНО ОДИН РАЗ
-  setupAdminUsers(app);
+  // ПОДКЛЮЧАЕМ страницу пользователей ОДИН РАЗ
+  setupAdminUsers(app); // ← ДОБАВЛЕНО
 
   // Dashboard
   app.get('/dashboard', requireAdmin, async (req, res) => {
@@ -171,6 +170,7 @@ export default function setupAdmin(opts = {}) {
         </head><body>
           <div class="topbar">
             <a class="btn" href="/dashboard">Дашборд</a>
+            <a class="btn" href="/admin/users">Пользователи</a> <!-- ← ДОБАВЛЕНО -->
             <a class="btn" href="/admin/texts">Тексты бота</a>
             <form method="post" action="/admin/logout"><button class="btn btn-primary">Выйти</button></form>
           </div>
@@ -241,6 +241,7 @@ export default function setupAdmin(opts = {}) {
         </head><body>
           <div class="topbar">
             <a class="btn" href="/dashboard">Дашборд</a>
+            <a class="btn" href="/admin/users">Пользователи</a> <!-- ← ДОБАВЛЕНО -->
             <a class="btn btn-primary" href="/admin/texts">Тексты бота</a>
             <form method="post" action="/admin/logout"><button class="btn">Выйти</button></form>
           </div>
