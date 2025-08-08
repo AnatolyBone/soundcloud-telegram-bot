@@ -1,28 +1,29 @@
 // index.js
 
-// Core
+// ===== Core =====
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Server
+// ===== Server =====
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 
-// Telegram
+// ===== Telegram =====
 import { Telegraf, Markup } from 'telegraf';
 
-// Redis
+// ===== Redis =====
 import { createClient } from 'redis';
 
-// yt-dlp exec wrapper
+// ===== yt-dlp exec wrapper =====
 import ytdl from 'youtube-dl-exec';
 
-// Админка (вынесена в модуль)
+// ===== Админка (вынесена в модуль) =====
 import setupAdmin from './routes/admin.js';
 
-// Логика/БД
+// ===== БД/Логика =====
 import {
+  supabase,          // нужен для индексатора
   getUser,
   updateUserField,
   setPremium,
@@ -39,8 +40,8 @@ import { initNotifier, startNotifier } from './services/notifier.js';
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://app.onrender.com
-const WEBHOOK_PATH = '/telegram';                   // путь вебхука
+const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://yourapp.onrender.com
+const WEBHOOK_PATH = '/telegram';                   // путь вебхука (должен совпадать с Render)
 const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
@@ -57,7 +58,7 @@ const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
 const app = express();
-app.set('trust proxy', true); // важно для rate-limit за прокси (Render/Cloudflare/Nginx и т.п.)
+app.set('trust proxy', true); // важно для rate-limit за прокси (Render/Cloudflare и др.)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +66,7 @@ const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
+// Делаем доступным из других модулей
 export function getRedisClient() {
   if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
   return redisClient;
@@ -75,24 +77,24 @@ async function cleanupCache(directory, maxAgeMinutes = 60) {
   try {
     const now = Date.now();
     const files = await fs.promises.readdir(directory);
-    let cleanedCount = 0;
+    let cleaned = 0;
     for (const file of files) {
       try {
         const filePath = path.join(directory, file);
         const stat = await fs.promises.stat(filePath);
         if ((now - stat.mtimeMs) / 60000 > maxAgeMinutes) {
           await fs.promises.unlink(filePath);
-          cleanedCount++;
+          cleaned++;
         }
       } catch {}
     }
-    if (cleanedCount > 0) console.log(`[Cache Cleanup] Удалено ${cleanedCount} старых файлов.`);
+    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
   } catch (e) {
     if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
   }
 }
 
-const texts = {
+export const texts = {
   start: '👋 Пришли ссылку на трек или плейлист с SoundCloud.',
   menu: '📋 Меню',
   upgrade: '🔓 Расширить лимит',
@@ -178,20 +180,32 @@ ${refLink}
   return message;
 }
 
-// ===== Индексатор =====
+// ==========================
+// Индексатор (кооперативный)
+// ==========================
 
 async function getUrlsToIndex() {
+  // Кандидаты: URL'ы из track_cache, у которых НЕТ file_id (значит, нужно докачать/закешировать)
   try {
-    // Топ-10 часто качаемых ссылок, которых нет в кэше
-    const { rows } = await (await import('pg')).Pool.prototype.query.call(
-      { query: () => { throw new Error('Pool не доступен здесь'); } },
-      'SELECT 1'
-    );
-    // ↑ Эта заглушка никогда не выполнится — оставил для совместимости старых вызовов.
-    // Реальная выборка идёт в сервисе очередей/логов (если у тебя есть отдельная таблица).
-    return [];
-  } catch {
-    // Если нет таблицы downloads_log — просто ничего не индексируем в этом тике
+    const { data, error } = await supabase
+      .from('track_cache')
+      .select('url, file_id')
+      .is('file_id', null)
+      .not('url', 'is', null)
+      .limit(20);
+
+    if (error) {
+      console.error('[Indexer] Ошибка выборки track_cache:', error.message);
+      return [];
+    }
+
+    const urls = (data || [])
+      .map(r => r.url)
+      .filter(u => typeof u === 'string' && u.includes('soundcloud.com'));
+
+    return Array.from(new Set(urls));
+  } catch (e) {
+    console.error('[Indexer] Критическая ошибка в getUrlsToIndex:', e);
     return [];
   }
 }
@@ -204,7 +218,7 @@ async function processUrlForIndexing(url) {
   let tempFilePath = null;
   try {
     const isCached = await findCachedTrack(url);
-    if (isCached) {
+    if (isCached && isCached.file_id) {
       console.log(`[Indexer] Пропуск: ${url} уже в кэше.`);
       return;
     }
@@ -300,7 +314,9 @@ async function startIndexer() {
   setTimeout(tick, 60 * 1000); // небольшая задержка старта
 }
 
-// ===== Телеграм бот =====
+// ==================
+// Телеграм-бот
+// ==================
 function setupTelegramBot() {
   const handleSendMessageError = async (error, userId) => {
     if (error.response?.error_code === 403) {
@@ -378,7 +394,7 @@ function setupTelegramBot() {
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  // Мои треки — без дублей названий в подписи
+  // Мои треки — БЕЗ дубля названий (не передаём title/caption в media group)
   bot.hears(texts.mytracks, async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
@@ -396,7 +412,7 @@ function setupTelegramBot() {
       for (let i = 0; i < validTracks.length; i += 5) {
         const chunk = validTracks.slice(i, i + 5);
         await ctx.replyWithMediaGroup(
-          chunk.map(track => ({ type: 'audio', media: track.fileId })) // без title/caption → нет дубля
+          chunk.map(track => ({ type: 'audio', media: track.fileId }))
         );
       }
     } catch (err) {
@@ -467,7 +483,7 @@ function setupTelegramBot() {
   });
 }
 
-// ===== Запуск =====
+// =========== Запуск приложения ===========
 async function startApp() {
   try {
     // Redis
@@ -547,4 +563,5 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-export { app, bot };
+// экспортируем, чтобы их мог импортить downloadManager.js
+export { app, bot, texts };
