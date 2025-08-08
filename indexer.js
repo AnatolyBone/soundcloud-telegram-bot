@@ -188,9 +188,9 @@ async function processUrlForIndexing(url) {
             return;
         }
 
+        // Если плейлист с одним треком — берем его
         if (info._type === 'playlist' || Array.isArray(info.entries)) {
             if (Array.isArray(info.entries) && info.entries.length === 1) {
-                // Обрабатываем как одиночный трек
                 info = info.entries[0];
             } else {
                 console.log(`[Indexer] Пропуск: ${url} является плейлистом.`);
