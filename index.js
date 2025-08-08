@@ -58,7 +58,7 @@ const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
 const app = express();
-app.set('trust proxy', true); // важно для rate-limit за прокси (Render/Cloudflare и др.)
+app.set('trust proxy', 1); // важно для rate-limit за прокси (Render/Cloudflare и др.)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
