@@ -343,7 +343,7 @@ function convertObjToArray(dataObj) {
   if (!dataObj) return [];
   return Object.entries(dataObj).map(([date, count]) => ({
     date,
-    count: Number(count) || 0, // важная часть: приводим к числу
+    count: Number(count) || 0, // привели к числу, иначе графики пустые
   }));
 }
 
@@ -855,16 +855,17 @@ ${refLink}
         return await ctx.reply(texts.noTracks || 'У вас пока нет треков за сегодня.');
       }
       for (let i = 0; i < validTracks.length; i += 5) {
-        const chunk = validTracks.slice(i, i + 5);
-     await ctx.replyWithMediaGroup(
-  chunk.map(track => ({
-    type: 'audio',
-    media: track.fileId,
-    title: track.title || 'Без названия',
-    performer: track.performer || 'SoundCloud',
-    caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
-  }))
-);
+  const chunk = validTracks.slice(i, i + 5);
+  await ctx.replyWithMediaGroup(
+    chunk.map(track => ({
+      type: 'audio',
+      media: track.fileId,
+      title: track.title || 'Без названия',
+      performer: track.performer || 'SoundCloud',
+      caption: `${track.title || 'Без названия'} — ${track.performer || 'SoundCloud'}`
+    }))
+  );
+}
       }
     } catch (err) {
       console.error('Ошибка в /mytracks:', err);
