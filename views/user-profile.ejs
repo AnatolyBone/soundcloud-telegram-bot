@@ -1,117 +1,76 @@
-<% title = `Профиль: ${user.first_name || user.id}`; page = 'user-profile'; %>
+<%
+function safeTitle(ev) {
+  const m = ev?.metadata || ev?.data || ev?.details || {};
+  return m.title || m.track_title || m.name || m.track?.title || ev?.title || 'Без названия';
+}
+function safeArtist(ev) {
+  const m = ev?.metadata || ev?.data || ev?.details || {};
+  return m.artist || m.uploader || m.track?.uploader || 'SoundCloud';
+}
+function formatDate(s) {
+  if (!s) return '-';
+  try {
+    const iso = String(s).replace(' ', 'T').replace(/Z?$/, 'Z');
+    const d = new Date(iso);
+    if (isNaN(d)) return '-';
+    return d.toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+  } catch { return '-'; }
+}
+%>
 
-<section class="content-header">
-  <div class="container-fluid">
-    <h1>
-      <i class="fas fa-user"></i> Профиль пользователя: 
-      <strong><%= user.first_name || user.username || user.id %></strong>
-    </h1>
-    <a href="/dashboard" class="btn btn-secondary mt-2"><i class="fas fa-arrow-left"></i> Назад к дашборду</a>
-  </div>
-</section>
-
-<section class="content">
-  <div class="container-fluid">
-    <div class="row">
-      <!-- Колонка с основной информацией -->
-      <div class="col-md-4">
-        <div class="card card-primary card-outline">
-          <div class="card-body box-profile">
-            <h3 class="profile-username text-center"><%= user.first_name || user.username %></h3>
-            <p class="text-muted text-center">ID: <%= user.id %></p>
-
-            <ul class="list-group list-group-unbordered mb-3">
-              <li class="list-group-item">
-                <b>Всего загрузок</b> <a class="float-right"><%= user.total_downloads || 0 %></a>
-              </li>
-              <li class="list-group-item">
-                <b>Тариф</b> <a class="float-right"><%= user.premium_limit %> треков/день</a>
-              </li>
-              <li class="list-group-item">
-                <b>Подписка до</b> <a class="float-right"><%= user.premium_until ? new Date(user.premium_until).toLocaleDateString() : '—' %></a>
-              </li>
-              <li class="list-group-item">
-                <b>Зарегистрирован</b> <a class="float-right"><%= new Date(user.created_at).toLocaleString() %></a>
-              </li>
-               <li class="list-group-item">
-                <b>Последняя активность</b> <a class="float-right"><%= new Date(user.last_active).toLocaleString() %></a>
-              </li>
-            </ul>
-            
-            <!-- Форма для смены тарифа прямо здесь -->
-            <form method="POST" action="/set-tariff" class="mt-3">
-              <input type="hidden" name="userId" value="<%= user.id %>">
-              <div class="input-group">
-                <input type="number" name="days" class="form-control" placeholder="Дней" value="30">
-                <select name="limit" class="form-select">
-                  <option value="10">Free</option>
-                  <option value="50">Plus</option>
-                  <option value="100">Pro</option>
-                  <option value="1000">Unlimited</option>
-                </select>
-                <button type="submit" class="btn btn-success">Выдать</button>
-              </div>
-            </form>
-          </div>
-        </div>
+<div class="row g-4">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-header">Пользователь</div>
+      <div class="card-body">
+        <div class="mb-2"><span class="text-muted">ID:</span> <strong><%= user.id %></strong></div>
+        <div class="mb-2"><span class="text-muted">Имя:</span> <strong><%= user.first_name || '-' %></strong></div>
+        <div class="mb-2"><span class="text-muted">Username:</span> <strong><%= user.username ? '@'+user.username : '-' %></strong></div>
+        <div class="mb-2"><span class="text-muted">Тариф:</span> <strong><%= user.premium_limit %></strong></div>
+        <div class="mb-2"><span class="text-muted">Действует до:</span> <strong><%= user.premium_until ? new Date(String(user.premium_until).replace(' ','T')+'Z').toLocaleDateString('ru-RU') : '-' %></strong></div>
+        <a class="btn btn-sm btn-outline-primary mt-2" href="/dashboard">← Назад</a>
       </div>
+    </div>
+  </div>
 
-      <!-- Колонка с историей и рефералами -->
-      <div class="col-md-8">
-        <div class="card">
-          <div class="card-header p-2">
-            <ul class="nav nav-pills">
-              <li class="nav-item"><a class="nav-link active" href="#downloads" data-bs-toggle="tab">История загрузок</a></li>
-              <li class="nav-item"><a class="nav-link" href="#referrals" data-bs-toggle="tab">Приглашенные (<%= referrals.length %>)</a></li>
-            </ul>
-          </div>
-          <div class="card-body">
-            <div class="tab-content">
-              <!-- Вкладка с историей загрузок -->
-              <div class="active tab-pane" id="downloads">
-                <table class="table table-sm table-striped">
-                  <thead>
-                    <tr><th>Дата</th><th>Название трека</th></tr>
-                  </thead>
-                  <tbody>
-                    <% if (downloads.length === 0) { %>
-                      <tr><td colspan="2" class="text-center">Загрузок не найдено.</td></tr>
-                    <% } %>
-                    <% downloads.forEach(dl => { %>
-                      <tr>
-                        <td><%= new Date(dl.downloaded_at).toLocaleString() %></td>
-                        <td><%= dl.track_title %></td>
-                      </tr>
-                    <% }) %>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Вкладка с рефералами -->
-              <div class="tab-pane" id="referrals">
-                <table class="table table-sm table-striped">
-                   <thead>
-                    <tr><th>ID</th><th>Имя</th><th>Username</th><th>Дата регистрации</th></tr>
-                  </thead>
-                  <tbody>
-                    <% if (referrals.length === 0) { %>
-                      <tr><td colspan="4" class="text-center">Этот пользователь никого не пригласил.</td></tr>
-                    <% } %>
-                    <% referrals.forEach(ref => { %>
-                       <tr>
-                        <td><a href="/user/<%= ref.id %>"><%= ref.id %></a></td>
-                        <td><%= ref.first_name %></td>
-                        <td><%= ref.username ? '@' + ref.username : '' %></td>
-                        <td><%= new Date(ref.created_at).toLocaleDateString() %></td>
-                      </tr>
-                    <% }) %>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header">Последние загрузки</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Когда</th>
+                <th>Название</th>
+                <th>Артист</th>
+                <th>Источник</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!downloads || !downloads.length) { %>
+                <tr><td colspan="4" class="text-center text-muted py-4">Пока нет загрузок</td></tr>
+              <% } else { %>
+                <% downloads.forEach(d => { %>
+                  <tr>
+                    <td><%= formatDate(d.created_at) %></td>
+                    <td><%= safeTitle(d) %></td>
+                    <td><%= safeArtist(d) %></td>
+                    <td>
+                      <% const url = (d.metadata && (d.metadata.url || d.metadata.source || d.metadata.webpage_url)) || d.url || '#'; %>
+                      <% if (url && url !== '#') { %>
+                        <a href="<%= url %>" target="_blank" rel="noopener">ссылка</a>
+                      <% } else { %>
+                        —
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% } %>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
-</section>
+</div>
