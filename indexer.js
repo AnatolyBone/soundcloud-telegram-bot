@@ -1,9 +1,8 @@
-// indexer.js
-
 import { Telegraf } from 'telegraf';
 import ytdl from 'youtube-dl-exec';
 import path from 'path';
 import fs from 'fs/promises';
+import fsExtra from 'fs'; // Для createReadStream
 import { fileURLToPath } from 'url';
 import retry from 'async-retry';
 import pLimit from 'p-limit';
@@ -39,23 +38,23 @@ const withTimeout = (promise, ms, errorMsg) =>
   ]);
 
 async function checkBotPermissions() {
-try {
-const chat = await bot.telegram.getChat(STORAGE_CHANNEL_ID);
-const member = await bot.telegram.getChatMember(chat.id, bot.botInfo.id);
+  try {
+    const chat = await bot.telegram.getChat(STORAGE_CHANNEL_ID);
+    const member = await bot.telegram.getChatMember(chat.id, bot.botInfo.id);
 
-console.log(`✅ Бот имеет доступ к каналу ${STORAGE_CHANNEL_ID}`);
-console.log("Права бота:", {
-can_send_messages: member.can_send_messages,
-can_send_media_messages: member.can_send_media_messages,
-});
+    console.log(`✅ Бот имеет доступ к каналу ${STORAGE_CHANNEL_ID}`);
+    console.log("Права бота:", {
+      can_send_messages: member.can_send_messages,
+      can_send_media_messages: member.can_send_media_messages,
+    });
 
-if (!member.can_send_messages || !member.can_send_media_messages) {
-throw new Error("Бот не имеет прав на отправку сообщений/медиа");
-}
-} catch (err) {
-console.error(`❌ Ошибка доступа: ${err.message}`);
-process.exit(1);
-}
+    if (!member.can_send_messages || !member.can_send_media_messages) {
+      throw new Error("Бот не имеет прав на отправку сообщений/медиа");
+    }
+  } catch (err) {
+    console.error(`❌ Ошибка доступа: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 async function getUrlsToIndex() {
@@ -79,8 +78,7 @@ async function getUrlsToIndex() {
 }
 
 function parseMetadata(info) {
-  let rawTitle = (info.title || info.track?.title || '').trim().replace(/```math
-.*?```/gi, '').slice(0, 100) || 'Без названия';
+  let rawTitle = (info.title || info.track?.title || '').trim().replace(/```math.*?```/gi, '').slice(0, 100) || 'Без названия';
   let rawUploader = (info.uploader || info.user?.username || '').trim().slice(0, 100) || 'Без исполнителя';
   const trackName = rawTitle;
   const uploader = rawTitle.toLowerCase().includes(rawUploader.toLowerCase()) ? '' : rawUploader;
@@ -108,10 +106,10 @@ async function processUrl(url, depth = 0) {
 
       console.log(`[Indexer] Info: _type=${info._type}, entries=${info.entries?.length || 0}, duration=${info.duration}`);
 
-      if (info._type === 'playlist' || Array.isArray(info.entries) && info.entries.length > 0) {
+      if (info._type === 'playlist' || (Array.isArray(info.entries) && info.entries.length > 0)) {
         console.log(`[Indexer] Плейлист: ${url} с ${info.entries.length} треками. Обработка...`);
         const limit = pLimit(PARALLEL_LIMIT);
-        const tasks = info.entries.slice(0, MAX_PLAYLIST_TRACKS).map(entry => 
+        const tasks = info.entries.slice(0, MAX_PLAYLIST_TRACKS).map(entry =>
           limit(() => processUrl(entry.url || entry.webpage_url || entry.original_url, depth + 1))
         );
         const results = await Promise.all(tasks);
@@ -132,6 +130,7 @@ async function processUrl(url, depth = 0) {
 
       let fileExists = await fs.access(tempFilePath).then(() => true).catch(() => false);
       if (!fileExists) {
+        console.log(`[Indexer] Скачиваю аудио: ${url}`);
         await withTimeout(
           ytdl(info.url, {
             output: tempFilePath,
@@ -148,9 +147,19 @@ async function processUrl(url, depth = 0) {
 
       if (!fileExists || (await fs.stat(tempFilePath)).size === 0) throw new Error('Файл не создан или пустой');
 
+      // Проверяем размер файла (лимит Telegram ~50MB)
+      const stats = await fs.stat(tempFilePath);
+      const maxTelegramSizeBytes = 49 * 1024 * 1024;
+      if (stats.size > maxTelegramSizeBytes) {
+        console.warn(`[Indexer] Файл превышает лимит Telegram (${(stats.size / (1024 * 1024)).toFixed(2)}MB), пропускаю: ${url}`);
+        return 'skipped';
+      }
+
+      console.log(`[Indexer] Отправка аудио в канал: ${trackName} от ${uploader}`);
       const message = await retry(async () => {
+        const stream = fsExtra.createReadStream(tempFilePath);
         return withTimeout(
-          bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: await fs.open(tempFilePath, 'r') }, { title: trackName, performer: uploader }),
+          bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: stream }, { title: trackName, performer: uploader }),
           45000,
           `Таймаут отправки для ${url}`
         );
@@ -160,16 +169,20 @@ async function processUrl(url, depth = 0) {
 
       await cacheTrack(url, message.audio.file_id, trackName);
       console.log(`✅ [Indexer] Закэшировано и отправлено: ${trackName} от ${uploader}`);
+
       return 'success';
     } catch (err) {
       if (err.message.includes('404') || err.message.includes('таймаут')) {
         console.warn(`[Indexer] Пропуск URL ${url} из-за ошибки: ${err.message}`);
         return 'skipped';
       }
+      console.error(`[Indexer] Ошибка обработки ${url}:`, err);
       throw err;
     }
   }, { retries: RETRY_COUNT, minTimeout: 5000 }).finally(async () => {
-    if (tempFilePath) await fs.unlink(tempFilePath).catch(() => {});
+    if (tempFilePath) {
+      await fs.unlink(tempFilePath).catch(e => console.error(`[Indexer] Ошибка удаления файла ${tempFilePath}:`, e));
+    }
   });
 }
 
@@ -181,11 +194,16 @@ async function main() {
 
   const shutdown = async () => {
     console.log('[Indexer] Завершение...');
-    await fs.rm(cacheDir, { recursive: true, force: true });
+    try {
+      await fs.rm(cacheDir, { recursive: true, force: true });
+    } catch (e) {
+      console.error('[Indexer] Ошибка удаления cacheDir при завершении:', e);
+    }
     await redis.quit();
     await pool.end();
     process.exit(0);
   };
+
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
@@ -193,6 +211,7 @@ async function main() {
     try {
       const lastCycle = await redis.get('indexer_last_cycle');
       const now = Date.now();
+
       if (lastCycle && now - Number(lastCycle) < CYCLE_PAUSE_MS) {
         const waitMs = CYCLE_PAUSE_MS - (now - Number(lastCycle));
         console.log(`[Indexer] Жду ${Math.ceil(waitMs / 60000)} мин до следующего цикла.`);
@@ -203,6 +222,7 @@ async function main() {
       const urls = await getUrlsToIndex();
       if (urls.length === 0) {
         console.log('[Indexer] Нет новых URL.');
+        await new Promise(resolve => setTimeout(resolve, CYCLE_PAUSE_MS));
         continue;
       }
 
