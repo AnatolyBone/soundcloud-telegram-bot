@@ -342,10 +342,13 @@ async function startApp() {
 
 function setupExpress() {
   // Вспомогательные функции для дашборда
-  function convertObjToArray(dataObj) {
-    if (!dataObj) return [];
-    return Object.entries(dataObj).map(([date, count]) => ({ date, count }));
-  }
+function convertObjToArray(dataObj) {
+  if (!dataObj) return [];
+  return Object.entries(dataObj).map(([date, count]) => ({
+    date,
+    count: Number(count) || 0, // важная часть: приводим к числу
+  }));
+}
 
   function filterStatsByPeriod(data, period) {
     if (!Array.isArray(data)) return [];
