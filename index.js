@@ -18,8 +18,11 @@ import { createClient } from 'redis';
 // ===== yt-dlp exec wrapper =====
 import ytdl from 'youtube-dl-exec';
 
-// ===== Админка (вынесена в модуль) =====
+// ===== Админка =====
 import setupAdmin from './routes/admin.js';
+
+// ===== Тексты (из БД) =====
+import { loadTexts, T } from './config/texts.js';
 
 // ===== БД/Логика =====
 import {
@@ -29,16 +32,13 @@ import {
   setPremium,
   getAllUsers,
   resetDailyStats,
-  getUserById,
   cacheTrack,
   findCachedTrack,
 } from './db.js';
 
+// ВАЖНО: импорт ниже оставляем, он использует bot/getRedisClient во время работы, а не при загрузке модуля
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
-
-// ===== Тексты (динамические) =====
-import { loadTexts, allTextsSync as texts } from './config/texts.js';
 
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -59,11 +59,21 @@ if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL |
 // ===== App/Bot =====
 const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
-
+// ---------- DEFAULT parse_mode=HTML for all replies/edits ----------
+bot.use(async (ctx, next) => {
+  if (ctx.reply) {
+    const origReply = ctx.reply.bind(ctx);
+    ctx.reply = (text, extra = {}) => origReply(text, { parse_mode: 'HTML', ...extra });
+  }
+  if (ctx.editMessageText) {
+    const origEdit = ctx.editMessageText.bind(ctx);
+    ctx.editMessageText = (text, extra = {}) => origEdit(text, { parse_mode: 'HTML', ...extra });
+  }
+  return next();
+});
+// -------------------------------------------------------------------
 const app = express();
-
-// Важно для работы за прокси (Render, Cloudflare и пр.)
-app.set('trust proxy', 1); // НЕ true — иначе express-rate-limit ругается
+app.set('trust proxy', 1); // важное для реального клиента IP за 1-м прокси (Render/Cloudflare и др.)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,8 +81,8 @@ const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
-// Делаем доступным из других модулей (например, downloadManager.js)
-export function getRedisClient() {
+// Доступно из других модулей
+function getRedisClient() {
   if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
   return redisClient;
 }
@@ -98,10 +108,6 @@ async function cleanupCache(directory, maxAgeMinutes = 60) {
     if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
   }
 }
-
-const kb = () => Markup
-  .keyboard([[texts().menu, texts().upgrade], [texts().mytracks, texts().help]])
-  .resize();
 
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlimited (∞/день)';
@@ -165,9 +171,8 @@ ${refLink}
 // ==========================
 // Индексатор (кооперативный)
 // ==========================
-
 async function getUrlsToIndex() {
-  // Кандидаты: URL'ы из track_cache, у которых НЕТ file_id (значит, нужно докачать/закешировать)
+  // Берём URL'ы из track_cache, где ещё нет file_id
   try {
     const { data, error } = await supabase
       .from('track_cache')
@@ -267,7 +272,6 @@ async function startIndexer() {
     if (shuttingDown) return;
 
     try {
-      // Если у пользователей идут загрузки — даём приоритет
       if (downloadQueue?.active > 0) {
         console.log('[Indexer] В работе есть задания пользователей. Пауза 2 мин.');
         return setTimeout(tick, 2 * 60 * 1000);
@@ -299,6 +303,11 @@ async function startIndexer() {
 // ==================
 // Телеграм-бот
 // ==================
+function kb() {
+  // Тексты берём из T(), чтобы можно было править в базе
+  return Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
+}
+
 function setupTelegramBot() {
   const handleSendMessageError = async (error, userId) => {
     if (error.response?.error_code === 403) {
@@ -308,9 +317,6 @@ function setupTelegramBot() {
       console.error(`Ошибка при отправке для ${userId}:`, error.response?.description || error.message);
     }
   };
-
-  // Загружаем тексты при старте (и периодически в конфиге есть кэш)
-  loadTexts().catch(e => console.error('[texts] init load error:', e.message));
 
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
@@ -365,22 +371,23 @@ function setupTelegramBot() {
   bot.start(async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id, ctx.from.first_name, ctx.from.username);
-      const textMsg = formatMenuMessage(user, ctx);
-      await ctx.reply(textMsg, { reply_markup: getBonusKeyboard(user) });
+      const text = formatMenuMessage(user, ctx);
+      await ctx.reply(text, { reply_markup: getBonusKeyboard(user) });
       await ctx.reply('Выберите действие:', kb());
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  bot.hears(() => texts().menu, async (ctx) => {
+  // Триггеры берём из T() (значения уже загружены до регистрации хендлеров)
+  bot.hears(T('menu'), async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
-      const textMsg = formatMenuMessage(user, ctx);
-      await ctx.reply(textMsg, { reply_markup: getBonusKeyboard(user) });
+      const text = formatMenuMessage(user, ctx);
+      await ctx.reply(text, { reply_markup: getBonusKeyboard(user) });
     } catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
   // Мои треки — БЕЗ дубля названий (не передаём title/caption в media group)
-  bot.hears(() => texts().mytracks, async (ctx) => {
+  bot.hears(T('mytracks'), async (ctx) => {
     try {
       const user = ctx.state.user || await getUser(ctx.from.id);
       let tracks = [];
@@ -391,7 +398,7 @@ function setupTelegramBot() {
 
       const validTracks = (tracks || []).filter(t => t && t.fileId);
       if (!validTracks.length) {
-        return await ctx.reply(texts().noTracks || 'У вас пока нет треков за сегодня.');
+        return await ctx.reply(T('noTracks') || 'У вас пока нет треков за сегодня.');
       }
 
       for (let i = 0; i < validTracks.length; i += 5) {
@@ -406,52 +413,14 @@ function setupTelegramBot() {
     }
   });
 
-  bot.hears(() => texts().help, async (ctx) => {
-    try { await ctx.reply(texts().helpInfo, kb()); }
+  bot.hears(T('help'), async (ctx) => {
+    try { await ctx.reply(T('helpInfo'), kb()); }
     catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
-  bot.hears(() => texts().upgrade, async (ctx) => {
-    try { await ctx.reply(texts().upgradeInfo.replace(/\*/g, '')); }
+  bot.hears(T('upgrade'), async (ctx) => {
+    try { await ctx.reply(T('upgradeInfo').replace(/\*/g, '')); }
     catch (e) { await handleSendMessageError(e, ctx.from.id); }
-  });
-
-  bot.command('admin', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    try {
-      const users = await getAllUsers(true);
-      const totalUsers = users.length;
-      const activeUsers = users.filter(u => u.active).length;
-      const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-      const now = new Date();
-      const activeToday = users.filter(u =>
-        u.last_active && new Date(u.last_active).toDateString() === now.toDateString()
-      ).length;
-
-      const dashboardUrl = `${WEBHOOK_URL.replace(/\/$/, '')}/dashboard`;
-
-      const message = `
-📊 <b>Статистика Бота</b>
-
-👤 <b>Пользователи:</b>
-   • Всего: <i>${totalUsers}</i>
-   • Активных всего: <i>${activeUsers}</i>
-   • Активных сегодня: <i>${activeToday}</i>
-
-📥 <b>Загрузки:</b>
-   • Всего: <i>${totalDownloads}</i>
-
-⚙️ <b>Очередь:</b>
-   • В работе: <i>${downloadQueue.active}</i>
-   • В ожидании: <i>${downloadQueue.size}</i>
-
-🔗 <a href="${dashboardUrl}">Открыть админ-панель</a>`.trim();
-
-      await ctx.replyWithHTML(message);
-    } catch (e) {
-      console.error('❌ Ошибка в /admin:', e);
-      try { await ctx.reply('⚠️ Произошла ошибка при получении статистики.'); } catch {}
-    }
   });
 
   bot.on('text', async (ctx) => {
@@ -459,7 +428,7 @@ function setupTelegramBot() {
       const url = extractUrl(ctx.message.text);
       if (url) {
         await enqueue(ctx, ctx.from.id, url);
-      } else if (!Object.values(texts()).includes(ctx.message.text)) {
+      } else if (![T('menu'), T('upgrade'), T('mytracks'), T('help')].includes(ctx.message.text)) {
         await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист SoundCloud.');
       }
     } catch (e) {
@@ -471,6 +440,9 @@ function setupTelegramBot() {
 // =========== Запуск приложения ===========
 async function startApp() {
   try {
+    // Подгружаем тексты из БД до регистрации хендлеров
+    await loadTexts();
+
     // Redis
     const client = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 10000 } });
     client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
@@ -490,7 +462,6 @@ async function startApp() {
       ADMIN_PASSWORD,
       SESSION_SECRET,
       STORAGE_CHANNEL_ID,
-      redis: redisClient,  
     });
 
     // Телеграм-бот
@@ -509,8 +480,7 @@ async function startApp() {
         max: 120,
         standardHeaders: true,
         legacyHeaders: false,
-        // ВНИМАНИЕ: никаких trustProxy здесь!
-        // app.set('trust proxy', 1) выше уже настроен корректно
+        trustProxy: true, // явно разрешаем доверять XFF при app.set('trust proxy', 1)
       });
       app.use(WEBHOOK_PATH, webhookLimiter);
 
@@ -551,5 +521,5 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// экспортируем, чтобы их мог импортить downloadManager.js
-export { app, bot };
+// Экспорт для других модулей
+export { app, bot, getRedisClient };
