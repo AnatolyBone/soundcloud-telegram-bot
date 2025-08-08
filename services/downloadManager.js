@@ -8,17 +8,11 @@ import crypto from 'crypto';
 import pTimeout, { TimeoutError } from 'p-timeout';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
-import { getRedisClient, bot } from '../index.js';     // <- убрали texts
-import { T } from '../config/texts.js';                 // <- тексты теперь отсюда
+import { getRedisClient, bot } from '../index.js';
+import { T } from '../config/texts.js';
 import {
-  getUser,
-  resetDailyLimitIfNeeded,
-  saveTrackForUser,
-  logEvent,
-  incrementDownloads,
-  updateUserField,
-  findCachedTracksByUrls,
-  cacheTrack
+  getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
+  incrementDownloads, updateUserField, findCachedTracksByUrls, cacheTrack
 } from '../db.js';
 
 // --- Конфигурация ---
@@ -83,7 +77,7 @@ async function trackDownloadProcessor(task) {
       embedMetadata: true,
       postprocessorArgs: `-metadata artist="${uploader || 'SoundCloud'}" -metadata title="${trackName}"`,
       retries: CONFIG.YTDL_RETRIES,
-      'socket-timeout': CONFIG.SOCKET_TIMEOUT,
+      "socket-timeout": CONFIG.SOCKET_TIMEOUT,
     });
 
     if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан после загрузки.');
@@ -126,13 +120,13 @@ async function trackDownloadProcessor(task) {
 
 export const downloadQueue = new TaskQueue({
   maxConcurrent: CONFIG.MAX_CONCURRENT_DOWNLOADS,
-  taskProcessor: trackDownloadProcessor,
+  taskProcessor: trackDownloadProcessor
 });
 
-// --- Получение инфо о треках ---
+// --- Конвейер обработки ---
 async function getTracksInfo(url) {
   const info = await pTimeout(
-    ytdl(url, { dumpSingleJson: true, retries: CONFIG.YTDL_RETRIES, 'socket-timeout': CONFIG.SOCKET_TIMEOUT }),
+    ytdl(url, { dumpSingleJson: true, retries: CONFIG.YTDL_RETRIES, "socket-timeout": CONFIG.SOCKET_TIMEOUT }),
     { milliseconds: CONFIG.METADATA_FETCH_TIMEOUT_MS, message: 'Превышен таймаут получения метаданных.' }
   );
 
@@ -143,15 +137,13 @@ async function getTracksInfo(url) {
         .map(e => ({
           url: e.webpage_url,
           trackName: sanitizeFilename(e.title),
-          uploader: e.uploader || 'SoundCloud',
+          uploader: e.uploader || 'SoundCloud'
         }))
-    : [
-        {
-          url: info.webpage_url || url,
-          trackName: sanitizeFilename(info.title),
-          uploader: info.uploader || 'SoundCloud',
-        },
-      ];
+    : [{
+        url: info.webpage_url || url,
+        trackName: sanitizeFilename(info.title),
+        uploader: info.uploader || 'SoundCloud'
+      }];
 
   if (!tracks.length) throw new Error('Треки не найдены.');
   return { tracks, isPlaylist };
@@ -175,10 +167,7 @@ async function sendCachedTracks(tracks, userId) {
     const cached = cachedTracksMap.get(track.url);
     if (cached) {
       try {
-        await bot.telegram.sendAudio(userId, cached.fileId, {
-          title: track.trackName,
-          performer: track.uploader,
-        });
+        await bot.telegram.sendAudio(userId, cached.fileId, { title: track.trackName, performer: track.uploader });
         await saveTrackForUser(userId, track.trackName, cached.fileId);
         await incrementDownloads(userId);
         sentFromCacheCount++;
@@ -201,7 +190,7 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
   const user = await getUser(userId);
   const remainingLimit = user.premium_limit - user.downloads_today;
 
-  if (remainingLimit <= 0) return safeSendMessage(userId, T('limitReached'), { parse_mode: 'Markdown' });
+  if (remainingLimit <= 0) return safeSendMessage(userId, '🚫 Лимит исчерпан.');
 
   const finalTasks = tracks.length > remainingLimit ? tracks.slice(0, remainingLimit) : tracks;
   if (tracks.length > remainingLimit) await safeSendMessage(userId, `⚠️ Лимит: ${remainingLimit} треков.`);
@@ -216,12 +205,7 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
     }
 
     for (const track of finalTasks) {
-      downloadQueue.add({
-        userId,
-        ...track,
-        playlistUrl: isPlaylist ? originalUrl : null,
-        priority: user.premium_limit,
-      });
+      downloadQueue.add({ userId, ...track, playlistUrl: isPlaylist ? originalUrl : null, priority: user.premium_limit });
     }
   }
 }
@@ -233,18 +217,13 @@ export async function enqueue(ctx, userId, url) {
     await resetDailyLimitIfNeeded(userId);
     const user = await getUser(userId);
 
-    // Проверка лимита
-    if (user.premium_limit - user.downloads_today <= 0) {
+    if ((user.premium_limit - user.downloads_today) <= 0) {
       let messageText = T('limitReached');
       const extra = { parse_mode: 'Markdown' };
-
       if (!user.subscribed_bonus_used) {
         messageText += `\n\n🎁 **Бонус!**\nПодпишись на @SCM_BLOG и получи 7 дней Plus бесплатно!`;
-        extra.reply_markup = {
-          inline_keyboard: [[{ text: '✅ Я подписался!', callback_data: 'check_subscription' }]],
-        };
+        extra.reply_markup = { inline_keyboard: [[{ text: '✅ Я подписался!', callback_data: 'check_subscription' }]] };
       }
-
       if (processingMessage) await bot.telegram.deleteMessage(userId, processingMessage.message_id).catch(() => {});
       return await safeSendMessage(userId, messageText, extra);
     }
