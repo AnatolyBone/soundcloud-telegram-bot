@@ -134,7 +134,7 @@ function formatMenuMessage(user, ctx) {
   const downloadsToday = user.downloads_today || 0;
   const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
   const daysLeft = getDaysLeft(user.premium_until);
-
+  
   let message = `
 👋 Привет, ${user.first_name || user.username || 'друг'}!
 
@@ -149,16 +149,15 @@ function formatMenuMessage(user, ctx) {
 🔗 Твоя реферальная ссылка:
 ${refLink}
 `.trim();
-
+  
   if (!user.subscribed_bonus_used) {
     message += `
 
 🎁 Бонус! Подпишись на @SCM_BLOG и получи 7 дней тарифа Plus бесплатно.`;
   }
-
+  
   return message;
 }
-
 // ==========================
 // Индексатор (кооперативный)
 // ==========================
