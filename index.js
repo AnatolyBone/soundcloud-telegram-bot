@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 
 // ===== Server =====
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 
 // ===== Telegram =====
 import { Telegraf, Markup } from 'telegraf';
@@ -22,13 +23,12 @@ import setupAdmin from './routes/admin.js';
 
 // ===== БД/Логика =====
 import {
-  supabase,          // нужен для индексатора
+  supabase,          // для индексатора (track_cache)
   getUser,
   updateUserField,
   setPremium,
   getAllUsers,
   resetDailyStats,
-  getUserById,
   cacheTrack,
   findCachedTrack,
 } from './db.js';
@@ -36,14 +36,14 @@ import {
 // ===== Тексты из БД =====
 import { loadTexts, T } from './config/texts.js';
 
-// Очередь и уведомления
+// ===== Очередь/уведомления =====
 import { enqueue, downloadQueue } from './services/downloadManager.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
 
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;       // например: https://yourapp.onrender.com
+const WEBHOOK_URL = process.env.WEBHOOK_URL;       // напр.: https://yourapp.onrender.com
 const WEBHOOK_PATH = '/telegram';                   // путь вебхука (должен совпадать с Render)
 const PORT = process.env.PORT ?? 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
@@ -61,7 +61,7 @@ const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
 
 const app = express();
-// Рендер и прочие PaaS ставят прокси — этого достаточно для корректного req.ip
+// важно для работы за 1 прокси и чтобы rate-limit не ругался
 app.set('trust proxy', 1);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,7 +70,7 @@ const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
 
-// Делаем доступным из других модулей (если нужно)
+// Даем доступ к Redis другим модулям
 export function getRedisClient() {
   if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
   return redisClient;
@@ -97,9 +97,6 @@ async function cleanupCache(directory, maxAgeMinutes = 60) {
     if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
   }
 }
-
-const kb = () =>
-  Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
 
 function getTariffName(limit) {
   if (limit >= 1000) return 'Unlimited (∞/день)';
@@ -129,6 +126,9 @@ const isSubscribed = async (userId, channelUsername) => {
     return false;
   }
 };
+
+const kb = () =>
+  Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
 
 function formatMenuMessage(user, ctx) {
   const tariffLabel = getTariffName(user.premium_limit);
@@ -165,7 +165,7 @@ ${refLink}
 // ==========================
 
 async function getUrlsToIndex() {
-  // Кандидаты: URL'ы из track_cache, у которых НЕТ file_id (значит, нужно докачать/закешировать)
+  // Берем URL'ы из track_cache, где ещё нет file_id
   try {
     const { data, error } = await supabase
       .from('track_cache')
@@ -407,7 +407,7 @@ function setupTelegramBot() {
   });
 
   bot.hears(T('upgrade'), async (ctx) => {
-    try { await ctx.reply(T('upgradeInfo')); }
+    try { await ctx.reply(T('upgradeInfo').replace(/\*/g, '')); }
     catch (e) { await handleSendMessageError(e, ctx.from.id); }
   });
 
@@ -454,8 +454,8 @@ function setupTelegramBot() {
       const url = extractUrl(ctx.message.text);
       if (url) {
         await enqueue(ctx, ctx.from.id, url);
-      } else if (!Object.values({ menu: T('menu'), upgrade: T('upgrade'), mytracks: T('mytracks'), help: T('help') }).includes(ctx.message.text)) {
-        await ctx.reply(T('start') || 'Пожалуйста, пришлите ссылку на трек или плейлист SoundCloud.');
+      } else if (![T('menu'), T('upgrade'), T('mytracks'), T('help')].includes(ctx.message.text)) {
+        await ctx.reply('Пожалуйста, пришлите ссылку на трек или плейлист SoundCloud.');
       }
     } catch (e) {
       await handleSendMessageError(e, ctx.from.id);
@@ -475,9 +475,8 @@ async function startApp() {
 
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-    // Прогрев текстов и их фоновое обновление
+    // Загрузим тексты из БД (кэшируются)
     await loadTexts(true);
-    setInterval(() => loadTexts().catch(() => {}), 60 * 1000);
 
     // Админка (всё внутри routes/admin.js)
     setupAdmin({
@@ -501,7 +500,15 @@ async function startApp() {
     cleanupCache(cacheDir, 60);
 
     if (process.env.NODE_ENV === 'production') {
-      // Вебхук без rate-limit (во избежание проблем с trust proxy)
+      // Rate limit только на вебхук
+      const webhookLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 120,
+        standardHeaders: true,
+        legacyHeaders: false
+      });
+      app.use(WEBHOOK_PATH, webhookLimiter);
+
       app.use(await bot.createWebhook({
         domain: WEBHOOK_URL,
         path: WEBHOOK_PATH,
@@ -539,5 +546,5 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// экспортируем, чтобы их мог импортить downloadManager.js
-export { app, bot };
+// экспортируем, чтобы импортировали другие модули
+export { app, bot, getRedisClient };
