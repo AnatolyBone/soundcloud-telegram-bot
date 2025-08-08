@@ -1,6 +1,6 @@
 // routes/admin-users.js
 import { getUsersPaginated, getUsersCSV, setPremium, updateUserField, getUserById } from '../db.js';
-
+import setupAdminUsers from './admin-users.js';
 export default function setupAdminUsers(app) {
   // List users with pagination/sorting
   app.get('/admin/users', async (req, res) => {
