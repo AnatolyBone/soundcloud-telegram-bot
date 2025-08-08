@@ -1,26 +1,27 @@
 {
   "name": "soundcloud-telegram-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Telegram bot for downloading SoundCloud tracks via yt-dlp",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "start:indexer": "node indexer.js",
-    "dev": "concurrently \"npm:start\" \"npm:start:indexer\""
+    "dev": "NODE_ENV=development node index.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.44.2",
     "axios": "^1.7.2",
     "compression": "^1.7.4",
-    "concurrently": "^8.2.2",
     "connect-pg-simple": "^9.0.1",
+    "csurf": "^1.11.0",
     "ejs": "^3.1.10",
     "express": "^4.19.2",
     "express-ejs-layouts": "^2.5.1",
+    "express-rate-limit": "^7.3.1",
     "express-session": "^1.18.0",
     "file-type": "^19.0.0",
     "googleapis": "^140.0.1",
+    "helmet": "^7.1.0",
     "json-2-csv": "^5.5.9",
     "multer": "^1.4.5-lts.1",
     "node-id3": "^0.2.6",
@@ -28,6 +29,7 @@
     "p-timeout": "^6.1.2",
     "redis": "^4.6.15",
     "telegraf": "^4.16.3",
+    "validator": "^13.11.0",
     "youtube-dl-exec": "^3.0.4"
   },
   "engines": {
@@ -39,7 +41,6 @@
     "type": "git",
     "url": "git+https://github.com/AnatolyBone/soundcloud-telegram-bot.git"
   },
-  "keywords": [],
   "bugs": {
     "url": "https://github.com/AnatolyBone/soundcloud-telegram-bot/issues"
   },
