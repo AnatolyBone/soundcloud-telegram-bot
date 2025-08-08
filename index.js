@@ -564,9 +564,15 @@ function convertObjToArray(dataObj) {
       const user = await getUserById(userId);
       if (!user) return res.status(404).send('Пользователь не найден');
       const [downloadsResult, referralsResult] = await Promise.all([
-        supabase.from('events').select('*').eq('user_id', userId).eq('event_type', 'download_start').order('created_at', { ascending: false }).limit(100),
-        pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
-      ]);
+  supabase
+  .from('events')
+  .select('*')
+  .eq('user_id', userId)
+  .in('event_type', ['download', 'download_start', 'download_success'])
+  .order('created_at', { ascending: false })
+  .limit(100),
+  pool.query('SELECT id, first_name, username, created_at FROM users WHERE referrer_id = $1', [userId])
+]);
       res.render('user-profile', {
         title: `Профиль: ${user.first_name || user.username}`,
         user,
