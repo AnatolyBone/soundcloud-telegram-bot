@@ -25,7 +25,9 @@
         </thead>
         <tbody>
           <% if (!users || users.length === 0) { %>
-            <tr><td colspan="7" class="text-center text-muted py-4">Ничего не найдено</td></tr>
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">Ничего не найдено</td>
+            </tr>
           <% } else { %>
             <% users.forEach(u => { %>
               <tr>
@@ -34,8 +36,14 @@
                 <td><%= u.username ? '@'+u.username : '' %></td>
                 <td><%= u.premium_limit %></td>
                 <td><%= u.total_downloads || 0 %></td>
-                <td><%= u.last_active ? new Date(String(u.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU') : '-' %></td>
-                <td><a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a></td>
+                <td>
+                  <%= u.last_active
+                        ? new Date(String(u.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU')
+                        : '-' %>
+                </td>
+                <td>
+                  <a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a>
+                </td>
               </tr>
             <% }) %>
           <% } %>
