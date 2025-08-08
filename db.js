@@ -243,9 +243,28 @@ export async function getRegistrationsByDate() {
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
 }
 
-export async function getDownloadsByDate() {
-  const { rows } = await query(`SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') as date, SUM(downloads_today) as count FROM users WHERE last_reset_date >= CURRENT_DATE - INTERVAL '30 days' GROUP BY date ORDER BY date`);
-  return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
+export async function getDownloadsByDate(days = 30) {
+  // Берём события по типу загрузки за последние N дней и считаем по датам
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const { data, error } = await supabase
+    .from('events')
+    .select('created_at, event_type')
+    .gte('created_at', since)
+    .in('event_type', ['download', 'download_start', 'download_success']);
+  
+  if (error) {
+    console.error('❌ Ошибка Supabase в getDownloadsByDate:', error.message);
+    return {};
+  }
+  
+  const byDate = {};
+  for (const ev of data || []) {
+    const d = new Date(String(ev.created_at).replace(' ', 'T').replace(/Z?$/, 'Z'));
+    if (isNaN(d)) continue;
+    const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    byDate[key] = (byDate[key] || 0) + 1;
+  }
+  return byDate; // { '2025-08-08': 12, ... }
 }
 
 export async function getActiveUsersByDate() {
@@ -327,21 +346,24 @@ export async function getDashboardStats() {
       COUNT(*) FILTER (WHERE premium_limit <= 10 OR premium_limit IS NULL) AS free,
       COUNT(*) FILTER (WHERE premium_limit = 30) AS plus,
       COUNT(*) FILTER (WHERE premium_limit = 100) AS pro,
-      COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited
+      COUNT(*) FILTER (WHERE premium_limit >= 1000) AS unlimited,
+      COUNT(*) FILTER (WHERE DATE(last_active) = CURRENT_DATE) AS active_today
     FROM users
     WHERE active = TRUE
   `);
-
-  const r = rows[0];
+  
+  const r = rows[0] || {};
   return {
-    totalUsers: parseInt(r.total_users, 10) || 0,
-    totalDownloads: parseInt(r.total_downloads || 0, 10),
+    // ↓↓↓ ИМЕНА ПОЛЕЙ — как в dashboard.ejs
+    total_users: parseInt(r.total_users || 0, 10),
+    total_downloads: parseInt(r.total_downloads || 0, 10),
+    active_today: parseInt(r.active_today || 0, 10),
     free: parseInt(r.free || 0, 10),
     plus: parseInt(r.plus || 0, 10),
     pro: parseInt(r.pro || 0, 10),
-    unlimited: parseInt(r.unlimited || 0, 10)
+    unlimited: parseInt(r.unlimited || 0, 10),
   };
-} // <<< ИСПРАВЛЕНИЕ: Закрывающая скобка была пропущена
+}
 
 export async function findUsersToNotify(days) {
   const targetDate = new Date();
