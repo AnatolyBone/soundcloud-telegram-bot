@@ -490,6 +490,7 @@ async function startApp() {
       ADMIN_PASSWORD,
       SESSION_SECRET,
       STORAGE_CHANNEL_ID,
+      redis: redisClient,  
     });
 
     // Телеграм-бот
