@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import pTimeout, { TimeoutError } from 'p-timeout';
 
 import { TaskQueue } from '../lib/TaskQueue.js';
-import { getRedisClient, bot } from '../index.js';
+import { getRedisClient, bot } from '../index.js';       // <— ВАЖНО: берём bot здесь
 import { T } from '../config/texts.js';
 import {
   getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
@@ -50,7 +50,7 @@ async function safeSendMessage(userId, text, extra = {}) {
 }
 
 function getYtdlErrorMessage(err) {
-  if (err instanceof TimeoutError || err.message.includes('Превышен таймаут')) {
+  if (err instanceof TimeoutError || err.message?.includes('Превышен таймаут')) {
     return 'Не удалось получить информацию о плейлисте (слишком большой или сервис медленно отвечает).';
   }
   if (err.stderr?.includes('Unsupported URL')) return 'Неподдерживаемая ссылка.';
@@ -132,13 +132,11 @@ async function getTracksInfo(url) {
 
   const isPlaylist = Array.isArray(info.entries) && info.entries.length > 0;
   const tracks = isPlaylist
-    ? info.entries
-        .filter(e => e?.webpage_url && e?.id)
-        .map(e => ({
-          url: e.webpage_url,
-          trackName: sanitizeFilename(e.title),
-          uploader: e.uploader || 'SoundCloud'
-        }))
+    ? info.entries.filter(e => e?.webpage_url && e?.id).map(e => ({
+        url: e.webpage_url,
+        trackName: sanitizeFilename(e.title),
+        uploader: e.uploader || 'SoundCloud'
+      }))
     : [{
         url: info.webpage_url || url,
         trackName: sanitizeFilename(info.title),
@@ -190,7 +188,7 @@ async function queueRemainingTracks(tracks, userId, isPlaylist, originalUrl) {
   const user = await getUser(userId);
   const remainingLimit = user.premium_limit - user.downloads_today;
 
-  if (remainingLimit <= 0) return safeSendMessage(userId, '🚫 Лимит исчерпан.');
+  if (remainingLimit <= 0) return safeSendMessage(userId, T('limitReached') || '🚫 Лимит исчерпан.');
 
   const finalTasks = tracks.length > remainingLimit ? tracks.slice(0, remainingLimit) : tracks;
   if (tracks.length > remainingLimit) await safeSendMessage(userId, `⚠️ Лимит: ${remainingLimit} треков.`);
@@ -218,7 +216,7 @@ export async function enqueue(ctx, userId, url) {
     const user = await getUser(userId);
 
     if ((user.premium_limit - user.downloads_today) <= 0) {
-      let messageText = T('limitReached');
+      let messageText = T('limitReached') || '🚫 Лимит исчерпан.';
       const extra = { parse_mode: 'Markdown' };
       if (!user.subscribed_bonus_used) {
         messageText += `\n\n🎁 **Бонус!**\nПодпишись на @SCM_BLOG и получи 7 дней Plus бесплатно!`;
