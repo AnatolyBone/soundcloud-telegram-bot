@@ -2,7 +2,6 @@ import { Telegraf } from 'telegraf';
 import ytdl from 'youtube-dl-exec';
 import path from 'path';
 import fs from 'fs/promises';
-import fsExtra from 'fs'; // Для createReadStream
 import { fileURLToPath } from 'url';
 import retry from 'async-retry';
 import pLimit from 'p-limit';
@@ -106,7 +105,10 @@ async function processUrl(url, depth = 0) {
 
       console.log(`[Indexer] Info: _type=${info._type}, entries=${info.entries?.length || 0}, duration=${info.duration}`);
 
-      if (info._type === 'playlist' || (Array.isArray(info.entries) && info.entries.length > 0)) {
+      // Проверяем, настоящий ли плейлист (больше одного трека)
+      const isPlaylist = info._type === 'playlist' && Array.isArray(info.entries) && info.entries.length > 1;
+
+      if (isPlaylist) {
         console.log(`[Indexer] Плейлист: ${url} с ${info.entries.length} треками. Обработка...`);
         const limit = pLimit(PARALLEL_LIMIT);
         const tasks = info.entries.slice(0, MAX_PLAYLIST_TRACKS).map(entry =>
@@ -116,6 +118,10 @@ async function processUrl(url, depth = 0) {
         const successCount = results.filter(r => r === 'success').length;
         console.log(`[Indexer] Успешно обработано ${successCount} треков из плейлиста`);
         return successCount > 0 ? 'success' : 'skipped';
+      } else if (Array.isArray(info.entries) && info.entries.length === 1) {
+        // Если в entries ровно один трек — считаем это одиночным треком
+        console.log(`[Indexer] Один трек в обёртке плейлиста. Используем первый элемент.`);
+        info = info.entries[0];
       }
 
       if (!info || !info.url) {
@@ -130,7 +136,6 @@ async function processUrl(url, depth = 0) {
 
       let fileExists = await fs.access(tempFilePath).then(() => true).catch(() => false);
       if (!fileExists) {
-        console.log(`[Indexer] Скачиваю аудио: ${url}`);
         await withTimeout(
           ytdl(info.url, {
             output: tempFilePath,
@@ -147,19 +152,9 @@ async function processUrl(url, depth = 0) {
 
       if (!fileExists || (await fs.stat(tempFilePath)).size === 0) throw new Error('Файл не создан или пустой');
 
-      // Проверяем размер файла (лимит Telegram ~50MB)
-      const stats = await fs.stat(tempFilePath);
-      const maxTelegramSizeBytes = 49 * 1024 * 1024;
-      if (stats.size > maxTelegramSizeBytes) {
-        console.warn(`[Indexer] Файл превышает лимит Telegram (${(stats.size / (1024 * 1024)).toFixed(2)}MB), пропускаю: ${url}`);
-        return 'skipped';
-      }
-
-      console.log(`[Indexer] Отправка аудио в канал: ${trackName} от ${uploader}`);
       const message = await retry(async () => {
-        const stream = fsExtra.createReadStream(tempFilePath);
         return withTimeout(
-          bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: stream }, { title: trackName, performer: uploader }),
+          bot.telegram.sendAudio(STORAGE_CHANNEL_ID, { source: await fs.open(tempFilePath, 'r') }, { title: trackName, performer: uploader }),
           45000,
           `Таймаут отправки для ${url}`
         );
@@ -169,20 +164,16 @@ async function processUrl(url, depth = 0) {
 
       await cacheTrack(url, message.audio.file_id, trackName);
       console.log(`✅ [Indexer] Закэшировано и отправлено: ${trackName} от ${uploader}`);
-
       return 'success';
     } catch (err) {
       if (err.message.includes('404') || err.message.includes('таймаут')) {
         console.warn(`[Indexer] Пропуск URL ${url} из-за ошибки: ${err.message}`);
         return 'skipped';
       }
-      console.error(`[Indexer] Ошибка обработки ${url}:`, err);
       throw err;
     }
   }, { retries: RETRY_COUNT, minTimeout: 5000 }).finally(async () => {
-    if (tempFilePath) {
-      await fs.unlink(tempFilePath).catch(e => console.error(`[Indexer] Ошибка удаления файла ${tempFilePath}:`, e));
-    }
+    if (tempFilePath) await fs.unlink(tempFilePath).catch(() => {});
   });
 }
 
@@ -194,16 +185,11 @@ async function main() {
 
   const shutdown = async () => {
     console.log('[Indexer] Завершение...');
-    try {
-      await fs.rm(cacheDir, { recursive: true, force: true });
-    } catch (e) {
-      console.error('[Indexer] Ошибка удаления cacheDir при завершении:', e);
-    }
+    await fs.rm(cacheDir, { recursive: true, force: true });
     await redis.quit();
     await pool.end();
     process.exit(0);
   };
-
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
@@ -211,7 +197,6 @@ async function main() {
     try {
       const lastCycle = await redis.get('indexer_last_cycle');
       const now = Date.now();
-
       if (lastCycle && now - Number(lastCycle) < CYCLE_PAUSE_MS) {
         const waitMs = CYCLE_PAUSE_MS - (now - Number(lastCycle));
         console.log(`[Indexer] Жду ${Math.ceil(waitMs / 60000)} мин до следующего цикла.`);
@@ -222,7 +207,6 @@ async function main() {
       const urls = await getUrlsToIndex();
       if (urls.length === 0) {
         console.log('[Indexer] Нет новых URL.');
-        await new Promise(resolve => setTimeout(resolve, CYCLE_PAUSE_MS));
         continue;
       }
 
