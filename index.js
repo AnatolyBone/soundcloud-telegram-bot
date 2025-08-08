@@ -59,6 +59,7 @@ if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL |
 // ===== App/Bot =====
 const bot = new Telegraf(BOT_TOKEN);
 initNotifier(bot);
+
 // ---------- DEFAULT parse_mode=HTML for all replies/edits ----------
 bot.use(async (ctx, next) => {
   if (ctx.reply) {
@@ -72,17 +73,16 @@ bot.use(async (ctx, next) => {
   return next();
 });
 // -------------------------------------------------------------------
-// сразу после: const app = express();
+
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json()); // ← ДОБАВЬ ЭТО
+app.use(express.json()); // парсим JSON для POST (админка/рассылка и др.)
 
-// после вычисления __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// раздача /static/*
-app.use('/static', express.static(path.join(__dirname, 'public', 'static'))); // ← ДОБАВЬ ЭТО
+// раздача /static/* (css/js для админки)
+app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 
 const cacheDir = path.join(__dirname, 'cache');
 let redisClient = null;
@@ -468,6 +468,7 @@ async function startApp() {
       ADMIN_PASSWORD,
       SESSION_SECRET,
       STORAGE_CHANNEL_ID,
+      redis: client, // ← ВАЖНО: сессии через RedisStore
     });
 
     // Телеграм-бот
