@@ -1,8 +1,7 @@
-// routes/admin.js
 import express from 'express';
 import session from 'express-session';
 import RedisStore from 'connect-redis';
-
+import csrf from 'csurf';
 import { getAllUsers, supabase } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
 import setupAdminUsers from './admin-users.js';
@@ -22,6 +21,9 @@ export default function setupAdmin(opts = {}) {
   // Парсеры форм
   app.use(express.urlencoded({ extended: true }));
 
+  // CSRF защита
+  const csrfProtection = csrf({ cookie: true });
+
   // Сессии
   const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
   app.use(
@@ -35,7 +37,7 @@ export default function setupAdmin(opts = {}) {
         httpOnly: true,
         sameSite: 'lax',
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 3600 * 1000,
+        maxAge: 7 * 24 * 3600 * 1000, // 7 дней
       },
     })
   );
@@ -53,33 +55,11 @@ export default function setupAdmin(opts = {}) {
   // Login page
   app.get('/admin/login', (req, res) => {
     if (req.session?.isAdmin) return res.redirect('/dashboard');
-    res.send(`<!doctype html><html lang="ru"><head>
-      <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Админ — вход</title>
-      <style>
-        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:40px;background:#0b0c10;color:#eaf0f1}
-        .card{max-width:420px;margin:0 auto;background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-        h1{font-size:20px;margin:0 0 12px}
-        label{display:block;margin:12px 0 4px}
-        input{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2f36;background:#0f1115;color:#eaf0f1}
-        button{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer}
-        .muted{color:#9aa4b2;font-size:13px;margin-top:8px}
-      </style>
-    </head><body>
-      <div class="card">
-        <h1>Вход в админку</h1>
-        <form method="post" action="/admin/login">
-          <label>Логин</label><input name="login" required>
-          <label>Пароль</label><input name="password" type="password" required>
-          <button type="submit">Войти</button>
-        </form>
-        <div class="muted">Доступ только у владельца.</div>
-      </div>
-    </body></html>`);
+    res.render('login', { csrfToken: req.csrfToken() });
   });
 
   // Login / Logout
-  app.post('/admin/login', (req, res) => {
+  app.post('/admin/login', csrfProtection, (req, res) => {
     const { login, password } = req.body || {};
     if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
       req.session.isAdmin = true;
@@ -111,61 +91,7 @@ export default function setupAdmin(opts = {}) {
 
       const formatDate = (val) => val ? new Date(val).toLocaleString('ru-RU') : '—';
 
-      res.send(`<!doctype html><html lang="ru"><head>
-        <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <title>Админ — дашборд</title>
-        <style>
-          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:24px;background:#0b0c10;color:#eaf0f1}
-          .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
-          .card{background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:16px}
-          .k{color:#9aa4b2;font-size:13px}
-          h1{margin:0 0 16px}
-          table{width:100%;border-collapse:collapse}
-          th,td{padding:10px;border-bottom:1px solid #232a32;font-size:14px}
-          th{text-align:left;color:#9aa4b2}
-          .topbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
-          .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#2a2f36;color:#eaf0f1;text-decoration:none}
-          .btn-primary{background:#4f46e5}
-          form{display:inline}
-        </style>
-      </head><body>
-        <div class="topbar">
-          <a class="btn" href="/dashboard">Дашборд</a>
-          <a class="btn" href="/admin/users">Пользователи</a>
-          <a class="btn" href="/admin/texts">Тексты бота</a>
-          <a class="btn" href="/admin/broadcast">Рассылка</a>
-          <form method="post" action="/admin/logout"><button class="btn btn-primary">Выйти</button></form>
-        </div>
-
-        <h1>Сводка</h1>
-        <div class="row">
-          <div class="card"><div class="k">Пользователей всего</div><div style="font-size:28px;font-weight:700">${totalUsers}</div></div>
-          <div class="card"><div class="k">Активных всего</div><div style="font-size:28px;font-weight:700">${activeUsers}</div></div>
-          <div class="card"><div class="k">Активных сегодня</div><div style="font-size:28px;font-weight:700">${activeToday}</div></div>
-          <div class="card"><div class="k">Загрузок за всё время</div><div style="font-size:28px;font-weight:700">${totalDownloads}</div></div>
-        </div>
-
-        <div class="card">
-          <div class="k">Последние 20 пользователей</div>
-          <table>
-            <thead><tr><th>ID</th><th>Имя</th><th>Юзернейм</th><th>Создан</th><th>Последняя активность</th><th>Премиум до</th><th>Лимит/день</th><th>Всего загрузок</th></tr></thead>
-            <tbody>
-              ${lastUsers.map(u => `
-                <tr>
-                  <td>${u.id}</td>
-                  <td>${u.first_name ?? ''}</td>
-                  <td>${u.username ? '@'+u.username : '—'}</td>
-                  <td>${formatDate(u.created_at)}</td>
-                  <td>${formatDate(u.last_active)}</td>
-                  <td>${formatDate(u.premium_until)}</td>
-                  <td>${u.premium_limit ?? 0}</td>
-                  <td>${u.total_downloads ?? 0}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </body></html>`);
+      res.render('dashboard', { totalUsers, activeUsers, activeToday, totalDownloads, lastUsers, formatDate });
     } catch (e) {
       console.error('[admin] /dashboard error:', e);
       res.status(500).send('Ошибка загрузки дашборда');
@@ -184,48 +110,14 @@ export default function setupAdmin(opts = {}) {
         </tr>
       `).join('');
 
-      res.send(`<!doctype html><html lang="ru"><head>
-        <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <title>Админ — тексты бота</title>
-        <style>
-          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:24px;background:#0b0c10;color:#eaf0f1}
-          .topbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
-          .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#2a2f36;color:#eaf0f1;text-decoration:none}
-          .btn-primary{background:#4f46e5}
-          table{width:100%;border-collapse:collapse}
-          th,td{padding:10px;border-bottom:1px solid #232a32;vertical-align:top}
-          th{text-align:left;color:#9aa4b2}
-          .card{background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:16px}
-        </style>
-      </head><body>
-        <div class="topbar">
-          <a class="btn" href="/dashboard">Дашборд</a>
-          <a class="btn" href="/admin/users">Пользователи</a>
-          <a class="btn btn-primary" href="/admin/texts">Тексты бота</a>
-          <a class="btn" href="/admin/broadcast">Рассылка</a>
-          <form method="post" action="/admin/logout"><button class="btn">Выйти</button></form>
-        </div>
-
-        <div class="card">
-          <h2 style="margin-top:0">Редактор текстов</h2>
-          <form method="post" action="/admin/texts">
-            <table>
-              <thead><tr><th>Ключ</th><th>Значение</th></tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-            <div style="margin-top:12px">
-              <button class="btn btn-primary" type="submit">Сохранить</button>
-            </div>
-          </form>
-        </div>
-      </body></html>`);
+      res.render('texts', { rows, csrfToken: req.csrfToken() });
     } catch (e) {
       console.error('[admin] /admin/texts GET error:', e);
       res.status(500).send('Ошибка загрузки текстов');
     }
   });
 
-  app.post('/admin/texts', requireAdmin, async (req, res) => {
+  app.post('/admin/texts', requireAdmin, csrfProtection, async (req, res) => {
     try {
       const body = req.body || {};
       for (const [key, value] of Object.entries(body)) {
@@ -240,46 +132,12 @@ export default function setupAdmin(opts = {}) {
     }
   });
 
-  // --- Рассылка (без EJS) ---
+  // --- Рассылка ---
   app.get('/admin/broadcast', requireAdmin, (_req, res) => {
-    res.send(`<!doctype html><html lang="ru"><head>
-      <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Админ — рассылка</title>
-      <style>
-        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;margin:24px;background:#0b0c10;color:#eaf0f1}
-        .topbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
-        .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#2a2f36;color:#eaf0f1;text-decoration:none}
-        .btn-primary{background:#4f46e5}
-        .card{background:#14161b;border:1px solid #2a2f36;border-radius:14px;padding:16px;max-width:720px}
-        textarea{width:100%;min-height:160px;padding:10px;border-radius:10px;border:1px solid #2a2f36;background:#0f1115;color:#eaf0f1}
-      </style>
-    </head><body>
-      <div class="topbar">
-        <a class="btn" href="/dashboard">Дашборд</a>
-        <a class="btn" href="/admin/users">Пользователи</a>
-        <a class="btn" href="/admin/texts">Тексты бота</a>
-        <a class="btn btn-primary" href="/admin/broadcast">Рассылка</a>
-        <form method="post" action="/admin/logout"><button class="btn">Выйти</button></form>
-      </div>
-
-      <div class="card">
-        <h2 style="margin-top:0">Массовая рассылка</h2>
-        <form method="post" action="/admin/broadcast">
-          <label>Сообщение (HTML разрешён)</label>
-          <textarea name="message" placeholder="Текст..."></textarea>
-          <div style="margin-top:12px">
-            <label><input type="checkbox" name="only_active" value="1" checked> Только активным пользователям</label>
-          </div>
-          <div style="margin-top:12px;display:flex;gap:8px">
-            <button class="btn btn-primary" type="submit">Отправить</button>
-            <a class="btn" href="/dashboard">Отмена</a>
-          </div>
-        </form>
-      </div>
-    </body></html>`);
+    res.render('broadcast', { csrfToken: req.csrfToken() });
   });
 
-  app.post('/admin/broadcast', requireAdmin, async (req, res) => {
+  app.post('/admin/broadcast', requireAdmin, csrfProtection, async (req, res) => {
     if (!bot) return res.status(500).send('Бот недоступен для рассылки.');
     const text = String(req.body?.message ?? '').trim();
     const onlyActive = !!req.body?.only_active;
