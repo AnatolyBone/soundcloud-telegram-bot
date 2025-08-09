@@ -1,15 +1,17 @@
 <% if (typeof query !== 'undefined' && query.ping) { %>
-  <div class="alert <%= query.ping==='ok'?'alert-success':'alert-danger' %>" data-autohide>
-    <%= query.ping==='ok' ? 'Канал доступен' : 'Ошибка отправки в канал' %>
+  <div class="alert <%= query.ping === 'ok' ? 'alert-success' : 'alert-danger' %>" data-autohide>
+    <%= query.ping === 'ok' ? 'Канал доступен' : 'Ошибка отправки в канал' %>
   </div>
 <% } %>
 
 <!-- Фильтры для поиска и экспорта -->
 <form id="filterForm" class="row g-2 align-items-end mb-3" method="get" action="/dashboard">
   <input type="hidden" id="periodInput" name="period" value="<%= period || '30' %>">
+  
   <div class="col-auto">
     <label class="form-label mb-0">Период:</label>
   </div>
+  
   <div class="col-auto">
     <select id="rangeSelect" class="form-select form-select-sm">
       <option value="">— выбрать —</option>
@@ -18,6 +20,7 @@
       <option value="90">Последние 90 дней</option>
     </select>
   </div>
+
   <div class="col-auto">
     <a class="btn btn-sm btn-outline-success" href="/export">Экспорт пользователей</a>
   </div>
@@ -27,13 +30,13 @@
 <div class="d-flex flex-wrap gap-3 mb-4">
   <div class="card card-metric shadow-sm flex-fill">
     <div class="card-body">
-      <div class="text-muted">Пользователи</div>
+      <div class="text-muted">Пользователей</div>
       <div class="h4 mb-0"><%= stats.total_users %></div>
     </div>
   </div>
   <div class="card card-metric shadow-sm flex-fill">
     <div class="card-body">
-      <div class="text-muted">Активные сегодня</div>
+      <div class="text-muted">Активных сегодня</div>
       <div class="h4 mb-0"><%= stats.active_today %></div>
     </div>
   </div>
@@ -56,6 +59,7 @@
       </div>
     </div>
   </div>
+  
   <div class="col-12 col-xl-4">
     <div class="card shadow-sm mb-4">
       <div class="card-header">Активность по часам</div>
