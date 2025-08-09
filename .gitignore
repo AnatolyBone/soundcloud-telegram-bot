@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Логи
+logs/
+
+# Кэшированные файлы
+.cache/
+*.log
+
+# Секретные файлы
+.env
+
+# Статические файлы, если они генерируются на сервере
+public/static/
+
+# Временные файлы, созданные в процессе сборки
+dist/
+build/
