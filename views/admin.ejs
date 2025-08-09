@@ -1,160 +1,86 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Админ-панель</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 30px;
-      background: #f8f9fa;
-    }
-    h1 {
-      color: #343a40;
-      font-size: 2rem;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    th, td {
-      padding: 12px 18px;
-      text-align: left;
-      border-bottom: 1px solid #ccc;
-    }
-    th {
-      background: #007bff;
-      color: #fff;
-    }
-    form.inline {
-      display: inline;
-    }
-    input[type="submit"] {
-      padding: 6px 12px;
-      margin-left: 6px;
-      background-color: #28a745;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    input[type="submit"]:hover {
-      background-color: #218838;
-    }
-    .review {
-      background: #fff;
-      padding: 15px;
-      margin-top: 20px;
-      border-left: 4px solid #28a745;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    .card-metric {
-      border-radius: 10px;
-      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-      transition: transform 0.3s;
-      background-color: #fff;
-    }
-    .card-metric:hover {
-      transform: scale(1.05);
-    }
-    .card-body {
-      padding: 20px;
-    }
-    .topbar {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    .btn {
-      display: inline-block;
-      padding: 10px 15px;
-      border-radius: 8px;
-      background: #007bff;
-      color: #fff;
-      text-decoration: none;
-      font-weight: bold;
-    }
-    .btn-primary {
-      background: #28a745;
-    }
-    .card-header {
-      background-color: #007bff;
-      color: white;
-    }
-  </style>
+  <link rel="stylesheet" href="/path-to-your-styles/admin.css">
 </head>
-<body>
-  <div class="container">
-    <h1>📊 Админ-панель</h1>
-    
-    <p>Всего пользователей: <strong><%= users.length %></strong></p>
+<body class="bg-body">
 
-    <!-- Пользователи -->
-    <div class="card-metric">
-      <div class="card-header">Список пользователей</div>
-      <div class="card-body">
-        <table>
-          <thead>
+  <!-- Верхняя панель навигации -->
+  <div class="topbar">
+    <a class="btn" href="/dashboard">Дашборд</a>
+    <a class="btn" href="/admin/users">Пользователи</a>
+    <a class="btn" href="/admin/texts">Тексты бота</a>
+    <a class="btn" href="/admin/broadcast">Рассылка</a>
+    <form method="post" action="/admin/logout">
+      <button class="btn">Выйти</button>
+    </form>
+  </div>
+
+  <!-- Сводка -->
+  <h1>📊 Админ-панель</h1>
+  <p>Всего пользователей: <strong><%= users.length %></strong></p>
+
+  <!-- Таблица пользователей -->
+  <div class="card">
+    <div class="card-header">Пользователи</div>
+    <div class="card-body">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Имя</th>
+            <th>Юзернейм</th>
+            <th>Треков сегодня</th>
+            <th>Лимит</th>
+            <th>Тариф до</th>
+            <th>Изменить тариф</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% users.forEach(u => { %>
             <tr>
-              <th>ID</th>
-              <th>Имя</th>
-              <th>Юзернейм</th>
-              <th>Треков сегодня</th>
-              <th>Лимит</th>
-              <th>Тариф до</th>
-              <th>Изменить тариф</th>
+              <td><%= u.id %></td>
+              <td><%= u.first_name %></td>
+              <td>@<%= u.username || '-' %></td>
+              <td><%= u.downloads_today %></td>
+              <td><%= u.premium_limit %></td>
+              <td><%= u.premium_until ? u.premium_until.split('T')[0] : '-' %></td>
+              <td>
+                <form class="inline" method="post" action="/admin/set-plan">
+                  <input type="hidden" name="id" value="<%= u.id %>">
+                  <select name="plan">
+                    <option value="10" <%= u.premium_limit === 10 ? 'selected' : '' %>>Free</option>
+                    <option value="50" <%= u.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
+                    <option value="100" <%= u.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
+                    <option value="1000" <%= u.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
+                  </select>
+                  <input type="number" name="days" placeholder="Дней" min="1" style="width: 60px;">
+                  <input type="submit" value="OK">
+                </form>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            <% users.forEach(u => { %>
-              <tr>
-                <td><%= u.id %></td>
-                <td><%= u.first_name %></td>
-                <td>@<%= u.username || '-' %></td>
-                <td><%= u.downloads_today %></td>
-                <td><%= u.premium_limit %></td>
-                <td><%= u.premium_until ? u.premium_until.split('T')[0] : '-' %></td>
-                <td>
-                  <form class="inline" method="post" action="/admin/set-plan">
-                    <input type="hidden" name="id" value="<%= u.id %>">
-                    <select name="plan">
-                      <option value="10" <%= u.premium_limit === 10 ? 'selected' : '' %>>Free</option>
-                      <option value="50" <%= u.premium_limit === 50 ? 'selected' : '' %>>Plus</option>
-                      <option value="100" <%= u.premium_limit === 100 ? 'selected' : '' %>>Pro</option>
-                      <option value="1000" <%= u.premium_limit >= 1000 ? 'selected' : '' %>>Unlim</option>
-                    </select>
-                    <input type="number" name="days" placeholder="Дней" min="1" style="width: 60px;">
-                    <input type="submit" value="OK">
-                  </form>
-                </td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Отзывы -->
-    <div class="card-metric">
-      <div class="card-header">📝 Последние отзывы</div>
-      <div class="card-body">
-        <% reviews.slice(-20).reverse().forEach(r => { %>
-          <div class="review">
-            <div><strong>ID:</strong> <%= r.userId %></div>
-            <div><strong>⏱</strong> <%= new Date(r.time).toLocaleString() %></div>
-            <p><%= r.text %></p>
-          </div>
-        <% }) %>
-      </div>
+          <% }) %>
+        </tbody>
+      </table>
     </div>
   </div>
+
+  <!-- Последние отзывы -->
+  <div class="card">
+    <div class="card-header">📝 Последние отзывы</div>
+    <div class="card-body">
+      <% reviews.slice(-20).reverse().forEach(r => { %>
+        <div class="review">
+          <div><strong>ID:</strong> <%= r.userId %></div>
+          <div><strong>⏱</strong> <%= new Date(r.time).toLocaleString() %></div>
+          <p><%= r.text %></p>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
 </body>
 </html>
