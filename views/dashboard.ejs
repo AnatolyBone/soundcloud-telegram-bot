@@ -1,18 +1,15 @@
-<% /* Alert про проверку канала */ %>
 <% if (typeof query !== 'undefined' && query.ping) { %>
   <div class="alert <%= query.ping==='ok'?'alert-success':'alert-danger' %>" data-autohide>
     <%= query.ping==='ok' ? 'Канал доступен' : 'Ошибка отправки в канал' %>
   </div>
 <% } %>
 
-<% /* Панель фильтров (GET) */ %>
+<!-- Фильтры для поиска и экспорта -->
 <form id="filterForm" class="row g-2 align-items-end mb-3" method="get" action="/dashboard">
   <input type="hidden" id="periodInput" name="period" value="<%= period || '30' %>">
-
   <div class="col-auto">
     <label class="form-label mb-0">Период:</label>
   </div>
-
   <div class="col-auto">
     <select id="rangeSelect" class="form-select form-select-sm">
       <option value="">— выбрать —</option>
@@ -21,25 +18,12 @@
       <option value="90">Последние 90 дней</option>
     </select>
   </div>
-
-  <div class="col-auto">
-    <select id="monthSelect" class="form-select form-select-sm">
-      <option value="">По месяцу…</option>
-      <!-- опции за 12 мес добавит скрипт -->
-    </select>
-  </div>
-
   <div class="col-auto">
     <a class="btn btn-sm btn-outline-success" href="/export">Экспорт пользователей</a>
   </div>
 </form>
 
-<% /* Отдельная кнопка-переход (GET) для проверки канала */ %>
-<a class="btn btn-sm btn-outline-primary mb-3" href="/admin/test-storage-send">
-  <i class="bi bi-broadcast"></i> Проверить канал
-</a>
-
-<% /* Метрики */ %>
+<!-- Метрики -->
 <div class="d-flex flex-wrap gap-3 mb-4">
   <div class="card card-metric shadow-sm flex-fill">
     <div class="card-body">
@@ -61,7 +45,7 @@
   </div>
 </div>
 
-<% /* Графики */ %>
+<!-- Графики -->
 <div class="row g-4">
   <div class="col-12 col-xl-8">
     <div class="card shadow-sm">
@@ -90,59 +74,41 @@
   </div>
 </div>
 
+<!-- Стиль для графиков и элементов -->
+<style>
+  .card-metric {
+    border-radius: 10px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s;
+  }
+
+  .card-metric:hover {
+    transform: scale(1.05);
+  }
+
+  .card-header {
+    background-color: #0069d9;
+    color: white;
+  }
+
+  .chart-wrap {
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .text-muted {
+    font-size: 0.9em;
+    color: #6c757d;
+  }
+</style>
+
 <script>
-  // ===== Инициализация селекторов периода =====
-  (function initPeriodControls() {
-    const current = String(<%- JSON.stringify(period || '30') %>);
-    const rangeSelect = document.getElementById('rangeSelect');
-    const monthSelect = document.getElementById('monthSelect');
-    const periodInput = document.getElementById('periodInput');
-    const form = document.getElementById('filterForm');
-
-    const ruMonths = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
-    const now = new Date();
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const opt = document.createElement('option');
-      opt.value = `${y}-${m}`;
-      opt.textContent = `${ruMonths[d.getMonth()]} ${y}`;
-      monthSelect.appendChild(opt);
-    }
-
-    if (/^\d{4}-\d{2}$/.test(current)) {
-      monthSelect.value = current;
-      rangeSelect.value = '';
-    } else {
-      rangeSelect.value = current;
-      monthSelect.value = '';
-    }
-
-    rangeSelect.addEventListener('change', () => {
-      if (rangeSelect.value) {
-        periodInput.value = rangeSelect.value;
-        monthSelect.value = '';
-        form.submit();
-      }
-    });
-
-    monthSelect.addEventListener('change', () => {
-      if (monthSelect.value) {
-        periodInput.value = monthSelect.value;
-        rangeSelect.value = '';
-        form.submit();
-      }
-    });
-  })();
-
-  // ===== Данные с бэка =====
+  // Инициализация графиков с данными
   const combined = <%- JSON.stringify(chartDataCombined || {}) %>;
   const byHour   = <%- JSON.stringify(chartDataHourActivity || {}) %>;
   const byWeek   = <%- JSON.stringify(chartDataWeekdayActivity || {}) %>;
 
   function isAllZeros(arr) {
-    if (!Array.isArray(arr)) return true;
     return arr.every(v => (typeof v === 'number' ? v : 0) === 0);
   }
 
@@ -160,14 +126,10 @@
     }
   };
 
-  // Комбинированный
   const elCombined = document.getElementById('chartCombined');
   const emptyCombined = document.getElementById('combinedEmpty');
   if (elCombined && combined && Array.isArray(combined.labels)) {
-    const allZero =
-      isAllZeros(combined.datasets?.[0]?.data || []) &&
-      isAllZeros(combined.datasets?.[1]?.data || []) &&
-      isAllZeros(combined.datasets?.[2]?.data || []);
+    const allZero = isAllZeros(combined.datasets?.[0]?.data || []);
     if (combined.labels.length === 0 || allZero) {
       emptyCombined.classList.remove('d-none');
       elCombined.classList.add('d-none');
@@ -182,7 +144,6 @@
     }
   }
 
-  // По часам
   const elHours = document.getElementById('chartHours');
   const emptyHours = document.getElementById('hoursEmpty');
   if (elHours && byHour && Array.isArray(byHour.datasets?.[0]?.data)) {
@@ -194,7 +155,6 @@
     }
   }
 
-  // По дням недели
   const elWeek = document.getElementById('chartWeek');
   const emptyWeek = document.getElementById('weekEmpty');
   if (elWeek && byWeek && Array.isArray(byWeek.datasets?.[0]?.data)) {
