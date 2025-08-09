@@ -23,7 +23,7 @@ function formatDate(s) {
 
 <div class="card shadow-sm">
   <div class="card-header d-flex align-items-center justify-content-between">
-    <span>Истекающие подписки</span>
+    <span class="h5 mb-0">⏳ Истекающие подписки</span>
     <% if (typeof totalPages !== 'undefined') { %>
       <small class="text-muted">Страниц: <%= totalPages %></small>
     <% } %>
@@ -38,13 +38,13 @@ function formatDate(s) {
             <th>Username</th>
             <th>Тариф</th>
             <th>До</th>
-            <th></th>
+            <th>Действия</th>
           </tr>
         </thead>
         <tbody>
           <% if (!users || users.length === 0) { %>
             <tr>
-              <td colspan="6" class="text-center text-muted py-4">Пока пусто</td>
+              <td colspan="6" class="text-center text-muted py-4">Нет данных</td>
             </tr>
           <% } else { %>
             <% users.forEach(u => { %>
@@ -54,7 +54,11 @@ function formatDate(s) {
                 <td><%= u.username ? '@'+u.username : '' %></td>
                 <td><%= tariffLabel(u.premium_limit) %></td>
                 <td><%= formatDate(u.premium_until) %></td>
-                <td><a href="/user/<%= u.id %>" class="btn btn-sm btn-outline-primary">Открыть</a></td>
+                <td>
+                  <a href="/user/<%= u.id %>" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye"></i> Открыть
+                  </a>
+                </td>
               </tr>
             <% }) %>
           <% } %>
@@ -63,3 +67,34 @@ function formatDate(s) {
     </div>
   </div>
 </div>
+
+<!-- Скрипты для обработки уведомлений -->
+<script>
+  document.querySelectorAll('.alert[data-autohide]').forEach(el => {
+    setTimeout(() => {
+      el.classList.add('d-none');
+    }, 4000);
+  });
+</script>
+
+<!-- CSS для улучшения визуализации -->
+<style>
+  .card-header {
+    background-color: #007bff;
+    color: #fff;
+  }
+  .table th {
+    background-color: #f8f9fa;
+  }
+  .table-hover tbody tr:hover {
+    background-color: #f1f1f1;
+  }
+  .btn-outline-primary {
+    color: #007bff;
+    border-color: #007bff;
+  }
+  .btn-outline-primary:hover {
+    background-color: #007bff;
+    color: #fff;
+  }
+</style>
