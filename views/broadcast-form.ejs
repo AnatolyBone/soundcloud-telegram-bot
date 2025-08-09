@@ -1,23 +1,50 @@
 <div class="card shadow-sm">
   <div class="card-header d-flex align-items-center justify-content-between">
-    <span>Рассылка</span>
+    <span class="h5 mb-0">📢 Рассылка</span>
     <a href="/dashboard" class="btn btn-sm btn-outline-secondary">Назад</a>
   </div>
   <div class="card-body">
-    <% if (error) { %><div class="alert alert-danger" data-autohide><%= error %></div><% } %>
-    <% if (success) { %><div class="alert alert-success" data-autohide><%= success %></div><% } %>
+    <% if (error) { %>
+      <div class="alert alert-danger" data-autohide>
+        <%= error %>
+      </div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success" data-autohide>
+        <%= success %>
+      </div>
+    <% } %>
     <form method="post" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      
+      <!-- Поле для текста сообщения -->
       <div class="mb-3">
         <label class="form-label">Текст сообщения</label>
-        <textarea name="message" class="form-control" rows="4" placeholder="Сообщение для пользователей..."></textarea>
+        <textarea name="message" class="form-control" rows="4" placeholder="Сообщение для пользователей..." required></textarea>
       </div>
+      
+      <!-- Поле для загрузки аудиофайла -->
       <div class="mb-3">
         <label class="form-label">Аудио-файл (опционально)</label>
         <input type="file" name="audio" accept="audio/*" class="form-control" />
-        <div class="form-text">Не более 20 МБ</div>
+        <div class="form-text">Размер не более 20 МБ</div>
       </div>
-      <button class="btn btn-primary"><i class="bi bi-send"></i> Отправить</button>
+      
+      <!-- Кнопка отправки -->
+      <div class="mb-3">
+        <button class="btn btn-primary w-100">
+          <i class="bi bi-send"></i> Отправить
+        </button>
+      </div>
     </form>
   </div>
 </div>
+
+<!-- Скрипты для автоматического скрытия уведомлений -->
+<script>
+  document.querySelectorAll('.alert[data-autohide]').forEach(el => {
+    setTimeout(() => {
+      el.classList.add('d-none');
+    }, 4000);
+  });
+</script>
