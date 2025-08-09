@@ -1,5 +1,0 @@
-services:
-  - type: web
-    name: soundcloud-bot
-    env: docker
-    plan: free
