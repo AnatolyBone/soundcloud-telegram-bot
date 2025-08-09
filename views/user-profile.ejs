@@ -53,7 +53,9 @@
   </form>
 </div>
 
+<!-- Треки пользователя и приглашённые пользователи -->
 <div class="row g-4">
+  <!-- Скачанные треки -->
   <div class="col-md-6">
     <div class="card shadow-sm">
       <div class="card-header">Скачанные треки</div>
@@ -90,6 +92,7 @@
     </div>
   </div>
 
+  <!-- Приглашённые пользователи -->
   <div class="col-md-6">
     <div class="card shadow-sm">
       <div class="card-header">Приглашённые пользователи</div>
@@ -130,3 +133,40 @@
     </div>
   </div>
 </div>
+
+<!-- Стили для улучшения интерфейса -->
+<style>
+  .card {
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-header {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .table thead th {
+    background-color: #f8f9fa;
+    color: #343a40;
+  }
+
+  .table tbody tr:hover {
+    background-color: #f1f1f1;
+  }
+
+  .btn-outline-primary {
+    border: 1px solid #007bff;
+    color: #007bff;
+    background-color: transparent;
+  }
+
+  .btn-outline-primary:hover {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .form-control-sm {
+    max-width: 150px;
+  }
+</style>
