@@ -22,7 +22,7 @@
             <th>Лимит</th>
             <th>Скачано всего</th>
             <th>Активность</th>
-            <th></th>
+            <th>Действия</th>
           </tr>
         </thead>
         <tbody>
@@ -34,14 +34,14 @@
             <% users.forEach(u => { %>
               <tr class="table-hover-row">
                 <td><%= u.id %></td>
-                <td><%= u.first_name || '' %></td>
-                <td><%= u.username ? '@'+u.username : '' %></td>
-                <td class="text-center"><%= u.premium_limit %></td>
+                <td><%= u.first_name || 'Не указано' %></td>
+                <td><%= u.username ? '@'+u.username : 'Не указано' %></td>
+                <td class="text-center"><%= u.premium_limit || '—' %></td>
                 <td class="text-center"><%= u.total_downloads || 0 %></td>
                 <td class="text-center">
                   <%= u.last_active
                         ? new Date(String(u.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU')
-                        : '-' %>
+                        : '—' %>
                 </td>
                 <td class="text-center">
                   <a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a>
@@ -64,11 +64,32 @@
   .table thead th {
     background-color: #007bff;
     color: white;
+    font-weight: bold;
   }
 
   .card-header {
     background-color: #007bff;
     color: white;
     font-weight: bold;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  .btn-outline-primary {
+    border: 1px solid #007bff;
+    color: #007bff;
+    background-color: transparent;
+    transition: all 0.3s ease;
+  }
+
+  .btn-outline-primary:hover {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .table-hover {
+    cursor: pointer;
   }
 </style>
