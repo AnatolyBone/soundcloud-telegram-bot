@@ -1,9 +1,16 @@
-<form class="row g-2 mb-3" method="get" action="/users">
+<form class="row g-2 mb-3" method="get" action="/admin/users">
   <div class="col-auto">
-    <input class="form-control form-control-sm" type="text" name="q" placeholder="ID, @username, имя" value="<%= q || '' %>">
+    <input class="form-control form-control-sm" type="text" name="q" placeholder="Поиск по ID/имени/@username" value="<%= q || '' %>">
   </div>
   <div class="col-auto">
     <button class="btn btn-sm btn-outline-primary">Поиск</button>
+  </div>
+  <div class="col-auto">
+    <select name="status" class="form-select form-select-sm">
+      <option value="">Все</option>
+      <option value="active" <%= status === 'active' ? 'selected' : '' %>>Активные</option>
+      <option value="inactive" <%= status === 'inactive' ? 'selected' : '' %>>Неактивные</option>
+    </select>
   </div>
 </form>
 
@@ -45,6 +52,15 @@
                 </td>
                 <td class="text-center">
                   <a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a>
+                  <form method="post" action="/admin/users/<%= u.id %>/tariff" class="d-inline-block">
+                    <select name="limit" class="form-select form-select-sm">
+                      <option value="5">Free</option>
+                      <option value="30">Plus</option>
+                      <option value="100">Pro</option>
+                      <option value="1000">Unlimited</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary mt-2">Сменить тариф</button>
+                  </form>
                 </td>
               </tr>
             <% }) %>
@@ -64,32 +80,11 @@
   .table thead th {
     background-color: #007bff;
     color: white;
-    font-weight: bold;
   }
 
   .card-header {
     background-color: #007bff;
     color: white;
     font-weight: bold;
-  }
-
-  .card-body {
-    padding: 1rem;
-  }
-
-  .btn-outline-primary {
-    border: 1px solid #007bff;
-    color: #007bff;
-    background-color: transparent;
-    transition: all 0.3s ease;
-  }
-
-  .btn-outline-primary:hover {
-    background-color: #007bff;
-    color: white;
-  }
-
-  .table-hover {
-    cursor: pointer;
   }
 </style>
