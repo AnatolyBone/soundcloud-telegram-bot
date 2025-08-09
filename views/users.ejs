@@ -43,6 +43,12 @@
                 </td>
                 <td>
                   <a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a>
+                  <!-- Кнопка для изменения пользователя (если нужно) -->
+                  <a class="btn btn-sm btn-outline-warning" href="/user/<%= u.id %>/edit">Редактировать</a>
+                  <!-- Добавить кнопку для удаления -->
+                  <form action="/user/<%= u.id %>/delete" method="POST" style="display:inline;">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Удалить</button>
+                  </form>
                 </td>
               </tr>
             <% }) %>
