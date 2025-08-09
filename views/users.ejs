@@ -8,7 +8,9 @@
 </form>
 
 <div class="card shadow-sm">
-  <div class="card-header">Пользователи</div>
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">Пользователи</h5>
+  </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0 align-middle">
@@ -30,25 +32,19 @@
             </tr>
           <% } else { %>
             <% users.forEach(u => { %>
-              <tr>
+              <tr class="table-hover-row">
                 <td><%= u.id %></td>
                 <td><%= u.first_name || '' %></td>
                 <td><%= u.username ? '@'+u.username : '' %></td>
-                <td><%= u.premium_limit %></td>
-                <td><%= u.total_downloads || 0 %></td>
-                <td>
+                <td class="text-center"><%= u.premium_limit %></td>
+                <td class="text-center"><%= u.total_downloads || 0 %></td>
+                <td class="text-center">
                   <%= u.last_active
                         ? new Date(String(u.last_active).replace(' ','T')+'Z').toLocaleString('ru-RU')
                         : '-' %>
                 </td>
-                <td>
+                <td class="text-center">
                   <a class="btn btn-sm btn-outline-primary" href="/user/<%= u.id %>">Открыть</a>
-                  <!-- Кнопка для изменения пользователя (если нужно) -->
-                  <a class="btn btn-sm btn-outline-warning" href="/user/<%= u.id %>/edit">Редактировать</a>
-                  <!-- Добавить кнопку для удаления -->
-                  <form action="/user/<%= u.id %>/delete" method="POST" style="display:inline;">
-                    <button class="btn btn-sm btn-outline-danger" type="submit">Удалить</button>
-                  </form>
                 </td>
               </tr>
             <% }) %>
@@ -58,3 +54,21 @@
     </div>
   </div>
 </div>
+
+<!-- Стиль для таблицы -->
+<style>
+  .table-hover-row:hover {
+    background-color: #f0f8ff;
+  }
+
+  .table thead th {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .card-header {
+    background-color: #007bff;
+    color: white;
+    font-weight: bold;
+  }
+</style>
