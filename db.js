@@ -2,14 +2,16 @@
 
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
-import json2csv from 'json-2-csv';
-const { json2csvAsync } = json2csv;
+// json-2-csv was previously imported here, but this module does not use it.
+// If you need CSV conversion in the future, consider importing it only where
+// it is used.  Removing unused imports reduces bundle size and eliminates
+// unnecessary dependencies.
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ Ошибка: SUPABASE_URL или SUPABASE_KEY не заданы.');
+  console.error('вќЊ РћС€РёР±РєР°: SUPABASE_URL РёР»Рё SUPABASE_KEY РЅРµ Р·Р°РґР°РЅС‹.');
   process.exit(1);
 }
 
@@ -23,7 +25,7 @@ async function query(text, params) {
   try {
     return await pool.query(text, params);
   } catch (e) {
-    console.error('❌ Ошибка запроса к БД (pg):', e.message, { query: text });
+    console.error('вќЊ РћС€РёР±РєР° Р·Р°РїСЂРѕСЃР° Рє Р‘Р” (pg):', e.message, { query: text });
     throw e;
   }
 }
@@ -58,12 +60,12 @@ const allowedUserFields = new Set([
   'premium_limit', 'downloads_today', 'total_downloads', 'first_name', 'username',
   'premium_until', 'subscribed_bonus_used', 'tracks_today', 'last_reset_date',
   'active', 'referred_count', 'referral_source', 'has_reviewed', 'referrer_id',
-  'promo_1plus1_used', 'expiration_notified_at' // Добавляем новое поле в разрешенные
+  'promo_1plus1_used', 'expiration_notified_at' // Р”РѕР±Р°РІР»СЏРµРј РЅРѕРІРѕРµ РїРѕР»Рµ РІ СЂР°Р·СЂРµС€РµРЅРЅС‹Рµ
 ]);
 
 export async function updateUserField(id, field, value) {
   if (!allowedUserFields.has(field)) {
-    throw new Error(`Недопустимое поле для обновления: ${field}`);
+    throw new Error(`РќРµРґРѕРїСѓСЃС‚РёРјРѕРµ РїРѕР»Рµ РґР»СЏ РѕР±РЅРѕРІР»РµРЅРёСЏ: ${field}`);
   }
   const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
   return (await query(sql, [value, id])).rowCount;
@@ -121,7 +123,7 @@ export async function setPremium(id, limit, days = null) {
   const until = new Date(Date.now() + totalDays * 86400000).toISOString();
   await updateUserField(id, 'premium_limit', limit);
   await updateUserField(id, 'premium_until', until);
-  // Сбрасываем флаг уведомления при смене тарифа
+  // РЎР±СЂР°СЃС‹РІР°РµРј С„Р»Р°Рі СѓРІРµРґРѕРјР»РµРЅРёСЏ РїСЂРё СЃРјРµРЅРµ С‚Р°СЂРёС„Р°
   await updateUserField(id, 'expiration_notified_at', null); 
   return bonusApplied;
 }
@@ -130,7 +132,7 @@ export async function cacheTrack(url, fileId, trackName) {
   const { error } = await supabase
     .from('track_cache')
     .upsert({ url: url, file_id: fileId, track_name: trackName }, { onConflict: 'url' });
-  if (error) console.error('❌ Ошибка кэширования трека:', error);
+  if (error) console.error('вќЊ РћС€РёР±РєР° РєСЌС€РёСЂРѕРІР°РЅРёСЏ С‚СЂРµРєР°:', error);
 }
 
 export async function findCachedTrack(url) {
@@ -142,12 +144,12 @@ export async function findCachedTrack(url) {
             .single();
 
         if (error && error.code !== 'PGRST116') { 
-            console.error('Ошибка при поиске в кэше (findCachedTrack):', error.message);
+            console.error('РћС€РёР±РєР° РїСЂРё РїРѕРёСЃРєРµ РІ РєСЌС€Рµ (findCachedTrack):', error.message);
             return null;
         }
         return data;
     } catch (e) {
-        console.error('Критическая ошибка findCachedTrack:', e.message);
+        console.error('РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° findCachedTrack:', e.message);
         return null;
     }
 }
@@ -156,7 +158,7 @@ export async function findCachedTracksByUrls(urls) {
   if (!urls || urls.length === 0) return new Map();
   const { data, error } = await supabase.from('track_cache').select('url, file_id, track_name').in('url', urls);
   if (error) {
-    console.error('❌ Ошибка массового поиска в кэше:', error);
+    console.error('вќЊ РћС€РёР±РєР° РјР°СЃСЃРѕРІРѕРіРѕ РїРѕРёСЃРєР° РІ РєСЌС€Рµ:', error);
     return new Map();
   }
   const cacheMap = new Map();
@@ -168,12 +170,12 @@ export async function findCachedTracksByUrls(urls) {
 
 export async function logUserActivity(userId) {
   const { error } = await supabase.from('user_activity_logs').insert({ user_id: userId, activity_time: new Date() });
-  if (error) console.error(`❌ Ошибка логирования активности:`, error.message);
+  if (error) console.error(`вќЊ РћС€РёР±РєР° Р»РѕРіРёСЂРѕРІР°РЅРёСЏ Р°РєС‚РёРІРЅРѕСЃС‚Рё:`, error.message);
 }
 
 export async function logEvent(userId, event_type, metadata = {}) {
   const { error } = await supabase.from('events').insert({ user_id: userId, event_type, metadata });
-  if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
+  if (error) console.error(`вќЊ РћС€РёР±РєР° Р»РѕРіРёСЂРѕРІР°РЅРёСЏ СЃРѕР±С‹С‚РёСЏ "${event_type}":`, error.message);
 }
 
 const funnelCache = new Map();
@@ -188,7 +190,7 @@ export async function getFunnelData(from, to) {
     supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
   ]);
   if (registrations.error || firstDownloads.error || subscriptions.error) {
-    throw new Error('Ошибка Supabase при получении данных воронки');
+    throw new Error('РћС€РёР±РєР° Supabase РїСЂРё РїРѕР»СѓС‡РµРЅРёРё РґР°РЅРЅС‹С… РІРѕСЂРѕРЅРєРё');
   }
   const result = {
     registrationCount: registrations.count || 0,
@@ -262,7 +264,7 @@ export async function getDownloadsByDate(days = 30) {
     return byDate;
   }
   
-  // Фолбэк на Postgres по users.downloads_today
+  // Р¤РѕР»Р±СЌРє РЅР° Postgres РїРѕ users.downloads_today
   const { rows } = await pool.query(`
     SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
     FROM users
@@ -360,7 +362,7 @@ export async function getDashboardStats() {
   
   const r = rows[0] || {};
   return {
-    // ↓↓↓ ИМЕНА ПОЛЕЙ — как в dashboard.ejs
+    // в†“в†“в†“ РРњР•РќРђ РџРћР›Р•Р™ вЂ” РєР°Рє РІ dashboard.ejs
     total_users: parseInt(r.total_users || 0, 10),
     total_downloads: parseInt(r.total_downloads || 0, 10),
     active_today: parseInt(r.active_today || 0, 10),
@@ -384,7 +386,7 @@ export async function findUsersToNotify(days) {
     .eq('active', true);
 
   if (error) {
-    console.error('❌ Ошибка при поиске пользователей для уведомления:', error);
+    console.error('вќЊ РћС€РёР±РєР° РїСЂРё РїРѕРёСЃРєРµ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ РґР»СЏ СѓРІРµРґРѕРјР»РµРЅРёСЏ:', error);
     return [];
   }
   return data;
@@ -397,7 +399,7 @@ export async function markAsNotified(userId) {
     .eq('id', userId);
 
   if (error) {
-    console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
+    console.error(`вќЊ РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ СѓРІРµРґРѕРјР»РµРЅРёСЏ РґР»СЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ ${userId}:`, error);
   }
 }
 
@@ -409,14 +411,14 @@ export async function resetAllSubscriptionBonuses() {
       .neq('subscribed_bonus_used', false);
 
     if (error) {
-      console.error('❌ Ошибка при массовом сбросе бонусов:', error);
+      console.error('вќЊ РћС€РёР±РєР° РїСЂРё РјР°СЃСЃРѕРІРѕРј СЃР±СЂРѕСЃРµ Р±РѕРЅСѓСЃРѕРІ:', error);
       return { success: false, error };
     }
     
-    console.log(`[Admin] Успешно сброшен бонус за подписку для ${count || 0} пользователей.`);
+    console.log(`[Admin] РЈСЃРїРµС€РЅРѕ СЃР±СЂРѕС€РµРЅ Р±РѕРЅСѓСЃ Р·Р° РїРѕРґРїРёСЃРєСѓ РґР»СЏ ${count || 0} РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№.`);
     return { success: true, count: count || 0 };
   } catch (e) {
-    console.error('🔴 Критическая ошибка при массовом сбросе бонусов:', e);
+    console.error('рџ”ґ РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РїСЂРё РјР°СЃСЃРѕРІРѕРј СЃР±СЂРѕСЃРµ Р±РѕРЅСѓСЃРѕРІ:', e);
     return { success: false, error: e };
   }
 }
