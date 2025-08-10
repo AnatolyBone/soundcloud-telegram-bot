@@ -11,15 +11,22 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        # Use the latest checkout action for improved performance and
+        # additional features such as sparse-checkout and multi-branch
+        # support.  See https://github.com/actions/checkout for details.
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v2
+        # Use the latest setup-node action.  Pinning to a major version
+        # automatically receives non-breaking updates and security patches.
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
       - name: Install dependencies
-        run: npm install
+        # Use npm ci for a clean, reproducible install based off the
+        # package-lock.json.  This avoids potential version drift.
+        run: npm ci
 
       - name: Deploy to Render
         env:
