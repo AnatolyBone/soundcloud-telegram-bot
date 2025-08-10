@@ -65,14 +65,19 @@ function getRedisClient() {
 // ===== Утилиты =====
 async function startApp() {
   try {
+    // Логируем старт приложения
+    console.log('Запуск приложения...');
+
     // Подгружаем тексты из БД до регистрации хендлеров
     await loadTexts();
+    console.log('✅ Тексты загружены');
 
     // Redis
     redisClient = await redisService.connect();
     console.log('✅ Redis подключён');
 
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
+    console.log(`✅ Директория кэша: ${cacheDir}`);
 
     // Админка
     setupAdmin({
@@ -89,6 +94,7 @@ async function startApp() {
 
     // Телеграм-бот
     botService.setupTelegramBot();
+    console.log('✅ Бот настроен');
 
     // Плановые задачи
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
@@ -97,6 +103,9 @@ async function startApp() {
     cleanupCache(cacheDir, 60);
 
     if (process.env.NODE_ENV === 'production') {
+      // Логируем запуск в продакшн-режиме
+      console.log('Запуск в продакшн-режиме...');
+
       // Rate limit только на вебхук
       const webhookLimiter = rateLimit({
         windowMs: 60 * 1000,
