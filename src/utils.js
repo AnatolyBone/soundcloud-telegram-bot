@@ -1,41 +1,45 @@
 import path from 'path';
 import fs from 'fs';
-import { supabase } from './db.js';
+// Use the correct relative path when importing the database module.  This file lives
+// inside the "src" folder, so "../db.js" resolves to the project root.  Without
+// adjusting the path the application would fail to start because the module
+// cannot be found.
+import { supabase } from '../db.js';
 
-// Функция для получения названия тарифа
+// Р¤СѓРЅРєС†РёСЏ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РЅР°Р·РІР°РЅРёСЏ С‚Р°СЂРёС„Р°
 export function getTariffName(limit) {
-  if (limit >= 1000) return 'Unlimited (∞/день)';
-  if (limit === 100) return 'Pro (100/день)';
-  if (limit === 30) return 'Plus (30/день)';
-  return 'Free (5/день)';
+  if (limit >= 1000) return 'Unlimited (в€ћ/РґРµРЅСЊ)';
+  if (limit === 100) return 'Pro (100/РґРµРЅСЊ)';
+  if (limit === 30) return 'Plus (30/РґРµРЅСЊ)';
+  return 'Free (5/РґРµРЅСЊ)';
 }
 
-// Функция для вычисления оставшихся дней премиума
+// Р¤СѓРЅРєС†РёСЏ РґР»СЏ РІС‹С‡РёСЃР»РµРЅРёСЏ РѕСЃС‚Р°РІС€РёС…СЃСЏ РґРЅРµР№ РїСЂРµРјРёСѓРјР°
 export function getDaysLeft(premiumUntil) {
   if (!premiumUntil) return 0;
   const diff = new Date(premiumUntil) - new Date();
   return Math.max(Math.ceil(diff / 86400000), 0);
 }
 
-// Функция для извлечения ссылки из текста
+// Р¤СѓРЅРєС†РёСЏ РґР»СЏ РёР·РІР»РµС‡РµРЅРёСЏ СЃСЃС‹Р»РєРё РёР· С‚РµРєСЃС‚Р°
 export const extractUrl = (text = '') => {
   const regex = /(https?:\/\/[^\s]+)/g;
   const matches = text.match(regex);
   return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
 };
 
-// Функция для проверки подписки пользователя на канал
+// Р¤СѓРЅРєС†РёСЏ РґР»СЏ РїСЂРѕРІРµСЂРєРё РїРѕРґРїРёСЃРєРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅР° РєР°РЅР°Р»
 export const isSubscribed = async (userId, channelUsername, bot) => {
   try {
     const chatMember = await bot.telegram.getChatMember(channelUsername, userId);
     return ['creator', 'administrator', 'member'].includes(chatMember.status);
   } catch (e) {
-    console.error(`Ошибка проверки подписки для ${userId} на ${channelUsername}:`, e.message);
+    console.error(`РћС€РёР±РєР° РїСЂРѕРІРµСЂРєРё РїРѕРґРїРёСЃРєРё РґР»СЏ ${userId} РЅР° ${channelUsername}:`, e.message);
     return false;
   }
 };
 
-// Функция для форматирования сообщения меню
+// Р¤СѓРЅРєС†РёСЏ РґР»СЏ С„РѕСЂРјР°С‚РёСЂРѕРІР°РЅРёСЏ СЃРѕРѕР±С‰РµРЅРёСЏ РјРµРЅСЋ
 export function formatMenuMessage(user, ctx) {
   const tariffLabel = getTariffName(user.premium_limit);
   const downloadsToday = user.downloads_today || 0;
@@ -43,30 +47,30 @@ export function formatMenuMessage(user, ctx) {
   const daysLeft = getDaysLeft(user.premium_until);
 
   let message = `
-👋 Привет, ${user.first_name || user.username || 'друг'}!
+рџ‘‹ РџСЂРёРІРµС‚, ${user.first_name || user.username || 'РґСЂСѓРі'}!
 
-📥 Бот качает треки и плейлисты с SoundCloud в MP3 — просто пришли ссылку.
+рџ“Ґ Р‘РѕС‚ РєР°С‡Р°РµС‚ С‚СЂРµРєРё Рё РїР»РµР№Р»РёСЃС‚С‹ СЃ SoundCloud РІ MP3 вЂ” РїСЂРѕСЃС‚Рѕ РїСЂРёС€Р»Рё СЃСЃС‹Р»РєСѓ.
 
-📣 Новости, фишки и бонусы: @SCM_BLOG
+рџ“Ј РќРѕРІРѕСЃС‚Рё, С„РёС€РєРё Рё Р±РѕРЅСѓСЃС‹: @SCM_BLOG
 
-💼 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
-🎧 Сегодня скачано: ${downloadsToday} из ${user.premium_limit}
+рџ’ј РўР°СЂРёС„: ${tariffLabel}
+вЏі РћСЃС‚Р°Р»РѕСЃСЊ РґРЅРµР№: ${daysLeft > 999 ? 'в€ћ' : daysLeft}
+рџЋ§ РЎРµРіРѕРґРЅСЏ СЃРєР°С‡Р°РЅРѕ: ${downloadsToday} РёР· ${user.premium_limit}
 
-🔗 Твоя реферальная ссылка:
+рџ”— РўРІРѕСЏ СЂРµС„РµСЂР°Р»СЊРЅР°СЏ СЃСЃС‹Р»РєР°:
 ${refLink}
 `.trim();
 
   if (!user.subscribed_bonus_used) {
     message += `
 
-🎁 Бонус! Подпишись на @SCM_BLOG и получи 7 дней тарифа Plus бесплатно.`;
+рџЋЃ Р‘РѕРЅСѓСЃ! РџРѕРґРїРёС€РёСЃСЊ РЅР° @SCM_BLOG Рё РїРѕР»СѓС‡Рё 7 РґРЅРµР№ С‚Р°СЂРёС„Р° Plus Р±РµСЃРїР»Р°С‚РЅРѕ.`;
   }
 
   return message;
 }
 
-// ===== Очистка кеша =====
+// ===== РћС‡РёСЃС‚РєР° РєРµС€Р° =====
 export async function cleanupCache(directory, maxAgeMinutes = 60) {
   try {
     const now = Date.now();
@@ -82,13 +86,13 @@ export async function cleanupCache(directory, maxAgeMinutes = 60) {
         }
       } catch {}
     }
-    if (cleaned > 0) console.log(`[Cache Cleanup] Удалено ${cleaned} старых файлов.`);
+    if (cleaned > 0) console.log(`[Cache Cleanup] РЈРґР°Р»РµРЅРѕ ${cleaned} СЃС‚Р°СЂС‹С… С„Р°Р№Р»РѕРІ.`);
   } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] Ошибка:', e);
+    if (e.code !== 'ENOENT') console.error('[Cache Cleanup] РћС€РёР±РєР°:', e);
   }
 }
 
-// Индексатор
+// РРЅРґРµРєСЃР°С‚РѕСЂ
 export async function getUrlsToIndex() {
   try {
     const { data, error } = await supabase
@@ -99,7 +103,7 @@ export async function getUrlsToIndex() {
       .limit(20);
 
     if (error) {
-      console.error('[Indexer] Ошибка выборки track_cache:', error.message);
+      console.error('[Indexer] РћС€РёР±РєР° РІС‹Р±РѕСЂРєРё track_cache:', error.message);
       return [];
     }
 
@@ -109,7 +113,7 @@ export async function getUrlsToIndex() {
 
     return Array.from(new Set(urls));
   } catch (e) {
-    console.error('[Indexer] Критическая ошибка в getUrlsToIndex:', e);
+    console.error('[Indexer] РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РІ getUrlsToIndex:', e);
     return [];
   }
 }
