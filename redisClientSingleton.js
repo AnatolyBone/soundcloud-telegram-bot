@@ -1,4 +1,6 @@
 // redisClientSingleton.js
+import RedisService from './services/redisService.js';
+
 class RedisClientSingleton {
   constructor() {
     if (RedisClientSingleton.instance) {
@@ -10,8 +12,9 @@ class RedisClientSingleton {
 
   async getClient() {
     if (!this.client) {
-      this.client = await redisService.connect();
-      console.log('✅ Redis подключён');
+      // Connect using the shared RedisService instance imported above.
+      this.client = await RedisService.connect();
+      console.log('вњ… Redis РїРѕРґРєР»СЋС‡С‘РЅ');
     }
     return this.client;
   }
