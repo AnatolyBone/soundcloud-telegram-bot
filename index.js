@@ -4,15 +4,20 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { Telegraf } from 'telegraf';
-import { createClient } from 'redis';
-import { initNotifier } from './services/notifier.js';
+
+// Services
+import { initNotifier, startNotifier } from './services/notifier.js';
 import RedisService from './services/redisService.js';
 import BotService from './services/botService.js';
+
+// Routes
 import { setupAdmin } from './routes/admin.js';
-import { loadTexts, T } from './config/texts.js';
-import { getUser, updateUserField, setPremium, cacheTrack, findCachedTrack } from './db.js';
-import { enqueue, downloadQueue } from './services/downloadManager.js';
-import { getTariffName, getDaysLeft, extractUrl, isSubscribed, formatMenuMessage, cleanupCache, startIndexer } from './src/utils.js';
+
+// Configuration and utilities
+import { loadTexts } from './config/texts.js';
+import { downloadQueue } from './services/downloadManager.js';
+import { cleanupCache, startIndexer } from './src/utils.js';
+import { resetDailyStats } from './db.js';
 
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -26,7 +31,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID;
 
 if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID) {
-  console.error('❌ Отсутствуют необходимые переменные окружения!');
+  console.error('вќЊ РћС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ РЅРµРѕР±С…РѕРґРёРјС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ!');
   process.exit(1);
 }
 
@@ -43,43 +48,43 @@ const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
 
 app.set('trust proxy', 1);
-app.use(express.json()); // JSON POST для админки/рассылки
+app.use(express.json()); // JSON POST РґР»СЏ Р°РґРјРёРЅРєРё/СЂР°СЃСЃС‹Р»РєРё
 
-// health-check для Render
+// health-check РґР»СЏ Render
 app.get('/health', (_req, res) => res.type('text').send('OK'));
 app.get('/', (_req, res) => res.type('text').send('OK'));
 
-// статика для админки
+// СЃС‚Р°С‚РёРєР° РґР»СЏ Р°РґРјРёРЅРєРё
 app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
 
 // Redis Client
 const redisService = new RedisService();
 let redisClient = null;
 
-// Доступно из других модулей
+// Р”РѕСЃС‚СѓРїРЅРѕ РёР· РґСЂСѓРіРёС… РјРѕРґСѓР»РµР№
 function getRedisClient() {
-  if (!redisClient) throw new Error('Redis клиент ещё не инициализирован');
+  if (!redisClient) throw new Error('Redis РєР»РёРµРЅС‚ РµС‰С‘ РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ');
   return redisClient;
 }
 
-// ===== Утилиты =====
+// ===== РЈС‚РёР»РёС‚С‹ =====
 async function startApp() {
   try {
-    // Логируем старт приложения
-    console.log('Запуск приложения...');
+    // Р›РѕРіРёСЂСѓРµРј СЃС‚Р°СЂС‚ РїСЂРёР»РѕР¶РµРЅРёСЏ
+    console.log('Р—Р°РїСѓСЃРє РїСЂРёР»РѕР¶РµРЅРёСЏ...');
 
-    // Подгружаем тексты из БД до регистрации хендлеров
+    // РџРѕРґРіСЂСѓР¶Р°РµРј С‚РµРєСЃС‚С‹ РёР· Р‘Р” РґРѕ СЂРµРіРёСЃС‚СЂР°С†РёРё С…РµРЅРґР»РµСЂРѕРІ
     await loadTexts();
-    console.log('✅ Тексты загружены');
+    console.log('вњ… РўРµРєСЃС‚С‹ Р·Р°РіСЂСѓР¶РµРЅС‹');
 
     // Redis
     redisClient = await redisService.connect();
-    console.log('✅ Redis подключён');
+    console.log('вњ… Redis РїРѕРґРєР»СЋС‡С‘РЅ');
 
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-    console.log(`✅ Директория кэша: ${cacheDir}`);
+    console.log(`вњ… Р”РёСЂРµРєС‚РѕСЂРёСЏ РєСЌС€Р°: ${cacheDir}`);
 
-    // Админка
+    // РђРґРјРёРЅРєР°
     setupAdmin({
       app,
       bot,
@@ -92,21 +97,21 @@ async function startApp() {
       redis: redisClient,
     });
 
-    // Телеграм-бот
+    // РўРµР»РµРіСЂР°Рј-Р±РѕС‚
     botService.setupTelegramBot();
-    console.log('✅ Бот настроен');
+    console.log('вњ… Р‘РѕС‚ РЅР°СЃС‚СЂРѕРµРЅ');
 
-    // Плановые задачи
+    // РџР»Р°РЅРѕРІС‹Рµ Р·Р°РґР°С‡Рё
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-    setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
+    setInterval(() => console.log(`[Monitor] РћС‡РµСЂРµРґСЊ: ${downloadQueue.size} РІ РѕР¶РёРґР°РЅРёРё, ${downloadQueue.active} РІ СЂР°Р±РѕС‚Рµ.`), 60 * 1000);
     setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
     cleanupCache(cacheDir, 60);
 
     if (process.env.NODE_ENV === 'production') {
-      // Логируем запуск в продакшн-режиме
-      console.log('Запуск в продакшн-режиме...');
+      // Р›РѕРіРёСЂСѓРµРј Р·Р°РїСѓСЃРє РІ РїСЂРѕРґР°РєС€РЅ-СЂРµР¶РёРјРµ
+      console.log('Р—Р°РїСѓСЃРє РІ РїСЂРѕРґР°РєС€РЅ-СЂРµР¶РёРјРµ...');
 
-      // Rate limit только на вебхук
+      // Rate limit С‚РѕР»СЊРєРѕ РЅР° РІРµР±С…СѓРє
       const webhookLimiter = rateLimit({
         windowMs: 60 * 1000,
         max: 120,
@@ -121,25 +126,25 @@ async function startApp() {
         path: WEBHOOK_PATH,
       }));
 
-      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
+      app.listen(PORT, () => console.log(`вњ… РЎРµСЂРІРµСЂ Р·Р°РїСѓС‰РµРЅ РЅР° РїРѕСЂС‚Сѓ ${PORT}.`));
     } else {
       await bot.launch();
-      console.log('✅ Бот запущен в режиме long-polling.');
+      console.log('вњ… Р‘РѕС‚ Р·Р°РїСѓС‰РµРЅ РІ СЂРµР¶РёРјРµ long-polling.');
     }
 
-    // Фоновые сервисы
-    startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
-    startNotifier().catch(err => console.error("🔴 Критическая ошибка в планировщике:", err));
+    // Р¤РѕРЅРѕРІС‹Рµ СЃРµСЂРІРёСЃС‹
+    startIndexer().catch(err => console.error("рџ”ґ РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РІ РёРЅРґРµРєСЃР°С‚РѕСЂРµ, РЅРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ:", err));
+    startNotifier().catch(err => console.error("рџ”ґ РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РІ РїР»Р°РЅРёСЂРѕРІС‰РёРєРµ:", err));
 
   } catch (err) {
-    console.error('🔴 Критическая ошибка при запуске приложения:', err);
+    console.error('рџ”ґ РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РїСЂРё Р·Р°РїСѓСЃРєРµ РїСЂРёР»РѕР¶РµРЅРёСЏ:', err);
     process.exit(1);
   }
 }
 
-// Корректное завершение
+// РљРѕСЂСЂРµРєС‚РЅРѕРµ Р·Р°РІРµСЂС€РµРЅРёРµ
 const stopBot = (signal) => {
-  console.log(`Получен сигнал ${signal}. Завершение работы...`);
+  console.log(`РџРѕР»СѓС‡РµРЅ СЃРёРіРЅР°Р» ${signal}. Р—Р°РІРµСЂС€РµРЅРёРµ СЂР°Р±РѕС‚С‹...`);
   try {
     if (bot.polling?.isRunning()) {
       bot.stop(signal);
@@ -153,5 +158,5 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// Экспорт для других модулей
+// Р­РєСЃРїРѕСЂС‚ РґР»СЏ РґСЂСѓРіРёС… РјРѕРґСѓР»РµР№
 export { app, bot, getRedisClient };
