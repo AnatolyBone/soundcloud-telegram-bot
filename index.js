@@ -12,7 +12,7 @@ import { setupAdmin } from './routes/admin.js';
 import { loadTexts, T } from './config/texts.js';
 import { getUser, updateUserField, setPremium, cacheTrack, findCachedTrack } from './db.js';
 import { enqueue, downloadQueue } from './services/downloadManager.js';
-import { getTariffName, getDaysLeft, extractUrl, isSubscribed, formatMenuMessage, cleanupCache, startIndexer } from './utils.js';
+import { getTariffName, getDaysLeft, extractUrl, isSubscribed, formatMenuMessage, cleanupCache, startIndexer } from './src/utils.js';
 
 // ===== ENV =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
