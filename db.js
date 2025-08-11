@@ -59,6 +59,20 @@ export async function getUserById(id) {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0] || null;
 }
+// db.js
+export async function resetDailyLimitIfNeeded(userId) {
+  const { rows } = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
+  if (!rows.length) return;
+  const lastReset = new Date(rows[0].last_reset_date).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  if (lastReset !== today) {
+    await query(`
+      UPDATE users
+      SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE
+      WHERE id = $1
+    `, [userId]);
+  }
+}
 
 export async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
   await query(`
