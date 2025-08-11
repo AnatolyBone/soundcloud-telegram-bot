@@ -29,7 +29,7 @@ import {
   ADMIN_LOGIN,
   ADMIN_PASSWORD,
   STORAGE_CHANNEL_ID
-} from './config.js';
+} from './src/config.js';
 
 // Проверка переменных остается, но теперь она работает с импортированными константами
 if (!ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID || !WEBHOOK_PATH) {
