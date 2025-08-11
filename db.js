@@ -67,7 +67,15 @@ export async function setPremium(id, limit, days = null) {
 
   return bonusApplied;
 }
-
+export async function saveTrackForUser(userId, title, fileId) {
+  const trackInfo = { title, fileId };
+  await query(
+    `UPDATE users
+     SET tracks_today = COALESCE(tracks_today, '[]'::jsonb) || $1::jsonb
+     WHERE id = $2`,
+    [JSON.stringify([trackInfo]), userId]
+  );
+}
 export async function getUserById(id) {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0] || null;
