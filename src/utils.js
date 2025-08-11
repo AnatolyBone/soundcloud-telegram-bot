@@ -4,11 +4,13 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import ytdl from 'youtube-dl-exec';
+
+// <<< ИСПРАВЛЕНО: Выходим в корень, чтобы найти db.js >>>
 import { pool, findCachedTrack, cacheTrack } from '../db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
-const cacheDir = path.join(__dirname, 'cache');
+const cacheDir = path.join(__dirname, 'src', 'cache');
 
 // ================================================================
 // ===                     Очистка кэша                         ===
