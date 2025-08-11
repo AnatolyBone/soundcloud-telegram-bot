@@ -1,11 +1,13 @@
 // src/botHandlers.js
 
+// src/botHandlers.js
+
 import { Markup } from 'telegraf';
-import { T } from '../config/texts.js';
-import { getUser, updateUserField, setPremium, getAllUsers } from '../db.js';
+import { T, allTextsSync } from '../config/texts.js'; // ../ потому что config в корне
+import { getUser, updateUserField, setPremium, getAllUsers, getDashboardStats } from '../db.js';
 import { enqueue, downloadQueue } from '../services/downloadManager.js';
 import { formatMenuMessage, isSubscribed, extractUrl } from './utils.js';
-import { ADMIN_ID, WEBHOOK_URL } from '../config.js';
+import { ADMIN_ID, WEBHOOK_URL } from './config.js'; // <<< ИМПОРТИРУЕМ ИЗ КОНФИГА
 
 const kb = () => Markup.keyboard([[T('menu'), T('upgrade')], [T('mytracks'), T('help')]]).resize();
 
