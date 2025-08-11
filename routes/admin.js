@@ -1,45 +1,48 @@
+// routes/admin.js
+
 import express from 'express';
 import session from 'express-session';
 import RedisStore from 'connect-redis';
 import csrf from 'csurf';
-import { getAllUsers, supabase } from '../db.js';
+
+// <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
+// Импортируем все необходимое из централизованных модулей
+import { pool, supabase, getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
+import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../config.js';
 import setupAdminUsers from './admin-users.js';
+// <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
+
 export function setupAdmin(opts = {}) {
-  const {
-    app,
-    ADMIN_LOGIN,
-    ADMIN_PASSWORD,
-    SESSION_SECRET = 'dev-secret',
-    redis,
-    bot, // для рассылки
-  } = opts;
+  // Теперь нам нужен только app, bot и redis
+  const { app, redis, bot } = opts;
 
   if (!app) throw new Error('setupAdmin: app is required');
 
   // Парсеры форм
   app.use(express.urlencoded({ extended: true }));
 
-  // CSRF защита
-  const csrfProtection = csrf({ cookie: true });
-
   // Сессии
   const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
   app.use(
     session({
       name: 'scm_admin',
-      secret: SESSION_SECRET,
+      secret: SESSION_SECRET, // Используем импортированную константу
       resave: false,
       saveUninitialized: false,
       store,
       cookie: {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        secure: NODE_ENV === 'production', // Используем импортированную константу
         maxAge: 7 * 24 * 3600 * 1000, // 7 дней
       },
     })
   );
+  
+  // CSRF защита должна идти после сессий
+  const csrfProtection = csrf({ cookie: true });
+  app.use(csrfProtection);
 
   // No-cache
   app.use(['/admin', '/dashboard'], (_req, res, next) => {
@@ -58,7 +61,7 @@ export function setupAdmin(opts = {}) {
   });
 
   // Login / Logout
-  app.post('/admin/login', csrfProtection, (req, res) => {
+  app.post('/admin/login', (req, res) => { // CSRF будет обработан автоматически Express
     const { login, password } = req.body || {};
     if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
       req.session.isAdmin = true;
@@ -66,6 +69,7 @@ export function setupAdmin(opts = {}) {
     }
     res.status(401).send(`<!doctype html><meta charset="utf-8"/><script>alert('Неверные данные');location.href='/admin/login'</script>`);
   });
+  
   app.post('/admin/logout', requireAdmin, (req, res) => {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
@@ -84,13 +88,11 @@ export function setupAdmin(opts = {}) {
       const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
       const lastUsers = users
-        .slice()
-        .sort((a, b) => new Date(b.created_at || b.id) - new Date(a.created_at || a.id))
-        .slice(0, 20);
+        .slice(0, 20); // Уже отсортировано в getAllUsers
 
       const formatDate = (val) => val ? new Date(val).toLocaleString('ru-RU') : '—';
 
-      res.render('dashboard', { totalUsers, activeUsers, activeToday, totalDownloads, lastUsers, formatDate });
+      res.render('dashboard', { totalUsers, activeUsers, activeToday, totalDownloads, lastUsers, formatDate, csrfToken: req.csrfToken() });
     } catch (e) {
       console.error('[admin] /dashboard error:', e);
       res.status(500).send('Ошибка загрузки дашборда');
@@ -116,11 +118,11 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  app.post('/admin/texts', requireAdmin, csrfProtection, async (req, res) => {
+  app.post('/admin/texts', requireAdmin, async (req, res) => { // CSRF обработается автоматически
     try {
       const body = req.body || {};
       for (const [key, value] of Object.entries(body)) {
-        if (!key) continue;
+        if (key === '_csrf') continue; // Пропускаем CSRF токен
         await setText(key, String(value ?? ''));
       }
       await loadTexts(true);
@@ -136,7 +138,7 @@ export function setupAdmin(opts = {}) {
     res.render('broadcast', { csrfToken: req.csrfToken() });
   });
 
-  app.post('/admin/broadcast', requireAdmin, csrfProtection, async (req, res) => {
+  app.post('/admin/broadcast', requireAdmin, async (req, res) => { // CSRF обработается автоматически
     if (!bot) return res.status(500).send('Бот недоступен для рассылки.');
     const text = String(req.body?.message ?? '').trim();
     const onlyActive = !!req.body?.only_active;
@@ -161,7 +163,7 @@ export function setupAdmin(opts = {}) {
             await supabase.from('users').update({ active: false }).eq('id', u.id);
           }
         }
-        await new Promise(r => setTimeout(r, 35)); // троттлинг
+        await new Promise(r => setTimeout(r, 35));
       }
       res.send(`<!doctype html><meta charset="utf-8">
         Готово: отправлено ${sent}, ошибок ${failed}. <a href="/dashboard">Назад</a>`);
@@ -171,7 +173,6 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  // helper to escape HTML в textarea
   function escapeHtml(str = '') {
     return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
   }
