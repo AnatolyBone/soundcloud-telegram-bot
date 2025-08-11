@@ -1,5 +1,5 @@
 // src/config.js
-import 'dotenv/config'; // Для локального запуска
+import 'dotenv/config';
 
 export const {
   BOT_TOKEN,
@@ -14,5 +14,6 @@ export const {
   DATABASE_URL,
   SUPABASE_URL,
   SUPABASE_KEY,
-  REDIS_URL
+  REDIS_URL,
+  NODE_ENV // Добавлено для доступа из других модулей
 } = process.env;
