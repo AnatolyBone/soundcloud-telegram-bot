@@ -220,4 +220,17 @@ export async function getFunnelData(from, to) {
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
     supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
-    supabase.from('users').select('id', { count:
+    supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
+  ]);
+  if (registrations.error || firstDownloads.error || subscriptions.error) {
+    console.error('❌ Ошибка Supabase воронки');
+    throw new Error('Ошибка Supabase при получении данных воронки');
+  }
+  const result = {
+    registrationCount: registrations.count || 0,
+    firstDownloadCount: firstDownloads.count || 0,
+    subscriptionCount: subscriptions.count || 0,
+  };
+  funnelCache.set(key, { data: result, timestamp: Date.now() });
+  return result;
+}
