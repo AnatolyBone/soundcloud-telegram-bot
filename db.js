@@ -95,25 +95,6 @@ export async function updateUserField(id, field, value) {
   return (await query(sql, [value, id])).rowCount;
 }
 
-// Функция для получения пользователей, у которых скоро истечет подписка
-export async function findUsersToNotify(days) {
-  const targetDate = new Date();
-  targetDate.setDate(targetDate.getDate() + days);
-  
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, first_name, premium_until')
-    .lte('premium_until', targetDate.toISOString()) // подписка истекает в ближайшие 'days' дней
-    .gt('premium_until', new Date().toISOString()) // подписка ещё не истекла
-    .is('expiration_notified_at', null) // уведомление ещё не отправлено
-    .eq('active', true); // только активные пользователи
-  
-  if (error) {
-    console.error('❌ Ошибка при поиске пользователей для уведомлений:', error);
-    return [];
-  }
-  return data;
-}
 
 // Функция для обновления статуса уведомления
 export async function markAsNotified(userId) {
@@ -371,11 +352,10 @@ export async function getDashboardStats() {
     unlimited: parseInt(r.unlimited || 0, 10),
   };
 }
-
 export async function findUsersToNotify(days) {
   const targetDate = new Date();
   targetDate.setDate(targetDate.getDate() + days);
-
+  
   const { data, error } = await supabase
     .from('users')
     .select('id, first_name, premium_until')
