@@ -15,7 +15,7 @@ import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
 import { setupAdmin } from './routes/admin.js';
 import { loadTexts } from './config/texts.js';
-import { downloadQueue } from './src/services/downloadManager.js';
+import { downloadQueue } from './services/downloadManager.js'; // <<< ИСПРАВЛЕНО ЗДЕСЬ
 import { cleanupCache, startIndexer } from './src/utils.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
 
@@ -64,7 +64,7 @@ async function startApp() {
         saveUninitialized: false,
         cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
     }));
-    
+
     setupAdmin({ app, bot, __dirname, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD });
     botService.setupTelegramBot();
 
@@ -77,12 +77,12 @@ async function startApp() {
       app.use(WEBHOOK_PATH, webhookLimiter);
       const webhookUrl = `${WEBHOOK_URL.replace(/\/$/, '')}${WEBHOOK_PATH}`;
       await bot.telegram.setWebhook(webhookUrl);
-      
+
       app.post(WEBHOOK_PATH, (req, res) => {
         bot.handleUpdate(req.body, res);
         return res.sendStatus(200);
       });
-      
+
       app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}. Вебхук: ${webhookUrl}`));
     } else {
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
