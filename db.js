@@ -18,6 +18,31 @@ export const pool = new Pool({
 });
 
 // ==================== Базовые функции ====================
+export async function getUser(id, first_name = '', username = '') {
+  const { rows } = await query(
+    'UPDATE users SET last_active = NOW() WHERE id = $1 AND active = TRUE RETURNING *',
+    [id]
+  );
+  if (rows.length > 0) return rows[0];
+
+  await query(`
+    INSERT INTO users (id, username, first_name, last_reset_date, created_at, last_active)
+    VALUES ($1, $2, $3, CURRENT_DATE, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE SET 
+      last_active = NOW(),
+      username = EXCLUDED.username,
+      first_name = EXCLUDED.first_name,
+      active = TRUE;
+  `, [id, username || '', first_name || '']);
+
+  const newUserResult = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return newUserResult.rows[0];
+}
+
+export async function getUserById(id) {
+  const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return rows[0] || null;
+}
 export async function logEvent(userId, event_type, metadata = {}) {
   const { error } = await supabase.from('events').insert({ user_id: userId, event_type, metadata });
   if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
@@ -30,7 +55,43 @@ async function query(text, params) {
     throw e;
   }
 }
+const allowedUserFields = new Set([
+  'premium_limit', 'downloads_today', 'total_downloads', 'first_name', 'username',
+  'premium_until', 'subscribed_bonus_used', 'tracks_today', 'last_reset_date',
+  'active', 'referred_count', 'referral_source', 'has_reviewed', 'referrer_id',
+  'promo_1plus1_used', 'expiration_notified_at' // Добавляем новое поле в разрешенные
+]);
+
+export async function updateUserField(id, field, value) {
+  if (!allowedUserFields.has(field)) {
+    throw new Error(`Недопустимое поле для обновления: ${field}`);
+  }
+  const sql = `UPDATE users SET ${field} = $1 WHERE id = $2`;
+  return (await query(sql, [value, id])).rowCount;
+}
+export async function incrementDownloads(id) {
+  const res = await pool.query(`
+    UPDATE users 
+    SET downloads_today = downloads_today + 1, total_downloads = total_downloads + 1
+    WHERE id = $1 AND downloads_today < premium_limit
+    RETURNING *
+  `, [id]);
+  if (res.rowCount > 0) {
+    logEvent(id, 'download').catch(console.error);
+    return res.rows[0];
+  }
+  return null;
+}
 // db.js
+export async function saveTrackForUser(userId, title, fileId) {
+  const trackInfo = { title, fileId };
+  await query(
+    `UPDATE users
+     SET tracks_today = COALESCE(tracks_today, '[]'::jsonb) || $1::jsonb
+     WHERE id = $2`,
+    [JSON.stringify([trackInfo]), userId]
+  );
+}
 export async function resetDailyLimitIfNeeded(userId) {
   const { rows } = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
   if (!rows.length) return;
