@@ -4,17 +4,64 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import ytdl from 'youtube-dl-exec';
-
-// <<< ИСПРАВЛЕНО: Выходим в корень, чтобы найти db.js >>>
 import { pool, findCachedTrack, cacheTrack } from '../db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
-const cacheDir = path.join(__dirname, 'src', 'cache');
+const cacheDir = path.join(__dirname, 'cache');
 
 // ================================================================
-// ===                     Очистка кэша                         ===
+// ===                   Вспомогательные утилиты                 ===
 // ================================================================
+
+export function getTariffName(limit) {
+  if (limit >= 1000) return 'Unlimited (∞/день)';
+  if (limit === 100) return 'Pro (100/день)';
+  if (limit === 30) return 'Plus (30/день)';
+  return 'Free (5/день)';
+}
+
+export function getDaysLeft(premiumUntil) {
+  if (!premiumUntil) return 0;
+  const diff = new Date(premiumUntil) - new Date();
+  return Math.max(Math.ceil(diff / 86400000), 0);
+}
+
+export const extractUrl = (text = '') => {
+  const regex = /(https?:\/\/[^\s]+)/g;
+  const matches = text.match(regex);
+  return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
+};
+
+export const isSubscribed = async (userId, channelUsername, bot) => {
+  try {
+    const chatMember = await bot.telegram.getChatMember(channelUsername, userId);
+    return ['creator', 'administrator', 'member'].includes(chatMember.status);
+  } catch (e) {
+    console.error(`Ошибка при проверке подписки пользователя ${userId} на ${channelUsername}:`, e.message);
+    return false;
+  }
+};
+
+export function formatMenuMessage(user, ctx, texts) {
+  const tariffLabel = getTariffName(user.premium_limit);
+  const downloadsToday = user.downloads_today || 0;
+  const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
+  const daysLeft = getDaysLeft(user.premium_until);
+
+  let message = texts.menu
+    .replace('{firstName}', user.first_name || user.username || 'Пользователь')
+    .replace('{tariffLabel}', tariffLabel)
+    .replace('{daysLeft}', daysLeft > 999 ? '∞' : daysLeft)
+    .replace('{downloadsToday}', downloadsToday)
+    .replace('{premiumLimit}', user.premium_limit)
+    .replace('{refLink}', refLink);
+
+  if (!user.subscribed_bonus_used) {
+    message += texts.bonus;
+  }
+  return message;
+}
 
 export async function cleanupCache(directory, maxAgeMinutes = 60) {
   try {
