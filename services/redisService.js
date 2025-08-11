@@ -12,34 +12,14 @@ class RedisService {
       return this.client;
     }
     
-    // <<< НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ >>>
-    
-    let redisUrl;
-
-    // Сначала пытаемся использовать полную строку подключения, если она есть
-    if (process.env.REDIS_URL && process.env.REDIS_URL.startsWith('redis://')) {
-        redisUrl = process.env.REDIS_URL;
-    } else {
-        // Если полной строки нет, собираем ее из отдельных частей,
-        // которые Render точно предоставляет.
-        const host = process.env.REDIS_HOST;
-        const port = process.env.REDIS_PORT;
-        const password = process.env.REDIS_PASSWORD;
-        const user = process.env.REDIS_USER || 'default'; // Redis 6+ требует пользователя
-
-        if (!host || !port || !password) {
-            throw new Error('Не найдены все необходимые переменные окружения для Redis (REDIS_HOST, REDIS_PORT, REDIS_PASSWORD)');
-        }
-
-        redisUrl = `redis://${user}:${password}@${host}:${port}`;
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      throw new Error('Переменная окружения REDIS_URL не найдена!');
     }
     
     console.log(`[Redis] Подключаюсь к: ${redisUrl.split('@')[1] || 'неизвестному хосту'}`);
 
     this.client = createClient({ url: redisUrl });
-    
-    // <<< КОНЕЦ ФИНАЛЬНОГО ИСПРАВЛЕНИЯ >>>
-
     this.client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
     await this.client.connect();
     
@@ -54,4 +34,9 @@ class RedisService {
   }
 }
 
-export default new RedisService();
+const redisService = new RedisService();
+
+// Экспортируем функцию для прямого доступа к клиенту
+export const getRedisClient = () => redisService.getClient();
+
+export default redisService;
