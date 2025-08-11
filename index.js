@@ -1,142 +1,92 @@
+// index.js
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
 import { Telegraf } from 'telegraf';
 
-// Services
-import { initNotifier, startNotifier } from './services/notifier.js';
+// Наши сервисы и модули
 import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
-
-// Routes
 import { setupAdmin } from './routes/admin.js';
-
-// Configuration and utilities
 import { loadTexts } from './config/texts.js';
 import { downloadQueue } from './services/downloadManager.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
 import { resetDailyStats } from './db.js';
 
-// ===== ENV =====
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = Number(process.env.ADMIN_ID);
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const WEBHOOK_PATH = '/telegram';
-const PORT = process.env.PORT ?? 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-secret-key-for-session';
-const ADMIN_LOGIN = process.env.ADMIN_LOGIN;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID;
+// ===== Конфигурация =====
+const {
+  BOT_TOKEN, ADMIN_ID, WEBHOOK_URL, WEBHOOK_PATH, PORT = 3000,
+  SESSION_SECRET, ADMIN_LOGIN, ADMIN_PASSWORD, STORAGE_CHANNEL_ID
+} = process.env;
 
 if (!BOT_TOKEN || !ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID) {
   console.error('❌ Отсутствуют обязательные переменные окружения!');
   process.exit(1);
 }
 
-// ===== App/Bot =====
+// ===== Инициализация =====
 const bot = new Telegraf(BOT_TOKEN);
-initNotifier(bot);
-
-const botService = new BotService(bot);
-
-// ===== App =====
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cacheDir = path.join(__dirname, 'cache');
+const botService = new BotService(bot);
 
-app.set('trust proxy', 1);
-app.use(express.json()); // JSON POST для админки/рассылки
-
-// health-check для Render
-app.get('/health', (_req, res) => res.type('text').send('OK'));
-app.get('/', (_req, res) => res.type('text').send('OK'));
-
-// статика для админки
-app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
-
-// Redis Client
-function getRedisClient() {
-  return redisService.getClient();  // Получаем клиента Redis
-}
-
-// ===== Утилиты =====
+// ===== Основная функция запуска =====
 async function startApp() {
   try {
-    // Подгружаем тексты из БД до регистрации хендлеров
+    // 1. Загружаем тексты
     await loadTexts();
-    
-    // Redis
+
+    // 2. Подключаемся к Redis
     await redisService.connect();
-    const redisClient = redisService.getClient();
     console.log('✅ Redis подключён');
-    
-    // Создание директории для кэша
+
+    // 3. Создаем директорию для кэша
     if (!fs.existsSync(cacheDir)) {
-      await fs.promises.mkdir(cacheDir);
+      await fs.promises.mkdir(cacheDir, { recursive: true });
     }
 
-    // Админка
-    setupAdmin({
-      app,
-      bot,
-      __dirname,
-      ADMIN_ID,
-      ADMIN_LOGIN,
-      ADMIN_PASSWORD,
-      SESSION_SECRET,
-      STORAGE_CHANNEL_ID,
-      redis: redisClient,
-    });
+    // 4. Настраиваем Express и Админку
+    app.set('trust proxy', 1);
+    app.use(express.json());
+    app.use('/health', (_req, res) => res.type('text').send('OK'));
+    app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
+    setupAdmin({ app, bot, __dirname, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET });
 
-    // Телеграм-бот
+    // 5. Настраиваем и запускаем бота
     botService.setupTelegramBot();
 
-    // Плановые задачи
+    // 6. Запускаем фоновые и плановые задачи
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
     setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
     setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
-    cleanupCache(cacheDir, 60);
-
-    // В продакшн-режиме запускаем вебхук
-    if (process.env.NODE_ENV === 'production') {
-      const webhookLimiter = rateLimit({
-        windowMs: 60 * 1000,
-        max: 120,
-        standardHeaders: true,
-        legacyHeaders: false,
-        trustProxy: true,
-      });
-      app.use(WEBHOOK_PATH, webhookLimiter);
-
-      const webhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`;
-      await bot.telegram.setWebhook(webhookUrl);
-      console.log(`✅ Вебхук установлен на: ${webhookUrl}`);
-
-      // Запуск сервера
-      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-    }
-
-    // Фоновые сервисы
-    startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
-    startNotifier().catch(err => console.error("🔴 Критическая ошибка в планировщике:", err));
+    startIndexer(bot, STORAGE_CHANNEL_ID).catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
     
+    // 7. Запускаем сервер
+    if (process.env.NODE_ENV === 'production') {
+      const webhookUrl = `${WEBHOOK_URL.replace(/\/$/, '')}${WEBHOOK_PATH}`;
+      await bot.telegram.setWebhook(webhookUrl);
+      app.post(WEBHOOK_PATH, (req, res) => bot.handleUpdate(req.body, res));
+      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}. Вебхук: ${webhookUrl}`));
+    } else {
+        bot.launch();
+        console.log('✅ Бот запущен в режиме long-polling.');
+    }
   } catch (err) {
     console.error('🔴 Критическая ошибка при запуске приложения:', err);
     process.exit(1);
   }
 }
 
-// Корректное завершение
+// ===== Корректное завершение =====
 const stopBot = (signal) => {
   console.log(`Получен сигнал ${signal}. Завершение работы...`);
-  try {
-    if (bot.polling?.isRunning()) {
-      bot.stop(signal);
-    }
-  } catch {}
+  if (bot.polling?.isRunning()) {
+    bot.stop(signal);
+  }
   setTimeout(() => process.exit(0), 500);
 };
 
@@ -145,5 +95,4 @@ process.once('SIGTERM', () => stopBot('SIGTERM'));
 
 startApp();
 
-// Экспорт для других модулей
-export { app, bot, getRedisClient };
+export { bot };
