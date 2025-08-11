@@ -47,7 +47,7 @@ export async function resetDailyLimitIfNeeded(userId) {
 export async function setPremium(id, limit, days = null) {
   const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
   if (rows.length === 0) return false;
-  
+
   let extraDays = 0;
   let bonusApplied = false;
   if (days && !rows[0].promo_1plus1_used) {
@@ -55,16 +55,16 @@ export async function setPremium(id, limit, days = null) {
     bonusApplied = true;
     await updateUserField(id, 'promo_1plus1_used', true);
   }
-  
+
   const totalDays = (days || 0) + extraDays;
   const until = new Date(Date.now() + totalDays * 86400000).toISOString();
-  
+
   await updateUserField(id, 'premium_limit', limit);
   await updateUserField(id, 'premium_until', until);
-  
+
   // Сбрасываем флаг уведомления при смене тарифа
   await updateUserField(id, 'expiration_notified_at', null);
-  
+
   return bonusApplied;
 }
 
@@ -73,19 +73,6 @@ export async function getUserById(id) {
   return rows[0] || null;
 }
 // db.js
-export async function resetDailyLimitIfNeeded(userId) {
-  const { rows } = await query('SELECT last_reset_date FROM users WHERE id = $1', [userId]);
-  if (!rows.length) return;
-  const lastReset = new Date(rows[0].last_reset_date).toISOString().slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  if (lastReset !== today) {
-    await query(`
-      UPDATE users
-      SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE
-      WHERE id = $1
-    `, [userId]);
-  }
-}
 
 export async function createUser(id, first_name = '', username = '', referral_source = null, referrer_id = null) {
   await query(`
@@ -132,7 +119,7 @@ export async function markAsNotified(userId) {
     .from('users')
     .update({ expiration_notified_at: new Date().toISOString() }) // обновляем дату уведомления
     .eq('id', userId);
-  
+
   if (error) {
     console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
   }
@@ -154,21 +141,21 @@ export async function findCachedTrack(soundcloudUrl) {
       .select('file_id, track_name')
       .eq('url', soundcloudUrl)
       .single();
-    
+
     if (error && error.code !== 'PGRST116') { // PGRST116 - это "not found", это не ошибка
       console.error('Ошибка поиска в кэше Supabase:', error);
       return null;
     }
-    
+
     if (data) {
       return {
         fileId: data.file_id,
         trackName: data.track_name
       };
     }
-    
+
     return null;
-    
+
   } catch (e) {
     console.error('Критическая ошибка в findCachedTrack:', e);
     return null;
@@ -205,7 +192,7 @@ export async function incrementDownloads(id, trackName = 'track', url = null) {
       id = $1 AND downloads_today < premium_limit  
     RETURNING *  
   `, [id]);
-  
+
   if (res.rowCount > 0) {
     await logDownload(id, trackName, url);
     return res.rows[0];
@@ -214,11 +201,7 @@ export async function incrementDownloads(id, trackName = 'track', url = null) {
 }
 
 // Функция для сброса статистики скачивания (ежедневный лимит)
-export async function resetDailyStats() {
-  await query(`
-    UPDATE users SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE
-  `);
-}
+
 export async function getAllUsers(includeInactive = false) {
   let sql = 'SELECT * FROM users';
   if (!includeInactive) sql += ' WHERE active = TRUE';
@@ -262,7 +245,7 @@ export async function getDownloadsByDate(days = 30) {
     .select('created_at, event_type')
     .gte('created_at', since)
     .in('event_type', ['download', 'download_start', 'download_success']);
-  
+
   let byDate = {};
   if (!error && Array.isArray(data) && data.length) {
     for (const ev of data) {
@@ -273,7 +256,7 @@ export async function getDownloadsByDate(days = 30) {
     }
     return byDate;
   }
-  
+
   // Фолбэк на Postgres по users.downloads_today
   const { rows } = await pool.query(`
     SELECT TO_CHAR(last_reset_date, 'YYYY-MM-DD') AS date, SUM(downloads_today) AS count
@@ -369,7 +352,7 @@ export async function getDashboardStats() {
     FROM users
     WHERE active = TRUE
   `);
-  
+
   const r = rows[0] || {};
   return {
     // ↓↓↓ ИМЕНА ПОЛЕЙ — как в dashboard.ejs
@@ -385,7 +368,7 @@ export async function getDashboardStats() {
 export async function findUsersToNotify(days) {
   const targetDate = new Date();
   targetDate.setDate(targetDate.getDate() + days);
-  
+
   const { data, error } = await supabase
     .from('users')
     .select('id, first_name, premium_until')
@@ -414,7 +397,7 @@ export async function resetAllSubscriptionBonuses() {
       console.error('❌ Ошибка при массовом сбросе бонусов:', error);
       return { success: false, error };
     }
-    
+
     console.log(`[Admin] Успешно сброшен бонус за подписку для ${count || 0} пользователей.`);
     return { success: true, count: count || 0 };
   } catch (e) {
