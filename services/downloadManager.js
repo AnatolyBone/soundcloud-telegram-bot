@@ -1,5 +1,7 @@
 // services/downloadManager.js
 
+// services/downloadManager.js
+
 import path from 'path';
 import fs from 'fs';
 import ytdl from 'youtube-dl-exec';
@@ -8,13 +10,14 @@ import crypto from 'crypto';
 import pTimeout, { TimeoutError } from 'p-timeout';
 
 import { TaskQueue } from '../src/lib/TaskQueue.js';
-import { getRedisClient } from './redisService.js'; // <<< ИЗМЕНЕНО
-import { bot } from '../src/bot.js';                       // <<< ИЗМЕНЕНО
+import { getRedisClient } from './redisService.js'; // <<< ИСПРАВЛЕНО
+import { bot } from '../src/bot.js';               // <<< ИСПРАВЛЕНО
 import { T } from '../config/texts.js';
 import {
-  getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
-  incrementDownloads, updateUserField, findCachedTracksByUrls, cacheTrack
+    getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
+    incrementDownloads, updateUserField, findCachedTracksByUrls, cacheTrack
 } from '../db.js';
+
 
 // --- Конфигурация ---
 const CONFIG = {
