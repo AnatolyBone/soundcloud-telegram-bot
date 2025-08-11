@@ -234,3 +234,4 @@ export async function getFunnelData(from, to) {
   funnelCache.set(key, { data: result, timestamp: Date.now() });
   return result;
 }
+
