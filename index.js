@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { bot } from './src/bot.js';
 import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
-import { setupAdmin } from './src/routes/admin.js';
+import { setupAdmin } from './routes/admin.js';
 import { loadTexts } from './config/texts.js';
 import { downloadQueue } from './services/downloadManager.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
