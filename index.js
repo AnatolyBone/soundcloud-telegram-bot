@@ -7,7 +7,7 @@ import { Telegraf } from 'telegraf';
 
 // Services
 import { initNotifier, startNotifier } from './services/notifier.js';
-import redisService from './services/redisService.js';  // Исправленный импорт
+import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
 
 // Routes
@@ -73,8 +73,11 @@ async function startApp() {
     const redisClient = redisService.getClient();
     console.log('✅ Redis подключён');
     
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-    
+    // Создание директории для кэша
+    if (!fs.existsSync(cacheDir)) {
+      await fs.promises.mkdir(cacheDir);
+    }
+
     // Админка
     setupAdmin({
       app,
@@ -87,18 +90,18 @@ async function startApp() {
       STORAGE_CHANNEL_ID,
       redis: redisClient,
     });
-    
+
     // Телеграм-бот
     botService.setupTelegramBot();
-    
+
     // Плановые задачи
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
     setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
     setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
     cleanupCache(cacheDir, 60);
-    
+
+    // В продакшн-режиме запускаем вебхук
     if (process.env.NODE_ENV === 'production') {
-      // Rate limit только на вебхук
       const webhookLimiter = rateLimit({
         windowMs: 60 * 1000,
         max: 120,
@@ -107,18 +110,15 @@ async function startApp() {
         trustProxy: true,
       });
       app.use(WEBHOOK_PATH, webhookLimiter);
-      
-      app.use(await bot.createWebhook({
-        domain: WEBHOOK_URL,
-        path: WEBHOOK_PATH,
-      }));
-      
+
+      const webhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`;
+      await bot.telegram.setWebhook(webhookUrl);
+      console.log(`✅ Вебхук установлен на: ${webhookUrl}`);
+
+      // Запуск сервера
       app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-    } else {
-      await bot.launch();
-      console.log('✅ Бот запущен в режиме long-polling.');
     }
-    
+
     // Фоновые сервисы
     startIndexer().catch(err => console.error("🔴 Критическая ошибка в индексаторе, не удалось запустить:", err));
     startNotifier().catch(err => console.error("🔴 Критическая ошибка в планировщике:", err));
