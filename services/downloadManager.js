@@ -8,7 +8,8 @@ import crypto from 'crypto';
 import pTimeout, { TimeoutError } from 'p-timeout';
 
 import { TaskQueue } from '../src/lib/TaskQueue.js';
-import { getRedisClient, bot } from '../index.js';       // <— ВАЖНО: берём bot здесь
+import { getRedisClient } from './redisService.js'; // <<< ИЗМЕНЕНО
+import { bot } from '../bot.js';                       // <<< ИЗМЕНЕНО
 import { T } from '../config/texts.js';
 import {
   getUser, resetDailyLimitIfNeeded, saveTrackForUser, logEvent,
