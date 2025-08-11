@@ -1,4 +1,4 @@
-// index.js (ФИНАЛЬНАЯ ВЕРСИЯ)
+// index.js
 
 import fs from 'fs';
 import path from 'path';
@@ -8,22 +8,20 @@ import session from 'express-session';
 import pgSessionFactory from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 
-// Наши модули
+// <<< ИСПРАВЛЕНЫ ПУТИ >>>
 import { bot } from './src/bot.js';
 import { pool, resetDailyStats } from './db.js';
 import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
 import { setupAdmin } from './routes/admin.js';
-import { loadTexts } from './config/texts.js';
+import { loadTexts } from './src/config/texts.js'; // config/texts.js в src/
 import { downloadQueue } from './services/downloadManager.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
-
-// Импорт конфига
 import {
   ADMIN_ID, WEBHOOK_URL, WEBHOOK_PATH, PORT, SESSION_SECRET,
   ADMIN_LOGIN, ADMIN_PASSWORD, STORAGE_CHANNEL_ID, NODE_ENV
-} from './config.js';
+} from './src/config.js'; // config.js в src/
 
 // Проверка переменных
 if (!ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID || !WEBHOOK_PATH) {
@@ -57,7 +55,6 @@ async function startApp() {
       await fs.promises.mkdir(cacheDir, { recursive: true });
     }
 
-    // <<< ИСПРАВЛЕНА НАСТРОЙКА СЕССИЙ >>>
     const pgSession = pgSessionFactory(session);
     app.use(session({
         store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
@@ -68,31 +65,24 @@ async function startApp() {
     }));
     
     setupAdmin({ app, bot, __dirname, redis: redisService.getClient() });
-    
     botService.setupTelegramBot();
 
-    // Запускаем фоновые задачи
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
     setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
     setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
 
-    // Запускаем сервер
     if (NODE_ENV === 'production') {
-      // <<< НАЧАЛО ИСПРАВЛЕНИЯ ВЕБХУКА >>>
+      const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+      app.use(WEBHOOK_PATH, webhookLimiter);
       const webhookUrl = `${WEBHOOK_URL.replace(/\/$/, '')}${WEBHOOK_PATH}`;
+      await bot.telegram.setWebhook(webhookUrl);
       
-      // 1. Устанавливаем обработчик для пути вебхука
       app.post(WEBHOOK_PATH, (req, res) => {
         bot.handleUpdate(req.body, res);
+        return res.sendStatus(200);
       });
       
-      // 2. Устанавливаем вебхук в Telegram
-      await bot.telegram.setWebhook(webhookUrl);
-      console.log(`✅ Вебхук установлен на: ${webhookUrl}`);
-      
-      // 3. Запускаем сервер
-      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
-      // <<< КОНЕЦ ИСПРАВЛЕНИЯ ВЕБХУКА >>>
+      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}. Вебхук: ${webhookUrl}`));
     } else {
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
       bot.launch();
@@ -111,9 +101,11 @@ async function startApp() {
 // ===== Корректное завершение =====
 const stopBot = (signal) => {
   console.log(`Получен сигнал ${signal}. Завершение работы...`);
-  if (bot.polling?.isRunning()) {
-    bot.stop(signal);
-  }
+  try {
+    if (bot.polling?.isRunning()) {
+      bot.stop(signal);
+    }
+  } catch {}
   setTimeout(() => process.exit(0), 500);
 };
 
