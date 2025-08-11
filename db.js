@@ -44,6 +44,9 @@ export async function resetDailyLimitIfNeeded(userId) {
     `, [userId]);
   }
 }
+export async function resetDailyStats() {
+  await query(`UPDATE users SET downloads_today = 0, tracks_today = '[]'::jsonb, last_reset_date = CURRENT_DATE`);
+}
 export async function setPremium(id, limit, days = null) {
   const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
   if (rows.length === 0) return false;
@@ -67,15 +70,7 @@ export async function setPremium(id, limit, days = null) {
 
   return bonusApplied;
 }
-export async function saveTrackForUser(userId, title, fileId) {
-  const trackInfo = { title, fileId };
-  await query(
-    `UPDATE users
-     SET tracks_today = COALESCE(tracks_today, '[]'::jsonb) || $1::jsonb
-     WHERE id = $2`,
-    [JSON.stringify([trackInfo]), userId]
-  );
-}
+
 export async function getUserById(id) {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0] || null;
