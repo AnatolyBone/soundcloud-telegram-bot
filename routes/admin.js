@@ -9,7 +9,7 @@ import csrf from 'csurf';
 // Импортируем все необходимое из централизованных модулей
 import { pool, supabase, getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
-import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../config.js';
+import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../src/config.js';
 import setupAdminUsers from './admin-users.js';
 // <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
