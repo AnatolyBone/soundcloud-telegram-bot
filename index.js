@@ -1,4 +1,4 @@
-// index.js
+// index.js (ФИНАЛЬНАЯ ВЕРСИЯ С ПРАВИЛЬНЫМИ ПУТЯМИ)
 
 import fs from 'fs';
 import path from 'path';
@@ -8,20 +8,20 @@ import session from 'express-session';
 import pgSessionFactory from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 
-// <<< ИСПРАВЛЕНЫ ПУТИ >>>
+// Импорты с правильными путями
 import { bot } from './src/bot.js';
-import { pool, resetDailyStats } from './db.js';
-import redisService from './services/redisService.js';
-import BotService from './services/botService.js';
-import { setupAdmin } from './routes/admin.js';
-import { loadTexts } from './src/config/texts.js'; // config/texts.js в src/
-import { downloadQueue } from './services/downloadManager.js';
-import { cleanupCache, startIndexer } from './src/utils.js';
-import { initNotifier, startNotifier } from './services/notifier.js';
+import { pool, resetDailyStats } from './db.js'; // db.js в корне
+import redisService from './services/redisService.js'; // services/ в корне
+import BotService from './services/botService.js';     // services/ в корне
+import { setupAdmin } from './routes/admin.js';      // routes/ в корне
+import { loadTexts } from './config/texts.js';       // config/ в корне
+import { downloadQueue } from './services/downloadManager.js'; // services/ в корне
+import { cleanupCache, startIndexer } from './src/utils.js'; // utils.js в src/
+import { initNotifier, startNotifier } from './services/notifier.js'; // services/ в корне
 import {
   ADMIN_ID, WEBHOOK_URL, WEBHOOK_PATH, PORT, SESSION_SECRET,
   ADMIN_LOGIN, ADMIN_PASSWORD, STORAGE_CHANNEL_ID, NODE_ENV
-} from './src/config.js'; // config.js в src/
+} from './config.js'; // config.js в корне
 
 // Проверка переменных
 if (!ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID || !WEBHOOK_PATH) {
@@ -35,12 +35,12 @@ const botService = new BotService(bot);
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const cacheDir = path.join(__dirname, 'cache');
+const cacheDir = path.join(__dirname, 'cache'); // папка cache в корне
 
 // ===== Настройка Express =====
 app.set('trust proxy', 1);
 app.use(express.json());
-app.use('/static', express.static(path.join(__dirname, 'public', 'static')));
+app.use('/static', express.static(path.join(__dirname, 'public', 'static'))); // папка public в корне
 app.get('/health', (_req, res) => res.status(200).send('OK'));
 app.get('/', (_req, res) => res.status(200).send('Bot is running'));
 
@@ -63,7 +63,7 @@ async function startApp() {
         saveUninitialized: false,
         cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
     }));
-    
+
     setupAdmin({ app, bot, __dirname, redis: redisService.getClient() });
     botService.setupTelegramBot();
 
