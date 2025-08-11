@@ -24,10 +24,10 @@ export async function startNotifier() {
         console.error('🔴 Notifier не был инициализирован. Вызовите initNotifier(bot) перед запуском.');
         return;
     }
-    
+
     console.log('🚀 Запуск планировщика уведомлений...');
-    
-    let lastNotificationDate = null; 
+
+    let lastNotificationDate = null;
 
     const checkAndNotify = async () => {
         const now = new Date();
@@ -40,7 +40,8 @@ export async function startNotifier() {
             lastNotificationDate = currentDate;
 
             try {
-                const users = await findUsersToNotify(3); // Ищем тех, у кого тариф истекает через 3 дня
+                // Ищем пользователей, у которых подписка истекает через 3 дня
+                const users = await findUsersToNotify(3);
 
                 if (users.length === 0) {
                     console.log('[Notifier] Пользователей для уведомления нет.');
@@ -51,24 +52,27 @@ export async function startNotifier() {
                 for (const user of users) {
                     const daysLeft = Math.ceil((new Date(user.premium_until) - new Date()) / (1000 * 60 * 60 * 24));
                     const daysWord = daysLeft === 1 ? 'день' : (daysLeft > 1 && daysLeft < 5 ? 'дня' : 'дней');
-                    
+
                     const message = `👋 Привет, ${user.first_name}!\n\n` +
                                     `Напоминаем, что ваша подписка истекает через ${daysLeft} ${daysWord}. ` +
                                     `Не забудьте продлить ее, чтобы сохранить доступ ко всем возможностям!\n\n` +
                                     `Нажмите /upgrade, чтобы посмотреть доступные тарифы.`;
 
                     try {
+                        // Отправляем уведомление
                         await botInstance.telegram.sendMessage(user.id, message);
+                        // Обновляем статус уведомления
                         await markAsNotified(user.id);
                         console.log(`✅ Уведомление отправлено пользователю ${user.id}`);
                     } catch (e) {
                         if (e.response?.error_code === 403) {
                             console.warn(`[Notifier] Пользователь ${user.id} заблокировал бота. Деактивируем...`);
-                            await updateUserField(user.id, 'active', false);
+                            await updateUserField(user.id, 'active', false);  // Деактивируем пользователя
                         } else {
                             console.error(`❌ Ошибка отправки сообщения пользователю ${user.id}:`, e.message);
                         }
                     }
+                    // Добавляем задержку, чтобы не перегружать бота
                     await new Promise(resolve => setTimeout(resolve, 300));
                 }
                 console.log('[Notifier] Ежедневная рассылка завершена.');
