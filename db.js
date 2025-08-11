@@ -5,7 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 import json2csv from 'json-2-csv';
 const { json2csvAsync } = json2csv;
 
-// --- Инициализация клиентов ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
@@ -19,7 +18,6 @@ export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// --- Базовая утилита для запросов ---
 async function query(text, params) {
   try {
     return await pool.query(text, params);
@@ -153,6 +151,10 @@ export async function markAsNotified(userId) {
   await updateUserField(userId, 'expiration_notified_at', new Date().toISOString());
 }
 
+export async function markSubscribedBonusUsed(userId) {
+  await updateUserField(userId, 'subscribed_bonus_used', true);
+}
+
 export async function resetAllSubscriptionBonuses() {
   try {
     const { count, error } = await supabase
@@ -224,10 +226,6 @@ export async function logEvent(userId, event_type, metadata = {}) {
   if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
 }
 
-export async function logUserActivity(userId) {
-  await logEvent(userId, 'active');
-}
-
 export async function getFunnelData(from, to) {
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
@@ -269,9 +267,9 @@ export async function getDownloadsByDate() {
 
 export async function getActiveUsersByDate() {
   const { rows } = await query(`
-    SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(DISTINCT user_id) as count 
-    FROM events 
-    WHERE event_type = 'active' AND created_at >= CURRENT_DATE - INTERVAL '30 days' 
+    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') as date, COUNT(DISTINCT id) as count 
+    FROM users 
+    WHERE last_active >= CURRENT_DATE - INTERVAL '30 days' 
     GROUP BY date ORDER BY date
   `);
   return rows.reduce((acc, row) => ({ ...acc, [row.date]: parseInt(row.count, 10) }), {});
@@ -279,8 +277,8 @@ export async function getActiveUsersByDate() {
 
 export async function getUserActivityByDayHour(days = 30) {
   const { rows } = await query(`
-    SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS day, EXTRACT(HOUR FROM created_at) AS hour, COUNT(*) AS count
-    FROM events WHERE event_type = 'active' AND created_at >= CURRENT_DATE - INTERVAL '${days} days'
+    SELECT TO_CHAR(last_active, 'YYYY-MM-DD') AS day, EXTRACT(HOUR FROM last_active) AS hour, COUNT(*) AS count
+    FROM users WHERE last_active >= CURRENT_DATE - INTERVAL '${days} days'
     GROUP BY day, hour ORDER BY day, hour
   `);
   const activity = {};
@@ -405,8 +403,4 @@ export async function hasLeftReview(userId) {
 export async function getLatestReviews(limit = 10) {
   const { data } = await supabase.from('reviews').select('*').order('time', { ascending: false }).limit(limit);
   return data || [];
-}
-
-export async function markSubscribedBonusUsed(userId) {
-  await updateUserField(userId, 'subscribed_bonus_used', true);
 }
