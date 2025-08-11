@@ -27,6 +27,7 @@ async function query(text, params) {
     throw e;
   }
 }
+
 export async function setPremium(id, limit, days = null) {
   const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
   if (rows.length === 0) return false;
@@ -50,6 +51,7 @@ export async function setPremium(id, limit, days = null) {
   
   return bonusApplied;
 }
+
 export async function getUserById(id) {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0] || null;
@@ -218,26 +220,4 @@ export async function getFunnelData(from, to) {
   const [registrations, firstDownloads, subscriptions] = await Promise.all([
     supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', from).lte('created_at', to),
     supabase.from('users').select('id', { count: 'exact', head: true }).gt('total_downloads', 0).gte('created_at', from).lte('created_at', to),
-    supabase.from('users').select('id', { count: 'exact', head: true }).gte('premium_limit', 20).gte('created_at', from).lte('created_at', to)
-  ]);
-  if (registrations.error || firstDownloads.error || subscriptions.error) {
-    console.error('❌ Ошибка Supabase воронки');
-    throw new Error('Ошибка Supabase при получении данных воронки');
-  }
-  const result = {
-    registrationCount: registrations.count || 0,
-    firstDownloadCount: firstDownloads.count || 0,
-    subscriptionCount: subscriptions.count || 0,
-  };
-  funnelCache.set(key, { data: result, timestamp: Date.now() });
-  return result;
-}
-
-export async function logEvent(userId, event) {
-  try {
-    const { error } = await supabase.from('events').insert([{ user_id: userId, event }]);
-    if (error) console.error(`❌ Ошибка логирования события "${event}":`, error.message);
-  } catch (e) {
-    console.error(`❌ Критическая ошибка вызова Supabase для logEvent:`, e.message);
-  }
-}
+    supabase.from('users').select('id', { count:
