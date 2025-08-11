@@ -9,22 +9,36 @@ class RedisService {
 
   async connect() {
     if (this.client) {
-      return this.client; // Возвращаем существующее подключение, если оно есть
+      return this.client;
     }
     
-    // <<< НАЧАЛО ИСПРАВЛЕНИЯ >>>
-    // Render предоставляет полную строку подключения в REDIS_URL.
-    // Убедимся, что она существует.
-    const redisUrl = process.env.REDIS_URL;
+    // <<< НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ >>>
+    
+    let redisUrl;
 
-    if (!redisUrl) {
-      throw new Error('Переменная окружения REDIS_URL не найдена!');
+    // Сначала пытаемся использовать полную строку подключения, если она есть
+    if (process.env.REDIS_URL && process.env.REDIS_URL.startsWith('redis://')) {
+        redisUrl = process.env.REDIS_URL;
+    } else {
+        // Если полной строки нет, собираем ее из отдельных частей,
+        // которые Render точно предоставляет.
+        const host = process.env.REDIS_HOST;
+        const port = process.env.REDIS_PORT;
+        const password = process.env.REDIS_PASSWORD;
+        const user = process.env.REDIS_USER || 'default'; // Redis 6+ требует пользователя
+
+        if (!host || !port || !password) {
+            throw new Error('Не найдены все необходимые переменные окружения для Redis (REDIS_HOST, REDIS_PORT, REDIS_PASSWORD)');
+        }
+
+        redisUrl = `redis://${user}:${password}@${host}:${port}`;
     }
     
-    console.log(`[Redis] Подключаюсь к: ${redisUrl.split('@')[1] || 'локальному хосту'}`); // Логируем хост для отладки
+    console.log(`[Redis] Подключаюсь к: ${redisUrl.split('@')[1] || 'неизвестному хосту'}`);
 
     this.client = createClient({ url: redisUrl });
-    // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
+    
+    // <<< КОНЕЦ ФИНАЛЬНОГО ИСПРАВЛЕНИЯ >>>
 
     this.client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
     await this.client.connect();
