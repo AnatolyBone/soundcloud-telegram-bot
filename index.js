@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 
 // Наши модули
-import { bot } from './bot.js';
+import { bot } from './src/bot.js';
 import redisService from './services/redisService.js';
 import { setupAdmin } from './routes/admin.js';
 import BotService from './services/botService.js'; // Предполагая, что вы его используете
