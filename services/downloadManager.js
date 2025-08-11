@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import pTimeout, { TimeoutError } from 'p-timeout';
 
-import { TaskQueue } from '../lib/TaskQueue.js';
+import { TaskQueue } from '../src/lib/TaskQueue.js';
 import { getRedisClient, bot } from '../index.js';       // <— ВАЖНО: берём bot здесь
 import { T } from '../config/texts.js';
 import {
