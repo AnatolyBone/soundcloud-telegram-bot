@@ -1,8 +1,21 @@
+// src/utils.js
+
 import path from 'path';
 import fs from 'fs';
-import { supabase } from '../db.js';  // Импортируем ваш Supabase экземпляр
+import { fileURLToPath } from 'url';
+import ytdl from 'youtube-dl-exec';
 
-// Функция для получения названия тарифа
+// Импортируем только то, что нужно из db.js
+import { pool, supabase, findCachedTrack, cacheTrack } from '../db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(path.dirname(__filename)); // Поднимаемся на уровень выше до корня проекта
+const cacheDir = path.join(__dirname, 'cache');
+
+// ================================================================
+// ===                   Вспомогательные утилиты                 ===
+// ================================================================
+
 export function getTariffName(limit) {
   if (limit >= 1000) return 'Unlimited (∞/день)';
   if (limit === 100) return 'Pro (100/день)';
@@ -10,21 +23,18 @@ export function getTariffName(limit) {
   return 'Free (5/день)';
 }
 
-// Функция для вычисления оставшихся дней премиум подписки
 export function getDaysLeft(premiumUntil) {
   if (!premiumUntil) return 0;
   const diff = new Date(premiumUntil) - new Date();
   return Math.max(Math.ceil(diff / 86400000), 0);
 }
 
-// Функция для извлечения ссылки с SoundCloud из текста
 export const extractUrl = (text = '') => {
   const regex = /(https?:\/\/[^\s]+)/g;
   const matches = text.match(regex);
   return matches ? matches.find(url => url.includes('soundcloud.com')) : null;
 };
 
-// Функция для проверки подписки пользователя на канал
 export const isSubscribed = async (userId, channelUsername, bot) => {
   try {
     const chatMember = await bot.telegram.getChatMember(channelUsername, userId);
@@ -35,38 +45,26 @@ export const isSubscribed = async (userId, channelUsername, bot) => {
   }
 };
 
-// Функция для формирования сообщения в меню для пользователя
-export function formatMenuMessage(user, ctx) {
+export function formatMenuMessage(user, ctx, texts) {
   const tariffLabel = getTariffName(user.premium_limit);
   const downloadsToday = user.downloads_today || 0;
   const refLink = `https://t.me/${ctx.botInfo.username}?start=${user.id}`;
   const daysLeft = getDaysLeft(user.premium_until);
 
-  let message = `
-🔹 Привет, ${user.first_name || user.username || 'Пользователь'}!
-
-📈 Бот качает треки и преводит их в MP3 — быстро и удобно с SoundCloud.
-
-🔔 Новости, тексты и бонусы: @SCM_BLOG
-
-🌍 Тариф: ${tariffLabel}
-⏳ Осталось дней: ${daysLeft > 999 ? '∞' : daysLeft}
-🔋 Скачано сегодня: ${downloadsToday} из ${user.premium_limit}
-
-🛠 Ваша реферальная ссылка:(в разработке)
-${refLink}
-`.trim();
+  let message = texts.menu // Используем базовый текст из конфига
+    .replace('{firstName}', user.first_name || user.username || 'Пользователь')
+    .replace('{tariffLabel}', tariffLabel)
+    .replace('{daysLeft}', daysLeft > 999 ? '∞' : daysLeft)
+    .replace('{downloadsToday}', downloadsToday)
+    .replace('{premiumLimit}', user.premium_limit)
+    .replace('{refLink}', refLink);
 
   if (!user.subscribed_bonus_used) {
-    message += `
-
-💥 Бонус! Подпишитесь на @SCM_BLOG и получите 7 дней Plus бесплатно.`;
+    message += texts.bonus;
   }
-
   return message;
 }
 
-// ===== Очистка кеша =====
 export async function cleanupCache(directory, maxAgeMinutes = 60) {
   try {
     const now = Date.now();
@@ -88,53 +86,88 @@ export async function cleanupCache(directory, maxAgeMinutes = 60) {
   }
 }
 
-// Индексация
-// В utils.js
-export async function startIndexer() {
-  console.log('🚀 Запуск фонового индексатора...');
-  await new Promise(resolve => setTimeout(resolve, 60 * 1000));  // Задержка перед началом
-  while (true) {
-    try {
-      const urls = await getUrlsToIndex();
-      if (urls.length > 0) {
-        console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
-        for (const url of urls) {
-          await processUrlForIndexing(url);
-          await new Promise(resolve => setTimeout(resolve, 30 * 1000)); // Задержка 30 секунд
-        }
-      }
-      console.log('[Indexer] Пауза на 1 час.');
-      await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000)); // Пауза 1 час
-    } catch (err) {
-      console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
-      await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000)); // Перезапуск через 5 минут
+// ================================================================
+// ===                   Логика "Паука" (Indexer)               ===
+// ================================================================
+
+async function getUrlsToIndex() {
+  console.log('[Indexer] Получаю URL-ы для индексации...');
+  try {
+    // Используем правильный запрос к downloads_log
+    const { rows } = await pool.query(`
+      SELECT url, COUNT(url) as download_count
+      FROM downloads_log
+      WHERE url IS NOT NULL 
+        AND url LIKE '%soundcloud.com%' 
+        AND url NOT IN (SELECT url FROM track_cache)
+      GROUP BY url
+      ORDER BY download_count DESC
+      LIMIT 10;
+    `);
+    return rows.map(row => row.url);
+  } catch (e) {
+    console.error('Ошибка при получении URL-ов для индексации:', e);
+    return [];
+  }
+}
+
+async function processUrlForIndexing(url, bot, storageChannelId) {
+  let tempFilePath = null;
+  try {
+    const isCached = await findCachedTrack(url);
+    if (isCached) return;
+
+    const info = await ytdl(url, { dumpSingleJson: true });
+    if (!info || info._type === 'playlist') return;
+
+    const trackName = (info.title || 'track').slice(0, 100);
+    const uploader = info.uploader || 'SoundCloud';
+    tempFilePath = path.join(cacheDir, `indexer_${info.id || Date.now()}.mp3`);
+
+    await ytdl(url, {
+        output: tempFilePath, extractAudio: true, audioFormat: 'mp3',
+        embedMetadata: true,
+        postprocessorArgs: `-metadata artist="${uploader}" -metadata title="${trackName}"`
+    });
+
+    if (!fs.existsSync(tempFilePath)) throw new Error('Файл не создан');
+    
+    const message = await bot.telegram.sendAudio(
+        storageChannelId,
+        { source: fs.createReadStream(tempFilePath) },
+        { title: trackName, performer: uploader }
+    );
+    if (message?.audio?.file_id) {
+        await cacheTrack(url, message.audio.file_id, trackName);
+        console.log(`✅ [Indexer] Успешно закэширован: ${trackName}`);
+    }
+  } catch (err) {
+    console.error(`❌ [Indexer] Ошибка при обработке ${url}:`, err.stderr || err.message);
+  } finally {
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath).catch(() => {});
     }
   }
 }
 
-// Получение URL-ов для индексации
-export async function getUrlsToIndex() {
-  // Ваш код для получения URL-ов, например, из базы данных
-  const { data, error } = await supabase
-    .from('tracks')  // Имя таблицы
-    .select('url')   // Выбираем поле URL
-    .eq('status', 'pending');  // Выбираем только те, что в статусе 'pending'
-
-  if (error) {
-    console.error('Ошибка при получении URL-ов для индексации:', error);
-    return [];
-  }
-
-  return data.map(item => item.url);
-}
-
-// Обработка каждого URL для индексации
-export async function processUrlForIndexing(url) {
-  try {
-    // Ваш код обработки URL, например, скачивание трека, обработка и сохранение
-    console.log(`Обрабатываю URL: ${url}`);
-    // Здесь может быть вызов других функций, например, скачивания или сохранения данных
-  } catch (err) {
-    console.error(`Ошибка при обработке URL ${url}:`, err);
+export async function startIndexer(bot, storageChannelId) {
+  console.log('🚀 Запуск фонового индексатора...');
+  await new Promise(resolve => setTimeout(resolve, 60 * 1000));
+  while (true) {
+    try {
+      const urls = await getUrlsToIndex();
+      if (urls.length > 0) {
+        console.log(`[Indexer] Найдено ${urls.length} треков для кэширования.`);
+        for (const url of urls) {
+          await processUrlForIndexing(url, bot, storageChannelId);
+          await new Promise(resolve => setTimeout(resolve, 30 * 1000));
+        }
+      }
+      console.log('[Indexer] Пауза на 1 час.');
+      await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
+    } catch (err) {
+      console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
+      await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+    }
   }
 }
