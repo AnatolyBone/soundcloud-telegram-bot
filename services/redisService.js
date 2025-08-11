@@ -10,6 +10,7 @@ class RedisService {
   async connect() {
     if (!this.client) {
       this.client = createClient({ url: process.env.REDIS_URL });
+      this.client.on('error', (err) => console.error('🔴 Ошибка Redis:', err));
       await this.client.connect();
     }
     return this.client;
@@ -21,5 +22,5 @@ class RedisService {
   }
 }
 
+// Экспортируем уже инициализированный экземпляр класса RedisService
 export default new RedisService();
-//test
