@@ -1,10 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-// Use the correct relative path when importing the database module. This file lives
-// inside the "src" folder, so "../db.js" resolves to the project root. Without
-// adjusting the path, the application would fail to start because the module
-// cannot be found.
-import { supabase } from '../db.js';
+import { supabase } from '../db.js';  // Импортируем ваш Supabase экземпляр
 
 // Функция для получения названия тарифа
 export function getTariffName(limit) {
@@ -95,23 +91,50 @@ export async function cleanupCache(directory, maxAgeMinutes = 60) {
 // Индексация
 // В utils.js
 export async function startIndexer() {
-    console.log('🚀 Запуск фонового индексатора...');
-    await new Promise(resolve => setTimeout(resolve, 60 * 1000));
-    while (true) {
-        try {
-            const urls = await getUrlsToIndex();
-            if (urls.length > 0) {
-                console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
-                for (const url of urls) {
-                    await processUrlForIndexing(url);
-                    await new Promise(resolve => setTimeout(resolve, 30 * 1000));
-                }
-            }
-            console.log('[Indexer] Пауза на 1 час.');
-            await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
-        } catch (err) {
-            console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
-            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+  console.log('🚀 Запуск фонового индексатора...');
+  await new Promise(resolve => setTimeout(resolve, 60 * 1000));  // Задержка перед началом
+  while (true) {
+    try {
+      const urls = await getUrlsToIndex();
+      if (urls.length > 0) {
+        console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
+        for (const url of urls) {
+          await processUrlForIndexing(url);
+          await new Promise(resolve => setTimeout(resolve, 30 * 1000)); // Задержка 30 секунд
         }
+      }
+      console.log('[Indexer] Пауза на 1 час.');
+      await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000)); // Пауза 1 час
+    } catch (err) {
+      console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
+      await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000)); // Перезапуск через 5 минут
     }
+  }
+}
+
+// Получение URL-ов для индексации
+export async function getUrlsToIndex() {
+  // Ваш код для получения URL-ов, например, из базы данных
+  const { data, error } = await supabase
+    .from('tracks')  // Имя таблицы
+    .select('url')   // Выбираем поле URL
+    .eq('status', 'pending');  // Выбираем только те, что в статусе 'pending'
+
+  if (error) {
+    console.error('Ошибка при получении URL-ов для индексации:', error);
+    return [];
+  }
+
+  return data.map(item => item.url);
+}
+
+// Обработка каждого URL для индексации
+export async function processUrlForIndexing(url) {
+  try {
+    // Ваш код обработки URL, например, скачивание трека, обработка и сохранение
+    console.log(`Обрабатываю URL: ${url}`);
+    // Здесь может быть вызов других функций, например, скачивания или сохранения данных
+  } catch (err) {
+    console.error(`Ошибка при обработке URL ${url}:`, err);
+  }
 }
