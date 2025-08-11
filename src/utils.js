@@ -93,27 +93,25 @@ export async function cleanupCache(directory, maxAgeMinutes = 60) {
 }
 
 // Индексация
-export async function getUrlsToIndex() {
-  try {
-    const { data, error } = await supabase
-      .from('track_cache')
-      .select('url, file_id')
-      .is('file_id', null)
-      .not('url', 'is', null)
-      .limit(20);
-
-    if (error) {
-      console.error('[Indexer] Ошибка в запросе track_cache:', error.message);
-      return [];
+// В utils.js
+export async function startIndexer() {
+    console.log('🚀 Запуск фонового индексатора...');
+    await new Promise(resolve => setTimeout(resolve, 60 * 1000));
+    while (true) {
+        try {
+            const urls = await getUrlsToIndex();
+            if (urls.length > 0) {
+                console.log(`[Indexer] Найдено ${urls.length} треков для упреждающего кэширования.`);
+                for (const url of urls) {
+                    await processUrlForIndexing(url);
+                    await new Promise(resolve => setTimeout(resolve, 30 * 1000));
+                }
+            }
+            console.log('[Indexer] Пауза на 1 час.');
+            await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));
+        } catch (err) {
+            console.error("🔴 Критическая ошибка в цикле индексатора, перезапуск через 5 минут:", err);
+            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+        }
     }
-
-    const urls = (data || [])
-      .map(r => r.url)
-      .filter(u => typeof u === 'string' && u.includes('soundcloud.com'));
-
-    return Array.from(new Set(urls));
-  } catch (e) {
-    console.error('[Indexer] Исключение при очистке в getUrlsToIndex:', e);
-    return [];
-  }
 }
