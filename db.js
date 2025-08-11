@@ -44,7 +44,6 @@ export async function createUser(id, first_name = '', username = '', referral_so
 export async function getUser(id, first_name = '', username = '') {
   const { rows } = await query('SELECT * FROM users WHERE id = $1 AND active = TRUE', [id]);
   if (rows.length > 0) {
-    // Обновляем last_active асинхронно, не дожидаясь ответа
     query('UPDATE users SET last_active = NOW() WHERE id = $1', [id]).catch(e => console.error(e));
     return rows[0];
   }
@@ -359,7 +358,7 @@ export async function getLastMonths(n = 6) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
     months.unshift({
-      value: d.toISOString().slice(0, 7), // YYYY-MM
+      value: d.toISOString().slice(0, 7),
       label: label
     });
   }
