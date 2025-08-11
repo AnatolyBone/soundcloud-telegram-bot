@@ -27,7 +27,29 @@ async function query(text, params) {
     throw e;
   }
 }
+export async function setPremium(id, limit, days = null) {
+  const { rows } = await query('SELECT premium_until, promo_1plus1_used FROM users WHERE id = $1', [id]);
+  if (rows.length === 0) return false;
+  
+  let extraDays = 0;
+  let bonusApplied = false;
+  if (days && !rows[0].promo_1plus1_used) {
+    extraDays = days;
+    bonusApplied = true;
+    await updateUserField(id, 'promo_1plus1_used', true);
+  }
 
+  const totalDays = (days || 0) + extraDays;
+  const until = new Date(Date.now() + totalDays * 86400000).toISOString();
+  
+  await updateUserField(id, 'premium_limit', limit);
+  await updateUserField(id, 'premium_until', until);
+  
+  // Сбрасываем флаг уведомления при смене тарифа
+  await updateUserField(id, 'expiration_notified_at', null); 
+  
+  return bonusApplied;
+}
 export async function getUserById(id) {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0] || null;
