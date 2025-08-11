@@ -5,8 +5,7 @@ import csrf from 'csurf';
 import { getAllUsers, supabase } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
 import setupAdminUsers from './admin-users.js';
-
-export default function setupAdmin(opts = {}) {
+export function setupAdmin(opts = {}) {
   const {
     app,
     ADMIN_LOGIN,
