@@ -18,7 +18,10 @@ export const pool = new Pool({
 });
 
 // ==================== Базовые функции ====================
-
+export async function logEvent(userId, event_type, metadata = {}) {
+  const { error } = await supabase.from('events').insert({ user_id: userId, event_type, metadata });
+  if (error) console.error(`❌ Ошибка логирования события "${event_type}":`, error.message);
+}
 async function query(text, params) {
   try {
     return await pool.query(text, params);
