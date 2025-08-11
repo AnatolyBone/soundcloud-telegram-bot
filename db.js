@@ -371,16 +371,7 @@ export async function findUsersToNotify(days) {
   return data;
 }
 
-export async function markAsNotified(userId) {
-  const { error } = await supabase
-    .from('users')
-    .update({ expiration_notified_at: new Date().toISOString() })
-    .eq('id', userId);
 
-  if (error) {
-    console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
-  }
-}
 
 export async function resetAllSubscriptionBonuses() {
   try {
