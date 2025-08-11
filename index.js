@@ -4,19 +4,17 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
-import session from 'express-session';
-import pgSessionFactory from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 
-// <<< ИСПРАВЛЕНЫ ВСЕ ПУТИ >>>
+// Наши модули
 import { bot } from './src/bot.js';
-import { pool, resetDailyStats } from './db.js'; 
 import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
-import { setupAdmin } from './routes/admin.js';
+import { setupAdmin } from './src/routes/admin.js';
 import { loadTexts } from './config/texts.js';
-import { downloadQueue } from './services/downloadManager.js'; // <<< ИСПРАВЛЕНО ЗДЕСЬ
+import { downloadQueue } from './services/downloadManager.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
+import { resetDailyStats } from './db.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
 
 // ===== Конфигурация =====
@@ -26,24 +24,24 @@ const {
 } = process.env;
 
 if (!ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID || !WEBHOOK_PATH) {
-  console.error('❌ Отсутствуют обязательные переменные окружения (включая WEBHOOK_PATH)!');
+  console.error('❌ Отсутствуют обязательные переменные окружения!');
   process.exit(1);
 }
 
 // ===== Инициализация =====
 initNotifier(bot);
-const botService = new BotService(bot);
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const cacheDir = path.join(__dirname, 'src', 'cache');
+const cacheDir = path.join(__dirname, 'cache'); // Кэш в корне
+const botService = new BotService(bot);
 
 // ===== Настройка Express =====
 app.set('trust proxy', 1);
 app.use(express.json());
-app.use('/static', express.static(path.join(__dirname, 'src', 'public', 'static')));
 app.get('/health', (_req, res) => res.status(200).send('OK'));
 app.get('/', (_req, res) => res.status(200).send('Bot is running'));
+app.use('/static', express.static(path.join(__dirname, 'public', 'static'))); // public в корне
 
 // ===== Основная функция запуска =====
 async function startApp() {
@@ -55,35 +53,22 @@ async function startApp() {
     if (!fs.existsSync(cacheDir)) {
       await fs.promises.mkdir(cacheDir, { recursive: true });
     }
-
-    const pgSession = pgSessionFactory(session);
-    app.use(session({
-        store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-        secret: SESSION_SECRET,
-        resave: false,
-        saveUninitialized: false,
-        cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
-    }));
-
-    setupAdmin({ app, bot, __dirname, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD });
+    
+    setupAdmin({ app, bot, __dirname, ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET });
+    
+    // Запускаем настройку всех обработчиков
     botService.setupTelegramBot();
 
+    // Запускаем фоновые задачи
     setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
     setInterval(() => console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`), 60 * 1000);
     setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
 
+    // Запускаем сервер
     if (process.env.NODE_ENV === 'production') {
-      const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
-      app.use(WEBHOOK_PATH, webhookLimiter);
       const webhookUrl = `${WEBHOOK_URL.replace(/\/$/, '')}${WEBHOOK_PATH}`;
-      await bot.telegram.setWebhook(webhookUrl);
-
-      app.post(WEBHOOK_PATH, (req, res) => {
-        bot.handleUpdate(req.body, res);
-        return res.sendStatus(200);
-      });
-
-      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}. Вебхук: ${webhookUrl}`));
+      app.use(await bot.createWebhook({ domain: webhookUrl, path: WEBHOOK_PATH }));
+      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
     } else {
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
       bot.launch();
@@ -102,11 +87,9 @@ async function startApp() {
 // ===== Корректное завершение =====
 const stopBot = (signal) => {
   console.log(`Получен сигнал ${signal}. Завершение работы...`);
-  try {
-    if (bot.polling?.isRunning()) {
-      bot.stop(signal);
-    }
-  } catch {}
+  if (bot.polling?.isRunning()) {
+    bot.stop(signal);
+  }
   setTimeout(() => process.exit(0), 500);
 };
 
