@@ -71,6 +71,38 @@ export async function updateUserField(id, field, value) {
   return (await query(sql, [value, id])).rowCount;
 }
 
+// Функция для получения пользователей, у которых скоро истечет подписка
+export async function findUsersToNotify(days) {
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() + days);
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, first_name, premium_until')
+    .lte('premium_until', targetDate.toISOString())  // подписка истекает в ближайшие 'days' дней
+    .gt('premium_until', new Date().toISOString())  // подписка ещё не истекла
+    .is('expiration_notified_at', null)  // уведомление ещё не отправлено
+    .eq('active', true);  // только активные пользователи
+
+  if (error) {
+    console.error('❌ Ошибка при поиске пользователей для уведомлений:', error);
+    return [];
+  }
+  return data;
+}
+
+// Функция для обновления статуса уведомления
+export async function markAsNotified(userId) {
+  const { error } = await supabase
+    .from('users')
+    .update({ expiration_notified_at: new Date().toISOString() })  // обновляем дату уведомления
+    .eq('id', userId);
+
+  if (error) {
+    console.error(`❌ Не удалось обновить статус уведомления для пользователя ${userId}:`, error);
+  }
+}
+
 // Вставка или обновление трека в кэш
 export async function cacheTrack(soundcloudUrl, fileId, trackName) {
   const { error } = await supabase
