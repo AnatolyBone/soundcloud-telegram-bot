@@ -1,4 +1,4 @@
-// index.js (ФИНАЛЬНАЯ ВЕРСИЯ С ПРАВИЛЬНЫМИ ПУТЯМИ)
+// index.js
 
 import fs from 'fs';
 import path from 'path';
@@ -8,7 +8,7 @@ import session from 'express-session';
 import pgSessionFactory from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 
-// Импорты с правильными путями
+// <<< ИСПРАВЛЕНЫ ПУТИ >>>
 import { bot } from './src/bot.js';
 import { pool, resetDailyStats } from './db.js'; // db.js в корне
 import redisService from './services/redisService.js'; // services/ в корне
@@ -21,7 +21,7 @@ import { initNotifier, startNotifier } from './services/notifier.js'; // service
 import {
   ADMIN_ID, WEBHOOK_URL, WEBHOOK_PATH, PORT, SESSION_SECRET,
   ADMIN_LOGIN, ADMIN_PASSWORD, STORAGE_CHANNEL_ID, NODE_ENV
-} from './config.js'; // config.js в корне
+} from './src/config.js'; // <<< ИСПРАВЛЕН ПУТЬ
 
 // Проверка переменных
 if (!ADMIN_ID || !ADMIN_LOGIN || !ADMIN_PASSWORD || !WEBHOOK_URL || !STORAGE_CHANNEL_ID || !WEBHOOK_PATH) {
