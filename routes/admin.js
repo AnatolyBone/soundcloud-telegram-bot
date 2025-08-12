@@ -2,49 +2,45 @@
 
 import express from 'express';
 import session from 'express-session';
-import RedisStore from 'connect-redis';
+import pgSessionFactory from 'connect-pg-simple';
 import csrf from 'csurf';
 
-// <<< НАЧАЛО ИЗМЕНЕНИЙ >>>
 // Импортируем все необходимое из централизованных модулей
 import { pool, supabase, getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
-import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../src/config.js';
+import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../config.js';
 import setupAdminUsers from './admin-users.js';
-// <<< КОНЕЦ ИЗМЕНЕНИЙ >>>
 
 export function setupAdmin(opts = {}) {
-  // Теперь нам нужен только app, bot и redis
-  const { app, redis, bot } = opts;
+  const { app, bot } = opts;
 
   if (!app) throw new Error('setupAdmin: app is required');
 
   // Парсеры форм
   app.use(express.urlencoded({ extended: true }));
 
-  // Сессии
-  const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
+  // Настройка сессий и CSRF
+  const pgSession = pgSessionFactory(session);
   app.use(
     session({
       name: 'scm_admin',
-      secret: SESSION_SECRET, // Используем импортированную константу
+      secret: SESSION_SECRET,
       resave: false,
       saveUninitialized: false,
-      store,
+      store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
       cookie: {
         httpOnly: true,
         sameSite: 'lax',
-        secure: NODE_ENV === 'production', // Используем импортированную константу
+        secure: NODE_ENV === 'production',
         maxAge: 7 * 24 * 3600 * 1000, // 7 дней
       },
     })
   );
-  
-  // CSRF защита должна идти после сессий
+
   const csrfProtection = csrf({ cookie: true });
   app.use(csrfProtection);
 
-  // No-cache
+  // No-cache middleware
   app.use(['/admin', '/dashboard'], (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -54,14 +50,13 @@ export function setupAdmin(opts = {}) {
 
   const requireAdmin = (req, res, next) => (req.session?.isAdmin ? next() : res.redirect('/admin/login'));
 
-  // Login page
+  // Маршруты
   app.get('/admin/login', (req, res) => {
     if (req.session?.isAdmin) return res.redirect('/dashboard');
     res.render('login', { csrfToken: req.csrfToken() });
   });
 
-  // Login / Logout
-  app.post('/admin/login', (req, res) => { // CSRF будет обработан автоматически Express
+  app.post('/admin/login', (req, res) => {
     const { login, password } = req.body || {};
     if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
       req.session.isAdmin = true;
@@ -69,16 +64,16 @@ export function setupAdmin(opts = {}) {
     }
     res.status(401).send(`<!doctype html><meta charset="utf-8"/><script>alert('Неверные данные');location.href='/admin/login'</script>`);
   });
-  
+
   app.post('/admin/logout', requireAdmin, (req, res) => {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
 
-  // Подключаем список пользователей (пагинация/CSV/тарифы)
+  // Подключаем модуль для управления пользователями
   setupAdminUsers(app);
 
   // Dashboard
-  app.get('/dashboard', requireAdmin, async (_req, res) => {
+  app.get('/dashboard', requireAdmin, async (_req, res, next) => {
     try {
       const users = await getAllUsers(true);
       const totalUsers = users.length;
@@ -87,20 +82,26 @@ export function setupAdmin(opts = {}) {
       const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
       const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
 
-      const lastUsers = users
-        .slice(0, 20); // Уже отсортировано в getAllUsers
+      const lastUsers = users.slice(0, 20);
 
       const formatDate = (val) => val ? new Date(val).toLocaleString('ru-RU') : '—';
 
-      res.render('dashboard', { totalUsers, activeUsers, activeToday, totalDownloads, lastUsers, formatDate, csrfToken: req.csrfToken() });
+      res.render('dashboard', {
+        totalUsers,
+        activeUsers,
+        activeToday,
+        totalDownloads,
+        lastUsers,
+        formatDate,
+        csrfToken: req.csrfToken()
+      });
     } catch (e) {
-      console.error('[admin] /dashboard error:', e);
-      res.status(500).send('Ошибка загрузки дашборда');
+      next(e);
     }
   });
 
   // Редактор текстов
-  app.get('/admin/texts', requireAdmin, async (_req, res) => {
+  app.get('/admin/texts', requireAdmin, async (req, res) => {
     try {
       await loadTexts();
       const texts = allTextsSync();
@@ -118,11 +119,11 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  app.post('/admin/texts', requireAdmin, async (req, res) => { // CSRF обработается автоматически
+  app.post('/admin/texts', requireAdmin, async (req, res) => {
     try {
       const body = req.body || {};
       for (const [key, value] of Object.entries(body)) {
-        if (key === '_csrf') continue; // Пропускаем CSRF токен
+        if (key === '_csrf') continue;
         await setText(key, String(value ?? ''));
       }
       await loadTexts(true);
@@ -133,12 +134,12 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  // --- Рассылка ---
-  app.get('/admin/broadcast', requireAdmin, (_req, res) => {
+  // Рассылка
+  app.get('/admin/broadcast', requireAdmin, (req, res) => {
     res.render('broadcast', { csrfToken: req.csrfToken() });
   });
 
-  app.post('/admin/broadcast', requireAdmin, async (req, res) => { // CSRF обработается автоматически
+  app.post('/admin/broadcast', requireAdmin, async (req, res) => {
     if (!bot) return res.status(500).send('Бот недоступен для рассылки.');
     const text = String(req.body?.message ?? '').trim();
     const onlyActive = !!req.body?.only_active;
@@ -173,6 +174,7 @@ export function setupAdmin(opts = {}) {
     }
   });
 
+  // Вспомогательная функция
   function escapeHtml(str = '') {
     return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
   }
