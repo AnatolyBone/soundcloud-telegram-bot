@@ -4,20 +4,17 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 
-// Наши модули
 import { bot } from './src/bot.js';
+import { resetDailyStats } from './db.js';
 import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
 import { setupAdmin } from './routes/admin.js';
 import { loadTexts } from './config/texts.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
-import { resetDailyStats } from './db.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
-import {
-  WEBHOOK_URL, WEBHOOK_PATH, PORT, NODE_ENV, STORAGE_CHANNEL_ID,
-  ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET
-} from './src/config.js';
+import { WEBHOOK_URL, WEBHOOK_PATH, PORT, NODE_ENV, STORAGE_CHANNEL_ID } from './config.js';
 
 // ===== Инициализация =====
 initNotifier(bot);
@@ -44,17 +41,8 @@ async function startApp() {
       await fs.promises.mkdir(cacheDir, { recursive: true });
     }
     
-    // <<< ИСПРАВЛЕНО: Передаем все необходимые параметры в setupAdmin >>>
-    setupAdmin({
-      app,
-      bot,
-      __dirname,
-      redis: redisService.getClient(),
-      ADMIN_ID,
-      ADMIN_LOGIN,
-      ADMIN_PASSWORD,
-      SESSION_SECRET
-    });
+    // Настраиваем админку (сессии и CSRF теперь внутри)
+    setupAdmin({ app, bot, __dirname });
     
     // Настраиваем бота и мониторинг
     botService.setupTelegramBot();
