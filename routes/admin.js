@@ -5,10 +5,9 @@ import session from 'express-session';
 import pgSessionFactory from 'connect-pg-simple';
 import csrf from 'csurf';
 
-// Импортируем все необходимое из централизованных модулей
 import { pool, supabase, getAllUsers } from '../db.js';
 import { loadTexts, allTextsSync, setText } from '../config/texts.js';
-import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../src/config.js';
+import { ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, NODE_ENV } from '../config.js';
 import setupAdminUsers from './admin-users.js';
 
 export function setupAdmin(opts = {}) {
@@ -16,10 +15,8 @@ export function setupAdmin(opts = {}) {
 
   if (!app) throw new Error('setupAdmin: app is required');
 
-  // Парсеры форм
   app.use(express.urlencoded({ extended: true }));
 
-  // Настройка сессий и CSRF
   const pgSession = pgSessionFactory(session);
   app.use(
     session({
@@ -31,7 +28,7 @@ export function setupAdmin(opts = {}) {
       cookie: {
         httpOnly: true, sameSite: 'lax',
         secure: NODE_ENV === 'production',
-        maxAge: 7 * 24 * 3600 * 1000, // 7 дней
+        maxAge: 7 * 24 * 3600 * 1000,
       },
     })
   );
@@ -39,7 +36,6 @@ export function setupAdmin(opts = {}) {
   const csrfProtection = csrf({ cookie: true });
   app.use(csrfProtection);
 
-  // No-cache middleware
   app.use(['/admin', '/dashboard'], (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -49,7 +45,6 @@ export function setupAdmin(opts = {}) {
 
   const requireAdmin = (req, res, next) => (req.session?.isAdmin ? next() : res.redirect('/admin/login'));
 
-  // Маршруты
   app.get('/admin/login', (req, res) => {
     if (req.session?.isAdmin) return res.redirect('/dashboard');
     res.render('login', { csrfToken: req.csrfToken() });
@@ -68,10 +63,8 @@ export function setupAdmin(opts = {}) {
     req.session.destroy(() => res.redirect('/admin/login'));
   });
 
-  // Подключаем модуль для управления пользователями
   setupAdminUsers(app);
 
-  // Dashboard
   app.get('/dashboard', requireAdmin, async (_req, res, next) => {
     try {
       const users = await getAllUsers(true);
@@ -80,27 +73,18 @@ export function setupAdmin(opts = {}) {
       const now = new Date();
       const activeToday = users.filter(u => u.last_active && new Date(u.last_active).toDateString() === now.toDateString()).length;
       const totalDownloads = users.reduce((sum, u) => sum + (u.total_downloads || 0), 0);
-
       const lastUsers = users.slice(0, 20);
-
       const formatDate = (val) => val ? new Date(val).toLocaleString('ru-RU') : '—';
-
       res.render('dashboard', {
-        totalUsers,
-        activeUsers,
-        activeToday,
-        totalDownloads,
-        lastUsers,
-        formatDate,
-        csrfToken: req.csrfToken()
+        totalUsers, activeUsers, activeToday, totalDownloads, lastUsers, formatDate, csrfToken: req.csrfToken()
       });
     } catch (e) {
       next(e);
     }
   });
 
-  // Редактор текстов
-  app.get('/admin/texts', requireAdmin, (req, res) => {
+  // <<< ИСПРАВЛЕНО ЗДЕСЬ >>>
+  app.get('/admin/texts', requireAdmin, async (_req, res) => { // Добавлено async
     try {
       await loadTexts();
       const texts = allTextsSync();
@@ -110,7 +94,6 @@ export function setupAdmin(opts = {}) {
           <td><textarea name="${key}" rows="4" style="width:100%;padding:8px;border-radius:10px;border:1px solid #2a2f36;background:#0f1115;color:#eaf0f1">${escapeHtml(val)}</textarea></td>
         </tr>
       `).join('');
-
       res.render('texts', { rows, csrfToken: req.csrfToken() });
     } catch (e) {
       console.error('[admin] /admin/texts GET error:', e);
@@ -118,7 +101,8 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  app.post('/admin/texts', requireAdmin, async (req, res) => {
+  // <<< ИСПРАВЛЕНО ЗДЕСЬ >>>
+  app.post('/admin/texts', requireAdmin, async (req, res) => { // Добавлено async
     try {
       const body = req.body || {};
       for (const [key, value] of Object.entries(body)) {
@@ -133,12 +117,12 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  // Рассылка
   app.get('/admin/broadcast', requireAdmin, (req, res) => {
     res.render('broadcast', { csrfToken: req.csrfToken() });
   });
 
-  app.post('/admin/broadcast', requireAdmin, async (req, res) => {
+  // <<< ИСПРАВЛЕНО ЗДЕСЬ >>>
+  app.post('/admin/broadcast', requireAdmin, async (req, res) => { // Добавлено async
     if (!bot) return res.status(500).send('Бот недоступен для рассылки.');
     const text = String(req.body?.message ?? '').trim();
     const onlyActive = !!req.body?.only_active;
@@ -173,7 +157,6 @@ export function setupAdmin(opts = {}) {
     }
   });
 
-  // Вспомогательная функция
   function escapeHtml(str = '') {
     return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
   }
