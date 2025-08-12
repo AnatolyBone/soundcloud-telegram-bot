@@ -13,9 +13,9 @@ export default class BotService {
 
     // Мониторинг очереди теперь здесь
     setInterval(() => {
-        if (downloadQueue) { // Добавим проверку на всякий случай
+        if (downloadQueue) {
             console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`);
         }
     }, 60 * 1000);
   }
-} // <<< ВОТ ОНА, НЕДОСТАЮЩАЯ СКОБКА
+}
