@@ -1,10 +1,9 @@
-// index.js (ФИНАЛЬНАЯ ОБЪЕДИНЕННАЯ ВЕРСИЯ)
+// index.js
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
 
 // Наши модули
 import { bot } from './src/bot.js';
@@ -12,14 +11,10 @@ import redisService from './services/redisService.js';
 import BotService from './services/botService.js';
 import { setupAdmin } from './routes/admin.js';
 import { loadTexts } from './config/texts.js';
-import { downloadQueue } from './services/downloadManager.js';
 import { cleanupCache, startIndexer } from './src/utils.js';
 import { resetDailyStats } from './db.js';
 import { initNotifier, startNotifier } from './services/notifier.js';
-import {
-  ADMIN_ID, WEBHOOK_URL, WEBHOOK_PATH, PORT,
-  SESSION_SECRET, ADMIN_LOGIN, ADMIN_PASSWORD, STORAGE_CHANNEL_ID, NODE_ENV
-} from './src/config.js';
+import { WEBHOOK_URL, WEBHOOK_PATH, PORT, NODE_ENV, STORAGE_CHANNEL_ID } from './src/config.js';
 
 // ===== Инициализация =====
 initNotifier(bot);
@@ -46,43 +41,27 @@ async function startApp() {
       await fs.promises.mkdir(cacheDir, { recursive: true });
     }
     
-    // Настраиваем админку
-    setupAdmin({
-      app,
-      bot,
-      __dirname,
-      redis: redisService.getClient(),
-      ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET
-    });
+    // Настраиваем админку (сессии и CSRF теперь внутри admin.js)
+    setupAdmin({ app, bot, __dirname, redis: redisService.getClient() });
     
-    // Настраиваем бота
+    // Настраиваем бота и мониторинг
     botService.setupTelegramBot();
-
-    // <<< НАЧАЛО ИСПРАВЛЕНИЯ: Возвращаем мониторинг и вебхук из старого кода >>>
-
-    // Запускаем фоновые задачи
-    setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
-    // Мониторинг очереди здесь, чтобы избежать циклических зависимостей
-    setInterval(() => {
-        if (downloadQueue) {
-            console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`);
-        }
-    }, 60 * 1000);
-    setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
 
     // Запускаем сервер
     if (NODE_ENV === 'production') {
-        // Используем старый, но надежный метод createWebhook
-        app.use(await bot.createWebhook({ domain: WEBHOOK_URL, path: WEBHOOK_PATH }));
-        app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
+      const webhookUrl = `${WEBHOOK_URL.replace(/\/$/, '')}${WEBHOOK_PATH}`;
+      app.use(bot.webhookCallback(WEBHOOK_PATH));
+      await bot.telegram.setWebhook(webhookUrl);
+      app.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}.`));
     } else {
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
       bot.launch();
       console.log('✅ Бот запущен в режиме long-polling.');
     }
     
-    // <<< КОНЕЦ ИСПРАВЛЕНИЯ >>>
-
+    // Запускаем фоновые задачи
+    setInterval(() => resetDailyStats(), 24 * 3600 * 1000);
+    setInterval(() => cleanupCache(cacheDir, 60), 30 * 60 * 1000);
     startIndexer(bot, STORAGE_CHANNEL_ID).catch(err => console.error("🔴 Критическая ошибка в индексаторе:", err));
     startNotifier().catch(err => console.error("🔴 Критическая ошибка в планировщике:", err));
 
