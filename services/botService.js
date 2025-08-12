@@ -1,6 +1,6 @@
 // services/botService.js
 import { setupTelegramHandlers } from '../src/botHandlers.js';
-import { downloadQueue } from './downloadManager.js'; // <<< ДОБАВЛЯЕМ ИМПОРТ
+import { downloadQueue } from './downloadManager.js';
 
 export default class BotService {
   constructor(bot) {
@@ -10,3 +10,12 @@ export default class BotService {
   setupTelegramBot() {
     console.log('🔌 Настройка обработчиков Telegram...');
     setupTelegramHandlers(this.bot);
+
+    // Мониторинг очереди теперь здесь
+    setInterval(() => {
+        if (downloadQueue) { // Добавим проверку на всякий случай
+            console.log(`[Monitor] Очередь: ${downloadQueue.size} в ожидании, ${downloadQueue.active} в работе.`);
+        }
+    }, 60 * 1000);
+  }
+} // <<< ВОТ ОНА, НЕДОСТАЮЩАЯ СКОБКА
