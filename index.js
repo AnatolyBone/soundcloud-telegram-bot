@@ -17,7 +17,7 @@ import { initNotifier, startNotifier } from './services/notifier.js';
 import {
   WEBHOOK_URL, WEBHOOK_PATH, PORT, NODE_ENV, STORAGE_CHANNEL_ID,
   ADMIN_ID, ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET
-} from './config.js';
+} from './src/config.js';
 
 // ===== Инициализация =====
 initNotifier(bot);
